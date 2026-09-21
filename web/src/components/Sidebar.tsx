@@ -1,22 +1,15 @@
-import type { JSX } from "react";
 import { Icon } from "./Icons";
 import { ThemePicker } from "./ThemePicker";
 import type { Prefs } from "../theme";
+import type { Tool } from "../tools";
 
-export type NavItem = {
-  id: string;
-  label: string;
-  count?: number;
-  icon: () => JSX.Element;
-  /** Draw attention only where it is genuinely actionable. */
-  urgent?: boolean;
-};
-
-/* The rail carries this tool's sections today. It is deliberately a rail
- * rather than a tab strip because the intent is to add further tools
- * beside this one - a second group slots in without reshaping the page. */
+/* The rail switches between tools, and nothing else.
+ *
+ * Sections belong to whichever tool is open and render as tabs inside the
+ * page. Keeping that separation is what lets a second tool be added
+ * without reshaping anything. */
 export function Sidebar({
-  items,
+  tools,
   active,
   onSelect,
   collapsed,
@@ -26,7 +19,7 @@ export function Sidebar({
   prefs,
   onPrefs,
 }: {
-  items: NavItem[];
+  tools: Tool[];
   active: string;
   onSelect: (id: string) => void;
   collapsed: boolean;
@@ -57,23 +50,15 @@ export function Sidebar({
         </button>
       </div>
 
-      {items.map((it) => (
+      {tools.map((t) => (
         <button
-          key={it.id}
-          className={`navitem${it.id === active ? " active" : ""}`}
-          onClick={() => onSelect(it.id)}
-          title={collapsed ? it.label : undefined}
+          key={t.id}
+          className={`navitem${t.id === active ? " active" : ""}`}
+          onClick={() => onSelect(t.id)}
+          title={collapsed ? t.label : undefined}
         >
-          <it.icon />
-          <span className="navlabel">{it.label}</span>
-          {it.count !== undefined && it.count > 0 && (
-            <span
-              className="navbadge"
-              style={it.urgent ? { background: "var(--crit)", color: "#fff" } : undefined}
-            >
-              {it.count}
-            </span>
-          )}
+          <t.icon />
+          <span className="navlabel">{t.label}</span>
         </button>
       ))}
 
