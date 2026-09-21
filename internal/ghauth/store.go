@@ -29,11 +29,25 @@ type Store struct {
 	mu   sync.Mutex
 }
 
-func NewStore(dir string) *Store {
-	return &Store{
-		path: filepath.Join(dir, "github-app-session.json"),
-		ring: systemKeyring(),
+// NewStore keeps the session in dir. useKeyring asks for the system
+// secret store instead, and only the caller can answer that: the keyring
+// holds a single item for the machine, so a Store pointed at anywhere
+// but the usual data directory must not touch it. A second instance, or
+// a test handed a temporary directory, would otherwise read and
+// overwrite the real session despite having been told to keep its own
+// somewhere separate.
+//
+// It is a parameter rather than something worked out here, because
+// deciding it here would mean a package-level default that has to be set
+// before anything constructs a Store - and the one path that forgot
+// would fail by quietly using a file, which is the failure nobody
+// notices until their session will not load.
+func NewStore(dir string, useKeyring bool) *Store {
+	s := &Store{path: filepath.Join(dir, "github-app-session.json")}
+	if useKeyring {
+		s.ring = systemKeyring()
 	}
+	return s
 }
 
 // Path is the file the session would use, for the fallback case.

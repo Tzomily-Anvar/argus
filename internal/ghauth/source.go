@@ -19,8 +19,8 @@ type Source struct {
 	token Token
 }
 
-func NewSource(clientID, dir string) *Source {
-	return &Source{client: New(clientID), store: NewStore(dir)}
+func NewSource(clientID, dir string, useKeyring bool) *Source {
+	return &Source{client: New(clientID), store: NewStore(dir, useKeyring)}
 }
 
 // SignedIn reports whether a usable session exists.
