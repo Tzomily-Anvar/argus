@@ -46,4 +46,11 @@ ENV ARGUS_PORT=18474
 EXPOSE 18474
 
 USER nonroot:nonroot
+
+# Exec form, because distroless has no shell to interpret the string
+# form - and no curl either, which is why the binary probes itself.
+# Declared here as well as in compose so `docker run` gets it too.
+HEALTHCHECK --interval=60s --timeout=5s --retries=3 --start-period=10s \
+  CMD ["/argus", "-healthcheck"]
+
 ENTRYPOINT ["/argus"]

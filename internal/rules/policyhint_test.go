@@ -66,7 +66,7 @@ func TestCountsEachPullRequestOnce(t *testing.T) {
 
 func TestHintTokenShortensAContextName(t *testing.T) {
 	cases := map[string]string{
-		"lint / lint":    "lint",
+		"lint / lint":                  "lint",
 		"build / test (ubuntu-latest)": "build",
 		"needs-label":                  "needs-label",
 		"  spaced  ":                   "spaced",
