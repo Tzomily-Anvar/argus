@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Tzomily-Anvar/argus/internal/config"
+	"github.com/Tzomily-Anvar/argus/internal/term"
 )
 
 // The commands a package-manager install needs.
@@ -128,7 +129,8 @@ func doctor() error {
 				what = "a binary you started"
 			}
 		}
-		ok("running", fmt.Sprintf("http://argus.localhost:%s (%s)", config.Port(), what))
+		dash := "http://argus.localhost:" + config.Port()
+		ok("running", fmt.Sprintf("%s (%s)", term.Link(os.Stdout, dash), what))
 	} else {
 		warn("running", "nothing answering on port "+config.Port()+" yet")
 	}
@@ -154,8 +156,8 @@ func usage() {
 Configuration is read from, in order: the environment, $ARGUS_CONFIG,
 %s, then ./.env
 
-Docs: https://github.com/Tzomily-Anvar/argus
-`, config.ConfigFile())
+Docs: %s
+`, config.ConfigFile(), term.Link(os.Stderr, "https://github.com/Tzomily-Anvar/argus"))
 }
 
 // firstRun is what someone sees the very first time they run Argus with

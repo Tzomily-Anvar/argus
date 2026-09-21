@@ -1,5 +1,29 @@
 #!/usr/bin/env bash
 # Last line of defence before anything becomes public.
 #
+# Two checks, over every commit being pushed rather than only the tip: a
+# push can carry commits made before these hooks existed, or cherry-picked
+# in from a clone configured with a different identity.
+#
+# It cannot cover a squash or merge performed in the GitHub web interface.
+# That commit is created on GitHub's servers, under the address configured
+# on the account, and no local hook is ever consulted - which is how a
+# wrong address gets published even though every local commit was clean.
+# Close that in the account settings instead:
+#
+#   Settings -> Emails -> Keep my email address private
+#   Settings -> Emails -> Block command line pushes that expose my email
+#
+# and audit after the fact with ./scripts/check-authors.sh.
+#
 # Enable once with:  git config core.hooksPath .githooks
-exec "$(git rev-parse --show-toplevel)/scripts/private-check.sh" "$@"
+set -uo pipefail
+root="$(git rev-parse --show-toplevel)"
+
+# git feeds the ref pairs on stdin exactly once, and both checks derive
+# their range from them, so they are read here and replayed to each.
+refs=""
+[[ $# -ge 2 ]] && refs="$(cat)"
+
+"$root/scripts/private-check.sh" "$@" <<<"$refs" || exit 1
+exec "$root/scripts/identity-check.sh" "$@" <<<"$refs"

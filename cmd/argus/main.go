@@ -22,6 +22,7 @@ import (
 	"github.com/Tzomily-Anvar/argus/internal/rules"
 	"github.com/Tzomily-Anvar/argus/internal/server"
 	"github.com/Tzomily-Anvar/argus/internal/sweep"
+	"github.com/Tzomily-Anvar/argus/internal/term"
 )
 
 func main() {
@@ -96,7 +97,11 @@ func run() error {
 	log.Printf("argus: org %s, %d/%d rules enabled, refreshing every %s",
 		org, len(enabled), len(rules.All()), interval)
 	if bind := config.Bind(); bind == "127.0.0.1" || bind == "localhost" {
-		log.Printf("argus: http://localhost:%s (loopback only)", port)
+		// This line goes wherever log goes, which under launchd is a file
+		// and under systemd is the journal. term.Link is given that same
+		// stream so it can see that, and leaves the address plain there.
+		log.Printf("argus: %s (loopback only)",
+			term.Link(log.Writer(), "http://localhost:"+port))
 	} else {
 		log.Printf("argus: listening on %s:%s", bind, port)
 	}
@@ -192,7 +197,7 @@ func appSession(login bool) error {
 
 	err := src.Login(ctx, func(code ghauth.DeviceCode) {
 		fmt.Printf("\n  Open %s\n  and enter this code:\n\n      %s\n\n  Waiting...\n",
-			code.VerificationURI, code.UserCode)
+			term.Link(os.Stdout, code.VerificationURI), code.UserCode)
 	})
 	if err != nil {
 		switch {

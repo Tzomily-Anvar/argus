@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Tzomily-Anvar/argus/internal/config"
+	"github.com/Tzomily-Anvar/argus/internal/term"
 )
 
 // Running at login, the way the container does.
@@ -40,6 +41,11 @@ func serviceCommand(action string) error {
 	return fmt.Errorf("installing a service is not supported on %s; run `argus` yourself, "+
 		"or use the Docker path", runtime.GOOS)
 }
+
+// dashboardURL is the address the service serves on. The argus.localhost
+// form resolves to the loopback address without an /etc/hosts entry, so
+// it works as printed; Windows is the exception and says localhost.
+func dashboardURL() string { return "http://argus.localhost:" + config.Port() }
 
 func selfPath() (string, error) {
 	p, err := os.Executable()
@@ -119,12 +125,12 @@ func launchdService(action string) error {
   Argus now starts at login and keeps sweeping in the background, so the
   dashboard is ready whenever you open it:
 
-      http://argus.localhost:%s
+      %s
 
   Logs:    %s
   Remove:  argus service uninstall
 
-`, path, config.Port(), filepath.Join(logDir, "argus.log"))
+`, path, term.Link(os.Stdout, dashboardURL()), filepath.Join(logDir, "argus.log"))
 	return nil
 }
 
@@ -188,12 +194,12 @@ WantedBy=default.target
 
   Argus now starts at login and keeps sweeping in the background:
 
-      http://argus.localhost:%s
+      %s
 
   Logs:    journalctl --user -u argus -f
   Remove:  argus service uninstall
 
-`, path, config.Port())
+`, path, term.Link(os.Stdout, dashboardURL()))
 	return nil
 }
 
@@ -233,11 +239,11 @@ func windowsService(action string) error {
   Argus now starts when you log in, so the dashboard is ready whenever
   you open it:
 
-      http://localhost:%s
+      %s
 
   Remove:  argus service uninstall
 
-`, windowsTaskName, config.Port())
+`, windowsTaskName, term.Link(os.Stdout, "http://localhost:"+config.Port()))
 	return nil
 }
 
