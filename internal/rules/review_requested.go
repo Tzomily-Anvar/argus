@@ -4,7 +4,7 @@ func init() {
 	Register(Rule{
 		ID:          "review_requested",
 		Title:       "Waiting on your review",
-		Description: "Open pull requests where a review is requested from you, or from a team you belong to.",
+		Description: "Other people's open pull requests where a review is requested from you, or from a team you belong to. Not your own work - that is listed separately.",
 		Why:         "These are blocked on you specifically. Nothing else on the dashboard is as directly your move.",
 		Enabled:     true,
 		Params: []Param{

@@ -6,7 +6,7 @@ func init() {
 	Register(Rule{
 		ID:          "my_prs",
 		Title:       "Your open pull requests",
-		Description: "Every open pull request you authored, drafts included.",
+		Description: "Every open pull request you authored, drafts included. The opposite of the review queue, which holds other people's work waiting on you.",
 		Why:         "Drafts are deliberately included here. A draft you opened and forgot is invisible everywhere else, and that is exactly how work goes stale.",
 		Enabled:     true,
 		Params:      checkParams(),

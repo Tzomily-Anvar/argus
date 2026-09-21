@@ -126,7 +126,7 @@ export default function App() {
   const awaitingQA = qaInUse ? approvedAndGreen.filter((p) => !p.has_qa_label) : [];
 
   const defs: SectionDef[] = [
-    { id: "review_requested", label: "On you", title: "Waiting on your review", why: why("review_requested"),
+    { id: "review_requested", label: "To review", title: "Waiting on your review", why: why("review_requested"),
       count: onYou.length, urgent: true, body: () => <PRTable rows={onYou} /> },
     { id: "ready", label: "Ready to merge", title: "Ready to merge",
       why: qaInUse
@@ -193,7 +193,7 @@ export default function App() {
     }));
 
   const stats: Stat[] = useMemo(() => [
-    { label: "On you", value: onYou.length, hint: "reviews requested from you", tone: "critical", onClick: () => setActive("review_requested") },
+    { label: "To review", value: onYou.length, hint: "others' PRs awaiting you", tone: "critical", onClick: () => setActive("review_requested") },
     { label: "Ready to merge", value: ready.length, hint: qaInUse ? "approved, green, QA accepted" : "approved and green", tone: "good", onClick: () => setActive("ready") },
     ...(qaInUse ? [{ label: "Ready to QA", value: awaitingQA.length, hint: "only the QA label is missing", tone: "warning" as const, onClick: () => setActive("awaiting_qa") }] : []),
     { label: "Unclaimed", value: unclaimed.length, hint: "no reviewer assigned", tone: "warning", onClick: () => setActive("unreviewed") },
