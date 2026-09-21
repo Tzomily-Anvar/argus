@@ -271,11 +271,13 @@ export default function App() {
 
           {data?.ready && (
             <>
-              {active === "overview" && (
-                <div className="card mb-6 overflow-hidden">
-                  <StatTiles stats={stats} />
-                </div>
-              )}
+              {/* Always visible. Hiding these outside the overview removed a
+                  little duplication with the tab badges, but made the page
+                  jump as you moved between sections - a worse trade. The
+                  summary is chrome; chrome should stay put. */}
+              <div className="card mb-6 overflow-hidden">
+                <StatTiles stats={stats} />
+              </div>
 
               <SectionTabs sections={sections} active={active} onSelect={setActive} />
 

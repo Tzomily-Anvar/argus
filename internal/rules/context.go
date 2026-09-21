@@ -19,6 +19,7 @@ type Context struct {
 	Teams       []string
 	Now         time.Time
 	Concurrency int
+	Scope       Scope
 }
 
 // NewContext resolves the viewer's identity and team memberships. This is
@@ -51,12 +52,18 @@ func NewContext(client *gh.Client) (*Context, error) {
 		Teams:       teams,
 		Now:         time.Now().UTC(),
 		Concurrency: config.Concurrency(),
+		Scope: Scope{
+			Org:      org,
+			Only:     config.Repos(),
+			Excluded: config.ExcludeRepos(),
+			Archived: config.IncludeArchived(),
+		},
 	}, nil
 }
 
-// Search runs an issue search scoped to the configured organisation.
+// Search runs an issue search scoped to the configured repositories.
 func (c *Context) Search(query string) ([]map[string]any, error) {
-	items, err := c.Client.SearchIssues("org:" + c.Org + " " + query)
+	items, err := c.Client.SearchIssues(c.Scope.Query() + " " + query)
 	if err != nil {
 		return nil, err
 	}

@@ -42,7 +42,10 @@ func runStaleBranches(c *Context, v Values) (any, error) {
 
 	var repos []map[string]any
 	for _, r := range gh.Maps(reposRaw) {
-		if gh.Bool(r["archived"]) {
+		if gh.Bool(r["archived"]) && !c.Scope.Archived {
+			continue
+		}
+		if !c.Scope.Allows(gh.Str(r["name"])) {
 			continue
 		}
 		pushed, err := time.Parse(time.RFC3339, gh.Str(r["pushed_at"]))

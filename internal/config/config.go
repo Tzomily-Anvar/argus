@@ -101,6 +101,19 @@ func Token() (string, error) {
 	}
 }
 
+// Repos is an allowlist of repository names. Empty means the whole
+// organisation, which is the default: most people want everything.
+func Repos() []string { return Strings("ARGUS_REPOS", nil) }
+
+// ExcludeRepos names repositories to skip. Applied everywhere, so a
+// repository left out here is absent from pull request sweeps and alert
+// counts alike, rather than only one of them.
+func ExcludeRepos() []string { return Strings("ARGUS_EXCLUDE_REPOS", nil) }
+
+// IncludeArchived reports whether archived repositories are swept. They
+// are excluded by default: nothing in an archive is actionable.
+func IncludeArchived() bool { return Bool("ARGUS_INCLUDE_ARCHIVED", false) }
+
 func Port() string { return String("ARGUS_PORT", "18474") }
 
 // Bind is the interface to listen on. It defaults to loopback, so running

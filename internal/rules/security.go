@@ -22,6 +22,13 @@ func init() {
 					"Matching alerts still appear in totals but not in the per-repository critical rollup.",
 				Default: `\.venv|site-packages|node_modules|vendor/`,
 			},
+			{
+				Name: "exclude_repos",
+				Desc: "Repositories to leave out of alert counts, comma separated. Useful for archives, " +
+					"sandboxes or template repositories whose alerts you will never act on. This is in " +
+					"addition to ARGUS_EXCLUDE_REPOS, which applies everywhere.",
+				Default: []string{},
+			},
 			{Name: "include_code_scanning", Desc: "Include code-scanning alerts. Turn off if the organisation does not use them.", Default: true},
 			{Name: "include_dependabot_prs", Desc: "Include a count of open Dependabot pull requests.", Default: true},
 		},
@@ -38,13 +45,18 @@ func runSecurity(c *Context, v Values) (any, error) {
 		return nil, err
 	}
 
+	// The org-wide alert endpoints cannot be narrowed, so scoping happens
+	// here. This rule's own exclusions stack on top of the global ones.
+	scope := c.Scope
+	scope.Excluded = append(append([]string{}, scope.Excluded...), v.Strs("exclude_repos")...)
+
 	type check struct {
 		key string
 		fn  func() (map[string]any, error)
 	}
-	checks := []check{{"dependabot", func() (map[string]any, error) { return dependabotAlerts(c, noise) }}}
+	checks := []check{{"dependabot", func() (map[string]any, error) { return dependabotAlerts(c, noise, scope) }}}
 	if v.Bool("include_code_scanning") {
-		checks = append(checks, check{"code_scanning", func() (map[string]any, error) { return codeScanningAlerts(c) }})
+		checks = append(checks, check{"code_scanning", func() (map[string]any, error) { return codeScanningAlerts(c, scope) }})
 	}
 	if v.Bool("include_dependabot_prs") {
 		checks = append(checks, check{"dependabot_prs", func() (map[string]any, error) { return dependabotPRs(c) }})
@@ -69,7 +81,7 @@ func runSecurity(c *Context, v Values) (any, error) {
 	return out, nil
 }
 
-func dependabotAlerts(c *Context, noise *regexp.Regexp) (map[string]any, error) {
+func dependabotAlerts(c *Context, noise *regexp.Regexp, scope Scope) (map[string]any, error) {
 	alerts, err := c.Client.GetAll("/orgs/"+c.Org+"/dependabot/alerts", Params("state", "open"))
 	if err != nil {
 		return nil, err
@@ -80,6 +92,9 @@ func dependabotAlerts(c *Context, noise *regexp.Regexp) (map[string]any, error) 
 	var criticals []map[string]any
 
 	for _, a := range gh.Maps(alerts) {
+		if !scope.Allows(gh.Str(gh.Map(a["repository"])["name"])) {
+			continue
+		}
 		vuln := gh.Map(a["security_vulnerability"])
 		sev := gh.Str(vuln["severity"])
 		if sev == "" {
@@ -147,7 +162,7 @@ func rankRepos(byRepo map[string]map[string]int) []map[string]any {
 	return out
 }
 
-func codeScanningAlerts(c *Context) (map[string]any, error) {
+func codeScanningAlerts(c *Context, scope Scope) (map[string]any, error) {
 	alerts, err := c.Client.GetAll("/orgs/"+c.Org+"/code-scanning/alerts", Params("state", "open"))
 	if err != nil {
 		return nil, err
@@ -159,6 +174,9 @@ func codeScanningAlerts(c *Context) (map[string]any, error) {
 
 	for _, a := range gh.Maps(alerts) {
 		repo := gh.Str(gh.Map(a["repository"])["name"])
+		if !scope.Allows(repo) {
+			continue
+		}
 		rule := gh.Map(a["rule"])
 		sev := gh.Str(rule["security_severity_level"])
 		if sev == "" {

@@ -239,6 +239,30 @@ Then `./run.sh restart`. Every knob and its default is documented in
 [`.env.example`](.env.example), which is generated from the rules
 themselves and so cannot drift from them.
 
+### Which repositories
+
+By default Argus sweeps the whole organisation, minus archived
+repositories. Three settings narrow that, and they apply everywhere —
+pull requests, branches and security alerts alike:
+
+```bash
+ARGUS_REPOS=api,web,infra            # only these; unset means all
+ARGUS_EXCLUDE_REPOS=sandbox,archive  # or subtract a few
+ARGUS_INCLUDE_ARCHIVED=true          # archived are skipped by default
+```
+
+The security rule takes its own list on top, for repositories whose
+alerts you will never act on — template repositories, sandboxes,
+interview exercises — without hiding them from the pull request views:
+
+```bash
+ARGUS_RULE_SECURITY_EXCLUDE_REPOS=interview-exercise,old-prototype
+```
+
+This matters more than it sounds. A handful of neglected repositories
+can carry most of an organisation's open alerts and push the ones you
+would actually fix off the bottom of the list.
+
 ### Real failures versus policy gates
 
 Many organisations have a required check that is a *policy* rather than a
