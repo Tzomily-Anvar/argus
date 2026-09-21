@@ -37,7 +37,7 @@ export function PolicyHintBanner({ hints }: { hints: Hint[] }) {
         <div
           key={h.name}
           className="rounded p-3 text-sm"
-          style={{ background: "var(--color-surface-sunken)", boxShadow: "inset 0 0 0 1px var(--color-line)" }}
+          style={{ background: "var(--surface-2)", boxShadow: "inset 0 0 0 1px var(--line)" }}
         >
           <div className="flex items-start justify-between gap-3">
             <p>
@@ -51,18 +51,18 @@ export function PolicyHintBanner({ hints }: { hints: Hint[] }) {
               onClick={() => dismiss(h.name)}
               aria-label={`Dismiss the suggestion about ${h.name}`}
               className="shrink-0 rounded px-1.5 text-xs"
-              style={{ color: "var(--color-ink-faint)" }}
+              style={{ color: "var(--faint)" }}
             >
               Dismiss
             </button>
           </div>
-          <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+          <p className="mt-2 text-xs" style={{ color: "var(--muted)" }}>
             To report it separately instead of as a failure, add this to your{" "}
             <code className="font-mono">.env</code> and restart:
           </p>
           <pre
             className="mt-1 overflow-x-auto rounded p-2 font-mono text-xs"
-            style={{ background: "var(--color-surface)", color: "var(--color-ink)" }}
+            style={{ background: "var(--surface)", color: "var(--ink)" }}
           >
             {h.env}={h.token}
           </pre>

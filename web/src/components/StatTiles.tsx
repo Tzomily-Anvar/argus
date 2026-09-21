@@ -1,49 +1,54 @@
-/* A stat tile, not a chart: these are single headline numbers, and a bar
+/* Stat tiles, not a chart: these are single headline numbers, and a bar
  * chart of five unrelated counts would add ink without adding meaning.
- * The number is the mark; colour is reserved for the ones that indicate
- * state. */
+ *
+ * The number is the mark. Colour is applied sparingly and only where it
+ * means something - a zero is always muted, because "nothing waiting on
+ * you" should read as calm rather than as an alert coloured red. */
+
+export type Tone = "critical" | "warning" | "good" | "neutral";
 
 export type Stat = {
   label: string;
   value: number;
   hint: string;
-  tone?: "critical" | "warning" | "neutral";
+  tone?: Tone;
   onClick?: () => void;
+};
+
+const COLOR: Record<Tone, string> = {
+  critical: "var(--crit)",
+  warning: "var(--warn)",
+  good: "var(--good)",
+  neutral: "var(--ink)",
 };
 
 export function StatTiles({ stats }: { stats: Stat[] }) {
   return (
-    <div className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-5"
-         style={{ background: "var(--color-line)" }}>
-      {stats.map((s) => (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+      {stats.map((s, i) => (
         <button
           key={s.label}
           onClick={s.onClick}
           disabled={!s.onClick}
           title={s.hint}
-          className="flex flex-col gap-1 p-4 text-left transition-colors enabled:cursor-pointer enabled:hover:brightness-95"
-          style={{ background: "var(--color-surface-raised)" }}
+          className="flex flex-col gap-1 px-4 py-3.5 text-left transition-colors enabled:cursor-pointer"
+          style={{
+            borderLeft: i === 0 ? "none" : "1px solid var(--line)",
+            background: "transparent",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
         >
-          <span className="text-xs font-medium tracking-wide uppercase"
-                style={{ color: "var(--color-ink-faint)" }}>
+          <span className="text-[11px] font-semibold tracking-wide uppercase" style={{ color: "var(--faint)" }}>
             {s.label}
           </span>
           <span
-            className="tnum text-3xl leading-none font-semibold"
-            style={{
-              color:
-                s.value === 0
-                  ? "var(--color-ink-faint)"
-                  : s.tone === "critical"
-                    ? "var(--color-status-critical)"
-                    : s.tone === "warning"
-                      ? "var(--color-ink)"
-                      : "var(--color-ink)",
-            }}
+            className="tnum text-[28px] leading-none font-semibold"
+            style={{ color: s.value === 0 ? "var(--faint)" : COLOR[s.tone ?? "neutral"] }}
           >
             {s.value}
           </span>
-          <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+          <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>
             {s.hint}
           </span>
         </button>

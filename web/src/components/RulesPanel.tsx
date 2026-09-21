@@ -12,7 +12,7 @@ function Value({ value }: { value: unknown }) {
     : value === "" ? "(empty)"
     : String(value);
   return (
-    <code className="font-mono text-xs" style={{ color: "var(--color-ink)" }}>
+    <code className="font-mono text-xs" style={{ color: "var(--ink)" }}>
       {text}
     </code>
   );
@@ -21,7 +21,7 @@ function Value({ value }: { value: unknown }) {
 export function RulesPanel({ rules }: { rules: RuleInfo[] }) {
   return (
     <div className="space-y-4">
-      <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
+      <p className="text-sm" style={{ color: "var(--muted)" }}>
         Each check is independent. Turn one off or retune it by setting the environment variable
         shown, in your <code className="font-mono text-xs">.env</code>, then restart. Adding a new
         check means adding one file — see CONTRIBUTING.md.
@@ -31,25 +31,25 @@ export function RulesPanel({ rules }: { rules: RuleInfo[] }) {
         <article
           key={rule.id}
           className="rounded"
-          style={{ background: "var(--color-surface-raised)", boxShadow: "inset 0 0 0 1px var(--color-line)" }}
+          style={{ background: "var(--surface)", boxShadow: "inset 0 0 0 1px var(--line)" }}
         >
           <header className="flex flex-wrap items-baseline justify-between gap-2 px-4 pt-3">
             <h3 className="font-semibold">{rule.title}</h3>
-            <code className="font-mono text-xs" style={{ color: "var(--color-ink-faint)" }}>
+            <code className="font-mono text-xs" style={{ color: "var(--faint)" }}>
               {rule.id}
             </code>
           </header>
 
           <div className="space-y-1 px-4 pt-2 pb-3">
             <p className="text-sm">{rule.description}</p>
-            <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
               {rule.why}
             </p>
           </div>
 
-          <dl className="space-y-2 border-t px-4 py-3 text-sm" style={{ borderColor: "var(--color-line)" }}>
+          <dl className="space-y-2 border-t px-4 py-3 text-sm" style={{ borderColor: "var(--line)" }}>
             <div className="flex flex-wrap items-baseline gap-x-2">
-              <dt className="font-mono text-xs" style={{ color: "var(--color-ink-faint)" }}>
+              <dt className="font-mono text-xs" style={{ color: "var(--faint)" }}>
                 {rule.enabled_env}
               </dt>
               <dd>
@@ -58,12 +58,12 @@ export function RulesPanel({ rules }: { rules: RuleInfo[] }) {
             </div>
             {rule.params.map((p) => (
               <div key={p.name} className="flex flex-wrap items-baseline gap-x-2">
-                <dt className="font-mono text-xs" style={{ color: "var(--color-ink-faint)" }}>
+                <dt className="font-mono text-xs" style={{ color: "var(--faint)" }}>
                   {p.env}
                 </dt>
                 <dd className="flex-1">
                   <Value value={p.value} />
-                  <span className="ml-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                  <span className="ml-2 text-xs" style={{ color: "var(--muted)" }}>
                     {p.desc}
                   </span>
                 </dd>

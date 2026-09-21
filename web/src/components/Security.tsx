@@ -17,7 +17,7 @@ export type SecurityData = {
 
 function SubError({ message }: { message: string }) {
   return (
-    <p className="px-3 py-3 text-sm" style={{ color: "var(--color-status-serious)" }}>
+    <p className="px-3 py-3 text-sm" style={{ color: "var(--warn)" }}>
       {message}
     </p>
   );
@@ -26,10 +26,10 @@ function SubError({ message }: { message: string }) {
 function Sub({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
     <section className="py-3">
-      <h4 className="px-3 pb-2 text-xs font-medium tracking-wide uppercase" style={{ color: "var(--color-ink-faint)" }}>
+      <h4 className="px-3 pb-2 text-xs font-medium tracking-wide uppercase" style={{ color: "var(--faint)" }}>
         {title}
         {note && (
-          <span className="ml-2 normal-case" style={{ color: "var(--color-ink-faint)" }}>
+          <span className="ml-2 normal-case" style={{ color: "var(--faint)" }}>
             {note}
           </span>
         )}
@@ -45,7 +45,7 @@ export function Security({ data }: { data: SecurityData }) {
   const prs = data.dependabot_prs;
 
   return (
-    <div className="divide-y" style={{ borderColor: "var(--color-line)" }}>
+    <div className="divide-y" style={{ borderColor: "var(--line)" }}>
       <Sub title="Dependabot alerts" note="organisation-wide">
         {db?.error ? (
           <SubError message={db.error} />
@@ -59,13 +59,13 @@ export function Security({ data }: { data: SecurityData }) {
                     <span className="font-mono text-xs">{r.repo}</span>
                     <span className="flex gap-1.5">
                       {r.critical > 0 && <Badge tone="critical" label={`${r.critical} critical`} />}
-                      {r.high > 0 && <Badge tone="serious" label={`${r.high} high`} />}
+                      {r.high > 0 && <Badge tone="warning" label={`${r.high} high`} />}
                     </span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-sm" style={{ color: "var(--color-ink-faint)" }}>
+              <p className="text-sm" style={{ color: "var(--faint)" }}>
                 No critical or high alerts outside vendored paths.
               </p>
             )}
@@ -78,10 +78,10 @@ export function Security({ data }: { data: SecurityData }) {
           <ul className="space-y-2 px-3">
             {db.criticals.map((c) => (
               <li key={c.url} className="text-sm">
-                <a href={c.url} target="_blank" rel="noreferrer" className="hover:underline" style={{ color: "var(--color-accent)" }}>
+                <a href={c.url} target="_blank" rel="noreferrer" className="hover:underline" style={{ color: "var(--accent)" }}>
                   <span className="font-mono text-xs">{c.repo}</span> — {c.package}
                 </a>
-                <span className="ml-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                <span className="ml-2 text-xs" style={{ color: "var(--muted)" }}>
                   {c.cve}
                   {c.scope ? ` · ${c.scope}` : ""}
                 </span>
@@ -96,8 +96,8 @@ export function Security({ data }: { data: SecurityData }) {
           <SubError message={cs.error} />
         ) : cs?.total ? (
           <div className="space-y-2 px-3">
-            <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
-              <span className="tnum font-semibold" style={{ color: "var(--color-ink)" }}>
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
+              <span className="tnum font-semibold" style={{ color: "var(--ink)" }}>
                 {cs.total}
               </span>{" "}
               open, of which {cs.crit_high?.length ?? 0} critical or high.
@@ -105,7 +105,7 @@ export function Security({ data }: { data: SecurityData }) {
             <ul className="space-y-1">
               {(cs.crit_high ?? []).slice(0, 10).map((a) => (
                 <li key={a.url} className="flex items-center justify-between gap-3 text-sm">
-                  <a href={a.url} target="_blank" rel="noreferrer" className="truncate hover:underline" style={{ color: "var(--color-accent)" }}>
+                  <a href={a.url} target="_blank" rel="noreferrer" className="truncate hover:underline" style={{ color: "var(--accent)" }}>
                     <span className="font-mono text-xs">{a.repo}</span> — {a.rule}
                   </a>
                   <Badge tone={severityTone(a.severity)} label={a.severity} />
@@ -123,8 +123,8 @@ export function Security({ data }: { data: SecurityData }) {
           <SubError message={prs.error} />
         ) : (
           <div className="px-3">
-            <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
-              <span className="tnum font-semibold" style={{ color: "var(--color-ink)" }}>
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
+              <span className="tnum font-semibold" style={{ color: "var(--ink)" }}>
                 {prs?.total ?? 0}
               </span>{" "}
               open across {prs?.by_repo?.length ?? 0} repositories.

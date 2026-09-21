@@ -188,7 +188,13 @@ $EDITOR .env          # set ARGUS_GITHUB_ORG to your organisation
 ./run.sh up
 ```
 
-Open **<http://localhost:18474>**.
+Open **<http://argus.localhost:18474>** — or `localhost:18474`, whichever
+you prefer. `*.localhost` resolves to 127.0.0.1 in browsers and modern
+operating systems with no `/etc/hosts` entry and no `sudo`.
+
+Want it without the port? Set `ARGUS_PORT=80` in `.env` and it becomes
+plain **<http://argus.localhost>**. Port 80 is shared, though, so
+anything else that wants it later will clash.
 
 The first sweep takes a few seconds. After that the container keeps
 sweeping in the background, so every subsequent visit is instant. Leave

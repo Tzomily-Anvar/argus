@@ -3,7 +3,7 @@ import type { BranchRow, PRRow } from "../api";
 
 function Age({ days }: { days: number }) {
   return (
-    <span className="tnum tabular-nums" style={{ color: days >= 30 ? "var(--color-status-serious)" : "var(--color-ink-muted)" }}>
+    <span className="tnum tabular-nums" style={{ color: days >= 30 ? "var(--warn)" : "var(--muted)" }}>
       {days}d
     </span>
   );
@@ -12,8 +12,8 @@ function Age({ days }: { days: number }) {
 function Th({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
   return (
     <th
-      className={`px-3 py-2 text-left text-xs font-medium tracking-wide uppercase ${className}`}
-      style={{ color: "var(--color-ink-faint)" }}
+      className={`px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide uppercase ${className}`}
+      style={{ color: "var(--faint)" }}
     >
       {children}
     </th>
@@ -24,7 +24,7 @@ function Table({ head, children }: { head: React.ReactNode; children: React.Reac
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
-        <thead style={{ borderBottom: "1px solid var(--color-line)" }}>
+        <thead style={{ background: "var(--surface-2)" }}>
           <tr>{head}</tr>
         </thead>
         <tbody>{children}</tbody>
@@ -34,7 +34,11 @@ function Table({ head, children }: { head: React.ReactNode; children: React.Reac
 }
 
 function Row({ children }: { children: React.ReactNode }) {
-  return <tr style={{ borderBottom: "1px solid var(--color-line)" }}>{children}</tr>;
+  return (
+    <tr className="[&:not(:last-child)]:border-b" style={{ borderColor: "var(--line)" }}>
+      {children}
+    </tr>
+  );
 }
 
 function RepoLink({ row }: { row: PRRow }) {
@@ -44,7 +48,7 @@ function RepoLink({ row }: { row: PRRow }) {
       target="_blank"
       rel="noreferrer"
       className="font-mono text-xs hover:underline"
-      style={{ color: "var(--color-accent)" }}
+      style={{ color: "var(--accent)" }}
     >
       {row.repo}#{row.number}
     </a>
@@ -78,10 +82,10 @@ export function PRTable({ rows, showAuthor = true }: { rows: PRRow[]; showAuthor
     >
       {rows.map((row) => (
         <Row key={row.url}>
-          <td className="px-3 py-2 align-top whitespace-nowrap">
+          <td className="px-4 py-2.5 align-top whitespace-nowrap">
             <RepoLink row={row} />
           </td>
-          <td className="max-w-md px-3 py-2 align-top">
+          <td className="max-w-md px-4 py-2.5 align-top">
             <span className="line-clamp-2">{row.title}</span>
             {row.draft && (
               <span className="ml-2 align-middle">
@@ -90,11 +94,11 @@ export function PRTable({ rows, showAuthor = true }: { rows: PRRow[]; showAuthor
             )}
           </td>
           {showAuthor && (
-            <td className="px-3 py-2 align-top whitespace-nowrap" style={{ color: "var(--color-ink-muted)" }}>
+            <td className="px-4 py-2.5 align-top whitespace-nowrap" style={{ color: "var(--muted)" }}>
               {row.author}
             </td>
           )}
-          <td className="px-3 py-2 align-top">
+          <td className="px-4 py-2.5 align-top">
             <div className="flex flex-wrap items-center gap-1">
               {reviewBadge(row)}
               {row.real_failures && row.real_failures.length > 0 && (
@@ -114,7 +118,7 @@ export function PRTable({ rows, showAuthor = true }: { rows: PRRow[]; showAuthor
               {row.qa_label_used && row.has_qa_label && <Badge tone="good" label="QA" />}
             </div>
           </td>
-          <td className="px-3 py-2 text-right align-top">
+          <td className="px-4 py-2.5 text-right align-top">
             <Age days={row.age_days} />
           </td>
         </Row>
@@ -138,14 +142,14 @@ export function BranchTable({ rows }: { rows: BranchRow[] }) {
     >
       {rows.map((row) => (
         <Row key={`${row.repo}/${row.branch}`}>
-          <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{row.repo}</td>
-          <td className="px-3 py-2">
+          <td className="px-4 py-2.5 font-mono text-xs whitespace-nowrap">{row.repo}</td>
+          <td className="px-4 py-2.5">
             <a
               href={row.url}
               target="_blank"
               rel="noreferrer"
               className="font-mono text-xs hover:underline"
-              style={{ color: "var(--color-accent)" }}
+              style={{ color: "var(--accent)" }}
             >
               {row.branch}
             </a>
@@ -155,11 +159,11 @@ export function BranchTable({ rows }: { rows: BranchRow[] }) {
               </span>
             )}
           </td>
-          <td className="px-3 py-2 whitespace-nowrap" style={{ color: "var(--color-ink-muted)" }}>
+          <td className="px-4 py-2.5 whitespace-nowrap" style={{ color: "var(--muted)" }}>
             {row.author}
           </td>
-          <td className="px-3 py-2 text-right whitespace-nowrap">
-            <span className="tnum" style={{ color: "var(--color-ink-muted)" }}>
+          <td className="px-4 py-2.5 text-right whitespace-nowrap">
+            <span className="tnum" style={{ color: "var(--muted)" }}>
               {row.last_commit}
             </span>{" "}
             <Age days={row.age_days} />
@@ -185,7 +189,7 @@ export function SeverityRow({ counts }: { counts: Record<string, number> }) {
 
 export function Empty() {
   return (
-    <p className="px-3 py-6 text-sm" style={{ color: "var(--color-ink-faint)" }}>
+    <p className="px-4 py-8 text-center text-sm" style={{ color: "var(--faint)" }}>
       Nothing here — which is the good outcome.
     </p>
   );
