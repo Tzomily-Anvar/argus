@@ -5,7 +5,9 @@ import {
   type BranchRow, type MergeReadiness, type PRRow, type RuleInfo,
 } from "./api";
 import { applyTheme, loadPrefs, savePrefs, type Prefs } from "./theme";
-import { availableTools } from "./tools";
+import { mergeAvailability } from "./tools";
+import { fetchTools } from "./api";
+import { SprintTool } from "./SprintTool";
 import { Icon } from "./components/Icons";
 import { Sidebar } from "./components/Sidebar";
 import { SectionTabs, type Section } from "./components/SectionTabs";
@@ -84,6 +86,7 @@ export default function App() {
     refetchInterval: (q) => (q.state.data?.sweeping ? 2_000 : 30_000),
   });
   const rules = useQuery({ queryKey: ["rules"], queryFn: fetchRules, staleTime: Infinity });
+  const tools = useQuery({ queryKey: ["tools"], queryFn: fetchTools, staleTime: Infinity });
   const refresh = useMutation({
     mutationFn: requestRefresh,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["snapshot"] }),
@@ -210,7 +213,7 @@ export default function App() {
   return (
     <div className={`shell${collapsed ? " collapsed" : ""}`}>
       <Sidebar
-        tools={availableTools()}
+        tools={mergeAvailability(tools.data?.tools ?? [{ id: "pr", available: true }])}
         active={tool}
         onSelect={setTool}
         collapsed={collapsed}
@@ -222,6 +225,9 @@ export default function App() {
       />
 
       <main className="min-w-0">
+        {tool === "sprint" ? (
+          <SprintTool />
+        ) : (
         <div className="mx-auto max-w-5xl px-6 pt-6 pb-20">
           <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-lg font-semibold tracking-tight">Pull requests</h1>
@@ -318,6 +324,7 @@ export default function App() {
             </>
           )}
         </div>
+        )}
       </main>
     </div>
   );

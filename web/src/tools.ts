@@ -30,9 +30,17 @@ export const TOOLS: Tool[] = [
   // they stay hidden rather than showing a tab that fails when clicked -
   // the same reasoning the original Argus used when it health-checked
   // each backend before listing it.
-  { id: "sprint", label: "Sprint", icon: Icon.clock, available: false },
+  { id: "sprint", label: "Sprint reports", icon: Icon.clock, available: false },
   { id: "backlog", label: "Backlog", icon: Icon.inbox, available: false },
   { id: "notifications", label: "Atlassian", icon: Icon.bell, available: false },
 ];
 
 export const availableTools = () => TOOLS.filter((t) => t.available);
+
+// The server decides what is actually live: a tool needs credentials, or
+// storage, or an explicit ARGUS_TOOLS entry. Merging its answer means an
+// unconfigured tool never appears, rather than appearing and failing.
+export function mergeAvailability(live: { id: string; available: boolean }[]): Tool[] {
+  const byID = new Map(live.map((t) => [t.id, t.available]));
+  return TOOLS.filter((t) => byID.get(t.id) ?? false);
+}
