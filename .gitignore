@@ -6,6 +6,12 @@ op.env
 !.env.example
 !op.env.example
 
+# Local data. The sprint tool stores names, Jira account ids, absence
+# figures and free-text notes about colleagues. None of it belongs in a
+# repository - see SECURITY.md.
+/data/
+argus-data/
+
 # Build output.
 /argus
 /dist
