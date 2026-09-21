@@ -38,6 +38,15 @@ func String(key, def string) string {
 	return def
 }
 
+func Float(key string, def float64) float64 {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return def
+}
+
 func Int(key string, def int) int {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
@@ -129,6 +138,25 @@ func Addr() string     { return Bind() + ":" + Port() }
 func Concurrency() int { return Int("ARGUS_CONCURRENCY", 10) }
 func HTTPTimeout() int { return Int("ARGUS_HTTP_TIMEOUT_SECONDS", 45) }
 
+// EnabledTools names the tools that run. The pull request watchdog is the
+// default and the only one on unless asked for: everything else costs
+// credentials, storage, or both, and nobody should have to opt out of a
+// tool they never wanted.
+//
+//	ARGUS_TOOLS=pr           the default
+//	ARGUS_TOOLS=pr,sprint    both
+func EnabledTools() []string { return Strings("ARGUS_TOOLS", []string{"pr"}) }
+
+// ToolEnabled reports whether a tool is switched on.
+func ToolEnabled(id string) bool {
+	for _, t := range EnabledTools() {
+		if strings.EqualFold(strings.TrimSpace(t), id) {
+			return true
+		}
+	}
+	return false
+}
+
 // ---- Jira, for the sprint report ------------------------------------
 //
 // None of these have a company-specific default. Field ids in particular
@@ -203,9 +231,24 @@ func JiraExcludedTypes() []string {
 	return Strings("ARGUS_JIRA_EXCLUDED_TYPES", []string{"Epic"})
 }
 
-// JiraSprintLengthDays is the nominal sprint length, used to turn days
-// off into a share of a person's baseline.
+// JiraSprintLengthDays is the nominal sprint length in working days. It
+// is what turns days off into a share of a person's baseline.
 func JiraSprintLengthDays() int { return Int("ARGUS_JIRA_SPRINT_LENGTH_DAYS", 10) }
+
+// HoursPerPoint is what one story point means in hours for this team.
+//
+// Points are not hours, and treating them as a currency is how estimation
+// goes wrong. But a team that has agreed "a point is about a day" needs
+// that agreement written down somewhere, or a baseline of 10 is a number
+// with no units and nobody can tell whether it is right.
+func HoursPerPoint() float64 {
+	return Float("ARGUS_SPRINT_HOURS_PER_POINT", 6)
+}
+
+// HoursPerDay is a working day, used to relate points to days.
+func HoursPerDay() float64 {
+	return Float("ARGUS_SPRINT_HOURS_PER_DAY", 6)
+}
 
 // SprintWritesAllowed gates every write the sprint tool can make.
 // Off by default: a tool that can reassign tickets and publish pages

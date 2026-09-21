@@ -12,7 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/rules"
+	"github.com/Tzomily-Anvar/argus/internal/sprint"
+	"github.com/Tzomily-Anvar/argus/internal/store"
 	"github.com/Tzomily-Anvar/argus/internal/sweep"
 	"github.com/Tzomily-Anvar/argus/web"
 )
@@ -20,6 +23,12 @@ import (
 type Server struct {
 	cache *sweep.Cache
 	mux   *http.ServeMux
+
+	// Set only when the sprint tool is configured. The frontend asks
+	// /api/tools which tools are live, so an unconfigured one is absent
+	// rather than present and failing.
+	sprint *sprint.Service
+	store  store.Store
 }
 
 func New(cache *sweep.Cache) *Server {
@@ -68,6 +77,17 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/refresh", func(w http.ResponseWriter, r *http.Request) {
 		s.cache.Refresh()
 		writeJSON(w, http.StatusAccepted, map[string]bool{"queued": true})
+	})
+
+	// Which tools are live. The rail renders from this, so a tool without
+	// credentials never appears rather than appearing and failing when
+	// clicked - the same check the original Argus made of its backends.
+	s.mux.HandleFunc("GET /api/tools", func(w http.ResponseWriter, r *http.Request) {
+		tools := []map[string]any{
+			{"id": "pr", "label": "Pull requests", "available": config.ToolEnabled("pr")},
+			{"id": "sprint", "label": "Sprint reports", "available": s.sprint != nil},
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tools": tools})
 	})
 
 	s.mux.Handle("GET /", s.static())

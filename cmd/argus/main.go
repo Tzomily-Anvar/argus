@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -54,6 +55,14 @@ func run() error {
 	cache := sweep.New(client, interval)
 	cache.Start()
 
+	sprintSvc, st, err := setUpSprint(context.Background())
+	if err != nil {
+		return err
+	}
+	if st != nil {
+		defer st.Close()
+	}
+
 	port := config.Port()
 	enabled := rules.Enabled()
 	log.Printf("argus: org %s, %d/%d rules enabled, refreshing every %s",
@@ -64,7 +73,11 @@ func run() error {
 		log.Printf("argus: listening on %s:%s", bind, port)
 	}
 
-	return server.Run(config.Addr(), server.New(cache))
+	srv := server.New(cache)
+	if sprintSvc != nil {
+		srv.SprintRoutes(sprintSvc, st)
+	}
+	return server.Run(config.Addr(), srv)
 }
 
 // probe returns 0 if the local server answers /healthz.
