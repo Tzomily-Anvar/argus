@@ -104,14 +104,23 @@ This repository is public and was extracted from an internal one, so
 there is a check that refuses to let private strings reach it:
 
 ```bash
-cp .private-patterns.example .private-patterns   # then fill it in
 git config core.hooksPath .githooks              # once per clone
+cp .private-patterns.example .private-patterns   # optional, see below
 ```
 
-`.private-patterns` is gitignored and holds the strings you must not
-publish - an employer name, internal hosts, identifier formats, colleagues'
-names. The patterns deliberately do not live in a committed file: a check
-that hardcoded "the name we must not publish" would publish it.
+That installs two hooks. **pre-commit** scans what you have staged, so a
+mistake is still just an unstage; **pre-push** scans the commits about to
+leave, as a last line of defence.
+
+**Credentials are checked whether or not you configure anything.** Issued
+token prefixes and private key blocks are built into the script, because
+a clone that protects nothing is the worst possible default for the one
+category of mistake that cannot be taken back.
+
+`.private-patterns` adds *your own* strings on top - an employer name,
+internal hosts, identifier formats, colleagues' names. It is gitignored,
+and deliberately so: a committed check listing "the name we must not
+publish" would publish it.
 
 From then on every `git push` is scanned first, and it refuses if anything
 matches - in file contents, file paths, commit messages or author

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Catches a credential before it is in history at all.
+#
+# The pre-push hook is the last line of defence, but by then the thing is
+# committed and removing it means rewriting history. Here it is still just
+# an unstage.
+#
+# Enable once with:  git config core.hooksPath .githooks
+exec "$(git rev-parse --show-toplevel)/scripts/private-check.sh" --staged

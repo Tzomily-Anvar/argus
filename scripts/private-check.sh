@@ -21,16 +21,47 @@ cd "$(git rev-parse --show-toplevel)"
 PATTERNS_FILE=".private-patterns"
 RED=$'\033[31m'; GREEN=$'\033[32m'; DIM=$'\033[2m'; OFF=$'\033[0m'
 
-if [[ ! -f "$PATTERNS_FILE" ]]; then
-  echo "${DIM}private-check: no $PATTERNS_FILE, nothing to check against.${OFF}"
-  echo "${DIM}  Copy .private-patterns.example to $PATTERNS_FILE to enable it.${OFF}"
-  exit 0
+# Credentials are checked whether or not this clone has been configured.
+# Without a patterns file the check used to do nothing at all, which is
+# the worst possible default for the one category of mistake that cannot
+# be taken back.
+#
+# High-confidence patterns only: issued-token prefixes and key blocks,
+# never a bare word like "password". A check that cries wolf is a check
+# people learn to bypass.
+BUILTIN=(
+  'ghp_[A-Za-z0-9]{30,}'
+  'gho_[A-Za-z0-9]{30,}'
+  'ghu_[A-Za-z0-9]{30,}'
+  'ghs_[A-Za-z0-9]{30,}'
+  'ghr_[A-Za-z0-9]{30,}'
+  'github_pat_[A-Za-z0-9_]{30,}'
+  'sk-ant-[A-Za-z0-9_-]{30,}'
+  'xox[baprs]-[A-Za-z0-9-]{12,}'
+  'AKIA[0-9A-Z]{16}'
+  'ASIA[0-9A-Z]{16}'
+  'AIza[0-9A-Za-z_-]{35}'
+  'glpat-[A-Za-z0-9_-]{20,}'
+  'npm_[A-Za-z0-9]{36}'
+  'dop_v1_[a-f0-9]{64}'
+  'ATATT[A-Za-z0-9_=-]{20,}'
+  'BEGIN [A-Z ]*PRIVATE KEY'
+)
+builtin_pattern=$(printf '%s|' "${BUILTIN[@]}")
+builtin_pattern=${builtin_pattern%|}
+
+local_pattern=""
+if [[ -f "$PATTERNS_FILE" ]]; then
+  local_pattern=$(grep -vE '^[[:space:]]*(#|$)' "$PATTERNS_FILE" | paste -sd'|' -)
+else
+  echo "${DIM}private-check: no $PATTERNS_FILE, so only credentials are checked.${OFF}"
+  echo "${DIM}  Copy .private-patterns.example to add your own strings.${OFF}"
 fi
 
-pattern=$(grep -vE '^\s*(#|$)' "$PATTERNS_FILE" | paste -sd'|' -)
-if [[ -z "$pattern" ]]; then
-  echo "${DIM}private-check: $PATTERNS_FILE has no patterns.${OFF}"
-  exit 0
+if [[ -n "$local_pattern" ]]; then
+  pattern="$builtin_pattern|$local_pattern"
+else
+  pattern="$builtin_pattern"
 fi
 
 mode="${1:-range}"
