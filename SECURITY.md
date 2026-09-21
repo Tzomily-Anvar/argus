@@ -37,8 +37,18 @@ runs as a non-root user.
 
 ## Scope
 
-Argus makes no outbound connection other than to `api.github.com`. It
-serves on localhost and is not designed to be exposed to a network; do
-not put it behind a public reverse proxy without adding authentication,
-since anyone reaching it would see your organisation's data through your
-token.
+Argus makes no outbound connection other than to `api.github.com`, over
+HTTPS.
+
+**It binds to loopback only.** The dashboard itself has no
+authentication - it does not need any, because anyone who can reach it is
+already on your machine. That property depends on the binding, so both
+layers enforce it: the binary defaults to `127.0.0.1`, and Compose
+publishes the port as `127.0.0.1:18474:18474` rather than the Docker
+default, which would bind every interface and make your organisation's
+data readable by anyone on your network.
+
+If you deliberately change `ARGUS_BIND`, or drop the `127.0.0.1` prefix
+from the port mapping, you are exposing an unauthenticated view of your
+organisation - through your token - to everyone who can route to that
+address. Do not do it without putting authentication in front.

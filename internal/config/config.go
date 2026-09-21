@@ -101,6 +101,17 @@ func Token() (string, error) {
 	}
 }
 
-func Port() string     { return String("ARGUS_PORT", "18474") }
+func Port() string { return String("ARGUS_PORT", "18474") }
+
+// Bind is the interface to listen on. It defaults to loopback, so running
+// the binary directly never exposes your organisation's data to the
+// network. The container image overrides it to 0.0.0.0, because Docker
+// forwards to the container's own address rather than its loopback - and
+// compose publishes that port to 127.0.0.1 only, so the effective
+// exposure is the same.
+func Bind() string { return String("ARGUS_BIND", "127.0.0.1") }
+
+// Addr is the listen address passed to the HTTP server.
+func Addr() string     { return Bind() + ":" + Port() }
 func Concurrency() int { return Int("ARGUS_CONCURRENCY", 10) }
 func HTTPTimeout() int { return Int("ARGUS_HTTP_TIMEOUT_SECONDS", 45) }

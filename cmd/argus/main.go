@@ -58,9 +58,13 @@ func run() error {
 	enabled := rules.Enabled()
 	log.Printf("argus: org %s, %d/%d rules enabled, refreshing every %s",
 		org, len(enabled), len(rules.All()), interval)
-	log.Printf("argus: http://localhost:%s", port)
+	if bind := config.Bind(); bind == "127.0.0.1" || bind == "localhost" {
+		log.Printf("argus: http://localhost:%s (loopback only)", port)
+	} else {
+		log.Printf("argus: listening on %s:%s", bind, port)
+	}
 
-	return server.Run(":"+port, server.New(cache))
+	return server.Run(config.Addr(), server.New(cache))
 }
 
 // probe returns 0 if the local server answers /healthz.

@@ -12,7 +12,10 @@ services:
     image: argus
     container_name: ${ARGUS_CONTAINER_NAME:-argus}
     ports:
-      - "${ARGUS_PORT:-18474}:18474"
+      # Published to loopback ONLY. Without the 127.0.0.1 prefix Docker
+      # binds every interface, and anyone on your network could read your
+      # organisation's data through your token, unauthenticated.
+      - "127.0.0.1:${ARGUS_PORT:-18474}:18474"
 
     # Non-secret settings come from .env, which Compose reads automatically.
     env_file:
@@ -24,6 +27,10 @@ services:
       # from your gh login. It is never written to a file or baked into
       # the image.
       ARGUS_GITHUB_TOKEN: "${ARGUS_GITHUB_TOKEN:-}"
+      # Docker forwards to the container's address, not its loopback, so
+      # the server must listen broadly *inside* the container. The port
+      # mapping above is what limits real exposure to this machine.
+      ARGUS_BIND: "0.0.0.0"
 
     # Come back after a reboot, and after a crash, until explicitly stopped.
     restart: unless-stopped
