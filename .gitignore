@@ -27,3 +27,4 @@ node_modules/
 
 # TypeScript incremental build state.
 *.tsbuildinfo
+dist/

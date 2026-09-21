@@ -1,0 +1,86 @@
+# Releasing Argus as a binary.
+#
+# The dashboard is compiled into the binary (web/embed.go), so the
+# frontend has to be built before the Go build runs - hence the hook.
+# Everything is static: no cgo, no runtime dependency, one file.
+version: 2
+project_name: argus
+
+before:
+  hooks:
+    - npm --prefix web ci
+    - npm --prefix web run build
+
+builds:
+  - id: argus
+    main: ./cmd/argus
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.FullCommit}}
+
+archives:
+  - id: argus
+    formats: [tar.gz]
+    # Windows gets a zip, because tar.gz is awkward there without extra
+    # tools and the point of the binary path is that there are none.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+      - docs/*.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+# Homebrew casks are macOS-only. Linux users take the tarball from the
+# release, or run the container - both are in the README.
+homebrew_casks:
+  - name: argus
+    repository:
+      owner: Tzomily-Anvar
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/Tzomily-Anvar/argus
+    description: A read-only dashboard for what a GitHub organisation is doing
+    license: MIT
+    # The binary is not notarised, so Gatekeeper would quarantine it and
+    # macOS would refuse to run it with a dialog that blames the user.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/argus"]
+          end
+    # No service block: `argus service install` writes the launchd or
+    # systemd unit itself, so one command works however Argus was
+    # installed, and nothing sweeps until someone asks it to.
+    caveats: |
+      Argus keeps its configuration in your home directory and holds no
+      credential of its own beyond the session you create by signing in.
+
+          argus init      write a starter config, then set your org in it
+          argus login     sign in to GitHub - no token, no private key
+          argus doctor    check it over
+          argus           run it
+
+      To keep it sweeping in the background, so the dashboard is already
+      up to date whenever you open it:
+
+          argus service install

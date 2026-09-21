@@ -70,6 +70,25 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Cross-compile the released targets
+        run: |
+          # Installing the background service has a path per operating
+          # system - launchd, systemd, the Windows task scheduler - and each
+          # one only compiles on its own GOOS. Everything else in this file
+          # runs on Linux, so without this the Windows path is never built
+          # by anyone and a tag is the first thing to try it.
+          #
+          # These are the goos/goarch pairs in .goreleaser.yaml. CGO is off
+          # for the same reason it is off there: the release binary is
+          # static.
+          for target in darwin/amd64 darwin/arm64 \
+                        linux/amd64 linux/arm64 \
+                        windows/amd64 windows/arm64; do
+            echo "building ${target}"
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 \
+              go build ./...
+          done
+
       - name: Tests
         env:
           ARGUS_TEST_DATABASE_URL: postgres://postgres:ci@localhost:5432/argus_test?sslmode=disable
@@ -138,3 +157,59 @@ jobs:
           echo "did not become healthy; logs:"
           docker logs argus-ci
           exit 1
+
+  release:
+    name: Release build
+    runs-on: ubuntu-latest
+
+    env:
+      # The GoReleaser action looks its own release up through the API, and
+      # without a token that is the anonymous rate limit shared with every
+      # other runner on the machine. This is the read-only token declared at
+      # the top of this file; nothing in this job publishes anything.
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A snapshot version is derived from the nearest tag, so the tags
+          # have to be here - same reason the release workflow does this.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Config first, because it needs nothing built: a typo in
+      # .goreleaser.yaml is worth hearing about before anyone waits on an
+      # npm install, and nothing else in this repository ever reads it.
+      - name: Check the release config
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The dashboard is compiled into the binary, so it has to exist before
+      # the Go build runs. The release workflow does these same two steps
+      # ahead of GoReleaser for the same reason.
+      - name: Build the dashboard
+        run: npm ci && npm run build
+        working-directory: web
+
+      # Everything a tag does except the publishing: the archives, the
+      # Windows zip, the checksums and the files each archive is meant to
+      # carry. A renamed doc or a broken name template fails here, on the
+      # pull request that caused it, rather than halfway through a release.
+      # --skip=before because the dashboard was just built above.
+      - name: Build the release artefacts
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=before
