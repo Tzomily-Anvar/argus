@@ -1,0 +1,44 @@
+package rules
+
+import "github.com/Tzomily-Anvar/argus/internal/gh"
+
+func init() {
+	Register(Rule{
+		ID:          "merge_readiness",
+		Title:       "Ready to merge",
+		Description: "Every open, review-ready pull request with its review decision and check status.",
+		Why:         "Shows what is approved and green but still sitting there. Merging these is usually the cheapest win available.",
+		Enabled:     true,
+		Params: append([]Param{
+			{Name: "exclude_drafts", Desc: "Skip draft pull requests.", Default: true},
+			{Name: "exclude_authors", Desc: "Authors to ignore entirely, comma separated.", Default: []string{"app/dependabot"}},
+		}, checkParams()...),
+		Run: runMergeReadiness,
+	})
+}
+
+func runMergeReadiness(c *Context, v Values) (any, error) {
+	q := "is:pr is:open"
+	if v.Bool("exclude_drafts") {
+		q += " draft:false"
+	}
+	for _, a := range v.Strs("exclude_authors") {
+		q += " -author:" + a
+	}
+
+	items, err := c.Search(q)
+	if err != nil {
+		return nil, err
+	}
+
+	qa, ignore := v.Str("qa_label"), v.Strs("ignore_checks")
+	rows := gh.PMap(items, c.Concurrency, func(it map[string]any) map[string]any {
+		checks := prChecks(c, RepoName(it), Number(it), qa, ignore)
+		if checks == nil {
+			return nil
+		}
+		return Row(it, c.Now, checks)
+	})
+
+	return Rows(Compact(rows)), nil
+}
