@@ -128,3 +128,86 @@ func Bind() string { return String("ARGUS_BIND", "127.0.0.1") }
 func Addr() string     { return Bind() + ":" + Port() }
 func Concurrency() int { return Int("ARGUS_CONCURRENCY", 10) }
 func HTTPTimeout() int { return Int("ARGUS_HTTP_TIMEOUT_SECONDS", 45) }
+
+// ---- Jira, for the sprint report ------------------------------------
+//
+// None of these have a company-specific default. Field ids in particular
+// differ per Jira site, so they must be configured or resolved by name -
+// a hardcoded customfield_10016 is right for one site and silently wrong
+// for the next.
+
+func JiraBaseURL() (string, error) {
+	if v := String("ARGUS_JIRA_BASE_URL", ""); v != "" {
+		return v, nil
+	}
+	return "", &Missing{
+		Key:  "ARGUS_JIRA_BASE_URL",
+		Hint: "Your Jira site, e.g. https://yourcompany.atlassian.net",
+	}
+}
+
+// JiraCredentials returns the email and API token. Jira Cloud wants Basic
+// auth with both, not a bearer token.
+func JiraCredentials() (string, string, error) {
+	email := String("ARGUS_JIRA_EMAIL", "")
+	token := String("ARGUS_JIRA_TOKEN", "")
+	if email == "" {
+		return "", "", &Missing{
+			Key:  "ARGUS_JIRA_EMAIL",
+			Hint: "The address you log in to Jira with.",
+		}
+	}
+	if token == "" {
+		return "", "", &Missing{
+			Key:  "ARGUS_JIRA_TOKEN",
+			Hint: "Create one at id.atlassian.com/manage-profile/security/api-tokens",
+		}
+	}
+	return email, token, nil
+}
+
+func JiraProject() (string, error) {
+	if v := String("ARGUS_JIRA_PROJECT", ""); v != "" {
+		return v, nil
+	}
+	return "", &Missing{
+		Key:  "ARGUS_JIRA_PROJECT",
+		Hint: "The project key whose sprints you report on, e.g. ENG.",
+	}
+}
+
+// JiraPointsField is the custom field holding story points. Left empty,
+// the tool resolves it by the name in JiraPointsFieldName.
+func JiraPointsField() string { return String("ARGUS_JIRA_POINTS_FIELD", "") }
+
+func JiraPointsFieldName() string {
+	return String("ARGUS_JIRA_POINTS_FIELD_NAME", "Story Points")
+}
+
+func JiraSprintField() string { return String("ARGUS_JIRA_SPRINT_FIELD", "") }
+
+func JiraSprintFieldName() string {
+	return String("ARGUS_JIRA_SPRINT_FIELD_NAME", "Sprint")
+}
+
+// JiraDoneStatuses are the status names that count as delivered. Matched
+// by name, not by Jira's "done" category: teams routinely have several
+// statuses in that category and disagree about which mean finished.
+func JiraDoneStatuses() []string {
+	return Strings("ARGUS_JIRA_DONE_STATUSES", []string{"Done"})
+}
+
+// JiraExcludedTypes are issue types left out of the say/do count, usually
+// the container types that carry no commitment of their own.
+func JiraExcludedTypes() []string {
+	return Strings("ARGUS_JIRA_EXCLUDED_TYPES", []string{"Epic"})
+}
+
+// JiraSprintLengthDays is the nominal sprint length, used to turn days
+// off into a share of a person's baseline.
+func JiraSprintLengthDays() int { return Int("ARGUS_JIRA_SPRINT_LENGTH_DAYS", 10) }
+
+// SprintWritesAllowed gates every write the sprint tool can make.
+// Off by default: a tool that can reassign tickets and publish pages
+// should be something you switch on deliberately.
+func SprintWritesAllowed() bool { return Bool("ARGUS_SPRINT_ALLOW_WRITES", false) }
