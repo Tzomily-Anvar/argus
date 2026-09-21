@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchSprintReport, fetchSprints } from "./api";
+import { navigate, useRoute } from "./route";
 import { SprintPicker } from "./components/SprintPicker";
 import { SprintReportView } from "./components/SprintReport";
 import { Icon } from "./components/Icons";
@@ -17,8 +18,15 @@ function ago(iso: string): string {
 
 export function SprintTool() {
   const qc = useQueryClient();
-  const [picked, setPicked] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
+
+  // The sprint number is part of the address, so a report can be linked
+  // to and a reload comes back to the sprint you were reading. Anything
+  // that is not a sprint number reads as "none picked", and the current
+  // sprint fills in below.
+  const route = useRoute();
+  const picked = /^\d+$/.test(route.view) ? Number(route.view) : null;
+  const pick = (n: number) => navigate({ tool: "sprint", view: String(n) });
 
   // The list is fetched live rather than cached: it costs about half a
   // second, and storing it would buy a staleness bug instead.
@@ -39,7 +47,9 @@ export function SprintTool() {
   useEffect(() => {
     if (picked === null && sprints.data?.sprints.length) {
       const current = sprints.data.sprints.find((s) => s.current) ?? sprints.data.sprints[0];
-      setPicked(current.number);
+      // Replaced, not pushed: nobody chose this, so Back should leave the
+      // tool rather than bounce off the sprint it filled in.
+      navigate({ tool: "sprint", view: String(current.number) }, true);
     }
   }, [sprints.data, picked]);
 
@@ -106,7 +116,7 @@ export function SprintTool() {
         sprints={sprints.data?.sprints ?? []}
         all={allSprints.data?.sprints ?? null}
         active={picked}
-        onPick={setPicked}
+        onPick={pick}
         onNeedAll={() => setWantAll(true)}
         loading={sprints.isLoading}
         loadingAll={allSprints.isLoading}

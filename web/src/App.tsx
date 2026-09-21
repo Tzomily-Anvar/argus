@@ -5,6 +5,7 @@ import {
   type BranchRow, type MergeReadiness, type PRRow, type RuleInfo,
 } from "./api";
 import { applyTheme, loadPrefs, savePrefs, type Prefs } from "./theme";
+import { navigate, useRoute } from "./route";
 import { mergeAvailability } from "./tools";
 import { fetchTools } from "./api";
 import { SprintTool } from "./SprintTool";
@@ -71,11 +72,21 @@ type SectionDef = {
   body: () => React.ReactNode;
 };
 
+/* The section is the second segment of the path. Two of them are spelt
+ * differently there than in the code: the overview is the bare tool, and
+ * the rules panel is a toggle rather than a tab, so its internal sentinel
+ * does not deserve to be seen. */
+const viewOf = (section: string) =>
+  section === "overview" ? "" : section === "__rules" ? "rules" : section;
+const sectionOf = (view: string) =>
+  view === "" ? "overview" : view === "rules" ? "__rules" : view;
+
 export default function App() {
   const qc = useQueryClient();
   const [prefs, setPrefs] = useThemePrefs();
-  const [tool, setTool] = useState("pr");
-  const [active, setActive] = useState("overview");
+  const route = useRoute();
+  const tool = route.tool;
+  const setActive = (id: string) => navigate({ tool: "pr", view: viewOf(id) });
   const [collapsed, toggleRail] = usePersistedFlag("argus-rail-collapsed", false);
 
   const snapshot = useQuery({
@@ -162,6 +173,12 @@ export default function App() {
     ...defs.map((d) => ({ id: d.id, label: d.label, count: d.count, urgent: d.urgent })),
   ];
 
+  // A section the URL asks for that this page has no tab for - a link
+  // from before a rule was renamed, or one typed by hand - opens the
+  // overview rather than an empty panel or an error.
+  const wanted = sectionOf(route.view);
+  const active = wanted === "__rules" || sections.some((s) => s.id === wanted) ? wanted : "overview";
+
   // The overview stacks the same sections, ordered by how much each one
   // is the reader's move. Security is excluded: it is a different shape
   // and a different question, and belongs in its own tab.
@@ -200,7 +217,7 @@ export default function App() {
     { label: "Ready to merge", value: ready.length, hint: qaInUse ? "approved, green, QA accepted" : "approved and green", tone: "good", onClick: () => setActive("ready") },
     ...(qaInUse ? [{ label: "Ready to QA", value: awaitingQA.length, hint: "only the QA label is missing", tone: "warning" as const, onClick: () => setActive("awaiting_qa") }] : []),
     { label: "Unclaimed", value: unclaimed.length, hint: "no reviewer assigned", tone: "warning", onClick: () => setActive("unreviewed") },
-    { label: "Stale", value: stale?.rows?.length ?? 0, hint: `${stale?.bot_count ?? 0} bot PRs not shown`, onClick: () => setActive("stale_prs") },
+    { label: "Stale", value: stale?.rows?.length ?? 0, hint: `${stale?.bot_count ?? 0} bot PRs not shown`, onClick: () => setActive("stale") },
     { label: "Critical alerts", value: security?.dependabot?.criticals?.length ?? 0,
       hint: "excludes vendored dependencies", tone: "critical", onClick: () => setActive("security") },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -215,7 +232,7 @@ export default function App() {
       <Sidebar
         tools={mergeAvailability(tools.data?.tools ?? [{ id: "pr", available: true }])}
         active={tool}
-        onSelect={setTool}
+        onSelect={(id) => { if (id !== tool) navigate({ tool: id, view: "" }); }}
         collapsed={collapsed}
         onToggle={toggleRail}
         user={data?.user}
@@ -247,7 +264,7 @@ export default function App() {
               <button
                 onClick={() => setActive(active === "__rules" ? "overview" : "__rules")}
                 aria-pressed={active === "__rules"}
-                title="How each check is defined. Read-only - changes are made in your .env"
+                title="How each check is defined. Read-only - changes are made in your configuration file"
                 className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium"
                 style={{
                   background: active === "__rules" ? "var(--surface-2)" : "var(--surface)",
