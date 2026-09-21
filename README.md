@@ -214,9 +214,9 @@ it running — that is what the unusual port is for.
 ## The rules
 
 Each check is a **rule**: independent, individually switchable, and
-tunable without touching code. The **Rules** tab in the dashboard lists
-every one of them live, with the exact environment variable for each
-knob.
+tunable without touching code. The **Rules** button, beside Refresh,
+lists every one of them live with the exact environment variable for each
+knob. It reports configuration; it does not change it.
 
 | Rule | What it surfaces |
 |---|---|
@@ -228,7 +228,14 @@ knob.
 | `stale_branches` | Branches with no commit in a long time. |
 | `security` | Dependabot and code-scanning alerts, plus open Dependabot PRs. |
 
-Turn one off, or retune it, in `.env`:
+The dashboard's sections are not one-to-one with these rules. Some are a
+filtered view of one — **Ready to merge** and **Ready to QA** split the
+approved-and-green pile by whether the QA label is present, and **Stale**
+shows the stale pull requests and stale branches rules together, because
+they answer one question. The **Overview** stacks everything, ordered by
+how much it is your move.
+
+Turn a rule off, or retune it, in `.env`:
 
 ```bash
 ARGUS_RULE_STALE_PRS_ENABLED=false      # opt out entirely
@@ -263,6 +270,21 @@ This matters more than it sounds. A handful of neglected repositories
 can carry most of an organisation's open alerts and push the ones you
 would actually fix off the bottom of the list.
 
+### The QA stage
+
+If your workflow has a label that gates merge, name it and Argus splits
+the approved work in two: **Ready to merge** (the label is present,
+nothing left to do) and **Ready to QA** (reviewed, approved and green,
+with only the label outstanding — a handover, not something to chase the
+author about).
+
+```bash
+ARGUS_RULE_MERGE_READINESS_QA_LABEL=qa-signoff
+```
+
+With no label configured there is no QA stage, the section does not
+appear, and **Ready to merge** simply means approved and green.
+
 ### Real failures versus policy gates
 
 Many organisations have a required check that is a *policy* rather than a
@@ -276,6 +298,11 @@ so `real_failures` means something is actually wrong:
 ARGUS_RULE_MERGE_READINESS_IGNORE_CHECKS=policy/required-label,policy/title-format
 ```
 
+You do not have to work this out yourself. When a check fails on nearly
+every open pull request — the signature of a gate rather than a broken
+build — the dashboard says so and gives you the exact line to paste. It
+stops once configured.
+
 ---
 
 ## Troubleshooting
@@ -287,7 +314,7 @@ ARGUS_RULE_MERGE_READINESS_IGNORE_CHECKS=policy/required-label,policy/title-form
 | `403 with a SAML/SSO error` | Token is valid but not authorised for the org — see [SSO](#if-your-organisation-uses-saml-single-sign-on). |
 | `403` on the security section only | Token cannot read org-wide alerts. Add `security_events`, or set `ARGUS_RULE_SECURITY_ENABLED=false`. |
 | `404` for the org | `ARGUS_GITHUB_ORG` is wrong, or your token cannot see it. |
-| Empty sections, no error | Genuinely nothing to show. The counts in the Rules tab confirm the sweep ran. |
+| Empty sections, no error | Genuinely nothing to show. The Rules panel confirms which checks ran. |
 | Port already in use | Set `ARGUS_PORT` in `.env`. |
 
 `./run.sh doctor` checks all of the above and says which step failed.
