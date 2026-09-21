@@ -40,5 +40,10 @@ func runMergeReadiness(c *Context, v Values) (any, error) {
 		return Row(it, c.Now, checks)
 	})
 
-	return Rows(Compact(rows)), nil
+	clean := Compact(rows)
+	return map[string]any{
+		"rows": Rows(clean),
+		// Suggestions only - nothing above has been reclassified.
+		"policy_hints": detectPolicyHints(clean, "merge_readiness", ignore),
+	}, nil
 }

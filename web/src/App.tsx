@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchRules, fetchSnapshot, requestRefresh, type BranchRow, type PRRow, type RuleInfo } from "./api";
+import { fetchRules, fetchSnapshot, requestRefresh, type BranchRow, type MergeReadiness, type PRRow, type RuleInfo } from "./api";
 import { StatTiles, type Stat } from "./components/StatTiles";
 import { BranchTable, Empty, PRTable } from "./components/Tables";
 import { Security, type SecurityData } from "./components/Security";
 import { RulesPanel } from "./components/RulesPanel";
+import { PolicyHintBanner } from "./components/PolicyHint";
 
 function ago(seconds: number): string {
   if (seconds < 60) return "just now";
@@ -68,10 +69,10 @@ export default function App() {
   };
 
   const stale = data?.results["stale_prs"]?.data as { rows?: PRRow[]; bot_count?: number } | undefined;
+  const merge = data?.results["merge_readiness"]?.data as MergeReadiness | undefined;
+  const mergeRows = merge?.rows ?? [];
   const security = data?.results["security"]?.data as SecurityData | undefined;
-  const mergeable = rows<PRRow>("merge_readiness").filter(
-    (p) => p.review_decision === "APPROVED" && p.checks_green,
-  );
+  const mergeable = mergeRows.filter((p) => p.review_decision === "APPROVED" && p.checks_green);
 
   const stats: Stat[] = useMemo(
     () => [
@@ -117,7 +118,7 @@ export default function App() {
     { id: "review_requested", label: "On you", count: rows<PRRow>("review_requested").length },
     { id: "my_prs", label: "Yours", count: rows<PRRow>("my_prs").length },
     { id: "unreviewed", label: "Unclaimed", count: rows<PRRow>("unreviewed").length },
-    { id: "merge_readiness", label: "All open", count: rows<PRRow>("merge_readiness").length },
+    { id: "merge_readiness", label: "All open", count: mergeRows.length },
     { id: "stale_prs", label: "Stale", count: stale?.rows?.length ?? 0 },
     { id: "stale_branches", label: "Branches", count: rows<BranchRow>("stale_branches").length },
     { id: "security", label: "Security", count: security?.dependabot?.criticals?.length ?? 0 },
@@ -225,6 +226,10 @@ export default function App() {
                   </div>
                 )}
 
+                {active === "merge_readiness" && merge?.policy_hints && (
+                  <PolicyHintBanner hints={merge.policy_hints} />
+                )}
+
                 {activeResult?.error ? (
                   <p className="rounded px-3 py-2 text-sm" style={{ background: "#fdeae1", color: "#7d3517" }}>
                     {activeResult.error}
@@ -239,7 +244,9 @@ export default function App() {
                       <PRTable rows={stale?.rows ?? []} />
                     ) : active === "my_prs" ? (
                       <PRTable rows={rows<PRRow>("my_prs")} showAuthor={false} />
-                    ) : ["review_requested", "unreviewed", "merge_readiness"].includes(active) ? (
+                    ) : active === "merge_readiness" ? (
+                      <PRTable rows={mergeRows} />
+                    ) : ["review_requested", "unreviewed"].includes(active) ? (
                       <PRTable rows={rows<PRRow>(active)} />
                     ) : (
                       <Empty />

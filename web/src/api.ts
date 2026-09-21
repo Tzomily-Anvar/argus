@@ -57,6 +57,20 @@ export type PRRow = {
   checks_green?: boolean;
 };
 
+export type PolicyHint = {
+  name: string;
+  token: string;
+  failing_on: number;
+  out_of: number;
+  env: string;
+  suggestion: string;
+};
+
+export type MergeReadiness = {
+  rows: PRRow[];
+  policy_hints: PolicyHint[] | null;
+};
+
 export type BranchRow = {
   repo: string;
   branch: string;
