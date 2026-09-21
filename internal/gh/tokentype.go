@@ -76,6 +76,11 @@ func (t TokenType) permissionAdvice() string {
 	case TokenAppInstall:
 		return "A GitHub App installation token is scoped to the app's installation, and cannot " +
 			"see anything personal such as your own review requests."
+	case TokenAppUser:
+		return "A GitHub App user token can reach only what BOTH you and the installation can " +
+			"reach. Check the App is installed on this organisation, and on all repositories " +
+			"rather than a selected few - a partial installation makes Argus under-report " +
+			"with no error."
 	}
 	return "Check that the token grants access to this resource."
 }
