@@ -89,6 +89,17 @@
     box-shadow: var(--shadow);
   }
 
+  /* Auto-fits however many tiles there are, so adding one (the QA stage,
+   * say) never leaves a lone tile stranded on a second row. The 1px gap
+   * over a line-coloured background draws the separators in both
+   * directions for free. */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+    gap: 1px;
+    background: var(--line);
+  }
+
   .lnk {
     color: var(--accent);
     text-decoration: none;

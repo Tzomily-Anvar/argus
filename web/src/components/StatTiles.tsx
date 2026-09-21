@@ -24,20 +24,17 @@ const COLOR: Record<Tone, string> = {
 
 export function StatTiles({ stats }: { stats: Stat[] }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-      {stats.map((s, i) => (
+    <div className="stat-grid">
+      {stats.map((s) => (
         <button
           key={s.label}
           onClick={s.onClick}
           disabled={!s.onClick}
           title={s.hint}
           className="flex flex-col gap-1 px-4 py-3.5 text-left transition-colors enabled:cursor-pointer"
-          style={{
-            borderLeft: i === 0 ? "none" : "1px solid var(--line)",
-            background: "transparent",
-          }}
+          style={{ background: "var(--surface)" }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface)")}
         >
           <span className="text-[11px] font-semibold tracking-wide uppercase" style={{ color: "var(--faint)" }}>
             {s.label}

@@ -13,6 +13,7 @@ import { StatTiles, type Stat } from "./components/StatTiles";
 import { Empty, PRTable } from "./components/Tables";
 import { StaleView } from "./components/StaleView";
 import { Security, type SecurityData } from "./components/Security";
+import { SecuritySummary } from "./components/SecuritySummary";
 import { RulesPanel } from "./components/RulesPanel";
 import { PolicyHintBanner } from "./components/PolicyHint";
 import { Overview, preview, type Block } from "./components/Overview";
@@ -106,6 +107,12 @@ export default function App() {
   const allOpen = merge?.rows ?? [];
   const security = data?.results["security"]?.data as SecurityData | undefined;
 
+  // Criticals alone would be the wrong measure of "is this clear?": an
+  // organisation with three hundred highs and no criticals is not clear.
+  // The overview asks about both, in first-party code.
+  const critHigh = (security?.dependabot?.crit_high_by_repo ?? [])
+    .reduce((n, r) => n + r.critical + r.high, 0);
+
   // Approved with nothing genuinely failing. Policy gates are excluded
   // from checks_green by the rule, so a red "missing label" check does
   // not by itself keep a pull request out of these lists.
@@ -141,7 +148,8 @@ export default function App() {
       why: "Pull requests and branches that have stopped moving. Long-lived branches drift from main and get harder to merge the longer they sit - finish them or close them.",
       count: (stale?.rows?.length ?? 0) + branches.length,
       body: () => <StaleView prs={stale?.rows ?? []} botCount={stale?.bot_count ?? 0} branches={branches} /> },
-    { id: "security", label: "Security", title: "Security alerts", why: why("security"),
+    { id: "security", label: "Security", title: "Security alerts",
+      why: "Open Dependabot and code-scanning alerts. Vendored dependencies are counted in the totals but kept out of the per-repository rollup, so a lockfile in node_modules cannot outrank your own code.",
       count: security?.dependabot?.criticals?.length ?? 0, urgent: true,
       body: () => (security ? <Security data={security} /> : <Empty />) },
   ];
@@ -155,16 +163,18 @@ export default function App() {
   // is the reader's move. Security is excluded: it is a different shape
   // and a different question, and belongs in its own tab.
   const blocks: Block[] = defs
-    .filter((d) => !["security", "merge_readiness"].includes(d.id))
+    .filter((d) => !["merge_readiness"].includes(d.id))
     .map((d, i) => ({
       id: d.id,
       title: d.title,
       why: d.why,
-      count: d.count,
+      count: d.id === "security" ? critHigh : d.count,
       priority: 100 - i * 10,
       urgent: d.urgent,
       render:
-        d.id === "stale"
+        d.id === "security"
+          ? () => (security ? <SecuritySummary data={security} onOpen={() => setActive("security")} /> : <Empty />)
+          : d.id === "stale"
           ? (limit: number) => (
               <StaleView
                 prs={(stale?.rows ?? []).slice(0, limit)}
@@ -188,7 +198,8 @@ export default function App() {
     ...(qaInUse ? [{ label: "Ready to QA", value: awaitingQA.length, hint: "only the QA label is missing", tone: "warning" as const, onClick: () => setActive("awaiting_qa") }] : []),
     { label: "Unclaimed", value: unclaimed.length, hint: "no reviewer assigned", tone: "warning", onClick: () => setActive("unreviewed") },
     { label: "Stale", value: stale?.rows?.length ?? 0, hint: `${stale?.bot_count ?? 0} bot PRs not shown`, onClick: () => setActive("stale_prs") },
-    { label: "Critical alerts", value: security?.dependabot?.criticals?.length ?? 0, hint: "first-party code only", tone: "critical", onClick: () => setActive("security") },
+    { label: "Critical alerts", value: security?.dependabot?.criticals?.length ?? 0,
+      hint: "excludes vendored dependencies", tone: "critical", onClick: () => setActive("security") },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [data]);
 
@@ -221,15 +232,16 @@ export default function App() {
               <button
                 onClick={() => refresh.mutate()}
                 disabled={data?.sweeping}
-                className="rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
                 style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
               >
+                <Icon.refresh />
                 Refresh
               </button>
               <button
                 onClick={() => setActive(active === "__rules" ? "overview" : "__rules")}
                 aria-pressed={active === "__rules"}
-                title="How each check is defined, and how to change it"
+                title="How each check is defined. Read-only - changes are made in your .env"
                 className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium"
                 style={{
                   background: active === "__rules" ? "var(--surface-2)" : "var(--surface)",
@@ -238,7 +250,7 @@ export default function App() {
                   color: active === "__rules" ? "var(--ink)" : "var(--muted)",
                 }}
               >
-                <Icon.sliders />
+                <Icon.info />
                 Rules
               </button>
             </div>

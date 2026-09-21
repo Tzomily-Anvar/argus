@@ -22,9 +22,10 @@ export function RulesPanel({ rules }: { rules: RuleInfo[] }) {
   return (
     <div className="space-y-4">
       <p className="text-sm" style={{ color: "var(--muted)" }}>
-        Each check is independent. Turn one off or retune it by setting the environment variable
-        shown, in your <code className="font-mono text-xs">.env</code>, then restart. Adding a new
-        check means adding one file — see CONTRIBUTING.md.
+        This page reports how each check is currently configured; it does not change anything.
+        Each check is independent — to turn one off or retune it, set the environment variable
+        shown in your <code className="font-mono text-xs">.env</code> and restart. Adding a new
+        check means adding one file; see CONTRIBUTING.md.
       </p>
 
       {rules.map((rule) => (
