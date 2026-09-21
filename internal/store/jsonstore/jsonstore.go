@@ -238,10 +238,20 @@ func capacityFile(sprintJiraID int64) string {
 	return fmt.Sprintf("capacity-%d", sprintJiraID)
 }
 
-func (s *Store) PutCapacity(_ context.Context, c store.Capacity) error {
+func (s *Store) PutCapacity(ctx context.Context, c store.Capacity) error {
 	if c.SprintJiraID == 0 || c.AccountID == "" {
 		return fmt.Errorf("capacity needs a sprint id and an account id")
 	}
+	// Postgres enforces this with foreign keys. Checking it here keeps the
+	// two backends behaving identically, rather than one silently
+	// accepting capacity for a person nobody registered.
+	if _, err := s.GetSprint(ctx, c.SprintJiraID); err != nil {
+		return fmt.Errorf("sprint %d: %w", c.SprintJiraID, store.ErrUnknownReference)
+	}
+	if _, err := s.GetPerson(ctx, c.AccountID); err != nil {
+		return fmt.Errorf("person %s: %w", c.AccountID, store.ErrUnknownReference)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -354,6 +364,59 @@ func (s *Store) ListWrites(_ context.Context, limit int) ([]store.WriteRecord, e
 }
 
 // ---- lifecycle -------------------------------------------------------
+
+// Prune drops per-person rows for sprints that ended before the cutoff,
+// keeping the aggregate stats the trends are drawn from.
+func (s *Store) Prune(ctx context.Context, before time.Time) (store.PruneResult, error) {
+	var res store.PruneResult
+
+	sprints, err := s.ListSprints(ctx, 0)
+	if err != nil {
+		return res, err
+	}
+	for _, sp := range sprints {
+		// A sprint with no end date cannot be judged stale, so it is kept.
+		if sp.EndsAt == nil || !sp.EndsAt.Before(before) {
+			continue
+		}
+		rows, err := s.ListCapacity(ctx, sp.JiraID)
+		if err != nil {
+			return res, err
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		s.mu.Lock()
+		err = os.Remove(s.path(capacityFile(sp.JiraID)))
+		s.mu.Unlock()
+		if err != nil && !os.IsNotExist(err) {
+			return res, fmt.Errorf("pruning capacity for sprint %d: %w", sp.JiraID, err)
+		}
+		res.CapacityRows += len(rows)
+	}
+
+	writes, err := s.ListWrites(ctx, 0)
+	if err != nil {
+		return res, err
+	}
+	kept := make([]store.WriteRecord, 0, len(writes))
+	for _, w := range writes {
+		if w.At.Before(before) {
+			res.WriteRows++
+			continue
+		}
+		kept = append(kept, w)
+	}
+	if res.WriteRows > 0 {
+		s.mu.Lock()
+		err = s.write("writes", kept)
+		s.mu.Unlock()
+		if err != nil {
+			return res, err
+		}
+	}
+	return res, nil
+}
 
 // Migrate exists to satisfy the interface. Files have no schema to
 // version; a field added to a struct simply reads as its zero value in

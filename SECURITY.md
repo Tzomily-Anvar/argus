@@ -2,9 +2,13 @@
 
 ## Reporting a vulnerability
 
-Please report security issues privately through
-[GitHub's private vulnerability reporting](https://github.com/Tzomily-Anvar/argus/security/advisories/new)
-rather than opening a public issue.
+Please report security issues privately, through
+[GitHub's private vulnerability reporting](https://github.com/Tzomily-Anvar/argus/security/advisories/new).
+
+If that link is unavailable, open a normal issue asking for a private
+channel and **leave the details out of it** - a public issue describing a
+working exploit helps an attacker before it helps anyone else. A
+maintainer will open a private advisory and reply there.
 
 ## Design
 

@@ -31,6 +31,11 @@ import (
 // expected to treat it as a normal outcome rather than a failure.
 var ErrNotFound = errors.New("not found")
 
+// ErrUnknownReference is returned when capacity is written for a sprint or
+// a person that does not exist. Postgres enforces this with foreign keys;
+// the file backend checks it explicitly, so both behave the same way.
+var ErrUnknownReference = errors.New("unknown sprint or person")
+
 // Person is a team member Argus knows about. The Jira account id is the
 // join key; the display name is for reading.
 type Person struct {
@@ -111,17 +116,19 @@ func (c Capacity) DaysOff() float64 { return c.PlannedDaysOff + c.UnplannedDaysO
 // SprintStats is the summary kept for one finished sprint, so trends can
 // be drawn without re-fetching years of Jira history.
 type SprintStats struct {
-	SprintJiraID    int64              `json:"sprint_jira_id"`
-	BaselineTotal   float64            `json:"baseline_total"`
-	CapacityTotal   float64            `json:"capacity_total"`
-	DeliveredTotal  float64            `json:"delivered_total"`
-	Promised        int                `json:"promised"`
-	Injected        int                `json:"injected"`
-	Completed       int                `json:"completed"`
-	ByEpicClass     map[string]float64 `json:"by_epic_class"`
-	StoriesDone     int                `json:"stories_done"`
-	StoryPointsDone float64            `json:"story_points_done"`
-	RecordedAt      time.Time          `json:"recorded_at"`
+	SprintJiraID     int64              `json:"sprint_jira_id"`
+	BaselineTotal    float64            `json:"baseline_total"`
+	CapacityTotal    float64            `json:"capacity_total"`
+	PlannedDaysOff   float64            `json:"planned_days_off"`
+	UnplannedDaysOff float64            `json:"unplanned_days_off"`
+	DeliveredTotal   float64            `json:"delivered_total"`
+	Promised         int                `json:"promised"`
+	Injected         int                `json:"injected"`
+	Completed        int                `json:"completed"`
+	ByEpicClass      map[string]float64 `json:"by_epic_class"`
+	StoriesDone      int                `json:"stories_done"`
+	StoryPointsDone  float64            `json:"story_points_done"`
+	RecordedAt       time.Time          `json:"recorded_at"`
 }
 
 // WriteRecord is one change Argus made in Jira or Confluence.
@@ -167,7 +174,24 @@ type Store interface {
 	AppendWrite(ctx context.Context, w WriteRecord) error
 	ListWrites(ctx context.Context, limit int) ([]WriteRecord, error)
 
+	// Retention
+	//
+	// Trends need years of aggregates, but per-person absence records do
+	// not need to accumulate indefinitely - including for people who have
+	// left. Prune drops capacity rows and write-log entries for sprints
+	// that ended before the cutoff, and deliberately keeps SprintStats,
+	// which carries no personal data and is what the trends are drawn
+	// from. Anything older than the retention window lives on in the
+	// published Confluence pages, which is the right archive for it.
+	Prune(ctx context.Context, before time.Time) (PruneResult, error)
+
 	// Lifecycle
 	Migrate(ctx context.Context) error
 	Close() error
+}
+
+// PruneResult reports what retention removed.
+type PruneResult struct {
+	CapacityRows int `json:"capacity_rows"`
+	WriteRows    int `json:"write_rows"`
 }

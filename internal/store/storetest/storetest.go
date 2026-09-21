@@ -28,6 +28,8 @@ func Run(t *testing.T, fresh func(t *testing.T) store.Store) {
 		"sprints keyed by Jira id":         testSprints,
 		"capacity is isolated per sprint":  testCapacityIsolation,
 		"absence splits planned/unplanned": testAbsenceSplit,
+		"capacity needs known references":  testUnknownReference,
+		"retention keeps aggregates":       testRetention,
 		"stats round-trip":                 testStats,
 		"writes are append-only":           testWriteAudit,
 		"empty store reads as empty":       testEmptyStore,
@@ -38,6 +40,26 @@ func Run(t *testing.T, fresh func(t *testing.T) store.Store) {
 }
 
 func ctx() context.Context { return context.Background() }
+
+// seed creates the sprint and person that capacity rows reference. Both
+// backends enforce those references - Postgres with foreign keys, the
+// file backend explicitly - so a test writing capacity must create them.
+func seed(t *testing.T, s store.Store, sprintID int64, accountIDs ...string) {
+	t.Helper()
+	ends := time.Now().UTC().Add(-24 * time.Hour)
+	if err := s.PutSprint(ctx(), store.Sprint{
+		JiraID: sprintID, Label: "Sprint X", Number: int(sprintID), EndsAt: &ends,
+	}); err != nil {
+		t.Fatalf("seed sprint: %v", err)
+	}
+	for _, id := range accountIDs {
+		if err := s.PutPerson(ctx(), store.Person{
+			AccountID: id, Name: "Person " + id, Baseline: 10, Active: true,
+		}); err != nil {
+			t.Fatalf("seed person: %v", err)
+		}
+	}
+}
 
 func testPeople(t *testing.T, s store.Store) {
 	p := store.Person{AccountID: "acc-1", Name: "Ada", Baseline: 10, Active: true}
@@ -119,6 +141,8 @@ func testSprints(t *testing.T, s store.Store) {
 
 // Editing one sprint's capacity must not disturb another's.
 func testCapacityIsolation(t *testing.T, s store.Store) {
+	seed(t, s, 744, "a")
+	seed(t, s, 745, "a")
 	_ = s.PutCapacity(ctx(), store.Capacity{SprintJiraID: 744, AccountID: "a", PlannedDaysOff: 2, Reviewed: true})
 	_ = s.PutCapacity(ctx(), store.Capacity{SprintJiraID: 745, AccountID: "a"})
 
@@ -135,6 +159,7 @@ func testCapacityIsolation(t *testing.T, s store.Store) {
 // The split is the whole point: planned absence belongs in the baseline,
 // unplanned absence is what explains a delta nobody could have planned for.
 func testAbsenceSplit(t *testing.T, s store.Store) {
+	seed(t, s, 744, "a")
 	if err := s.PutCapacity(ctx(), store.Capacity{
 		SprintJiraID: 744, AccountID: "a", PlannedDaysOff: 3, UnplannedDaysOff: 1.5,
 	}); err != nil {
@@ -153,6 +178,7 @@ func testAbsenceSplit(t *testing.T, s store.Store) {
 }
 
 func testStats(t *testing.T, s store.Store) {
+	seed(t, s, 744)
 	if err := s.PutStats(ctx(), store.SprintStats{
 		SprintJiraID: 744, BaselineTotal: 80, CapacityTotal: 72, DeliveredTotal: 68,
 		Promised: 20, Injected: 4, Completed: 19,
@@ -222,5 +248,62 @@ func testEmptyStore(t *testing.T, s store.Store) {
 	}
 	if _, err := s.ListWrites(ctx(), 0); err != nil {
 		t.Errorf("ListWrites: %v", err)
+	}
+}
+
+// Capacity for a sprint or person that does not exist is a mistake, not
+// something to store quietly and puzzle over later.
+func testUnknownReference(t *testing.T, s store.Store) {
+	err := s.PutCapacity(ctx(), store.Capacity{SprintJiraID: 999, AccountID: "ghost"})
+	if !errors.Is(err, store.ErrUnknownReference) {
+		t.Errorf("capacity for an unknown sprint: want ErrUnknownReference, got %v", err)
+	}
+
+	seed(t, s, 744)
+	err = s.PutCapacity(ctx(), store.Capacity{SprintJiraID: 744, AccountID: "ghost"})
+	if !errors.Is(err, store.ErrUnknownReference) {
+		t.Errorf("capacity for an unknown person: want ErrUnknownReference, got %v", err)
+	}
+}
+
+// Retention is what keeps the tool from becoming a permanent archive of
+// who was away when. It must drop the per-person rows and keep the
+// aggregates the trends are drawn from.
+func testRetention(t *testing.T, s store.Store) {
+	old := time.Now().UTC().Add(-4 * 365 * 24 * time.Hour)
+	recent := time.Now().UTC().Add(-24 * time.Hour)
+
+	if err := s.PutSprint(ctx(), store.Sprint{JiraID: 1, Label: "old", Number: 1, EndsAt: &old}); err != nil {
+		t.Fatalf("PutSprint: %v", err)
+	}
+	if err := s.PutSprint(ctx(), store.Sprint{JiraID: 2, Label: "recent", Number: 2, EndsAt: &recent}); err != nil {
+		t.Fatalf("PutSprint: %v", err)
+	}
+	_ = s.PutPerson(ctx(), store.Person{AccountID: "a", Name: "A", Baseline: 10, Active: true})
+	_ = s.PutCapacity(ctx(), store.Capacity{SprintJiraID: 1, AccountID: "a", PlannedDaysOff: 2, Note: "private"})
+	_ = s.PutCapacity(ctx(), store.Capacity{SprintJiraID: 2, AccountID: "a", PlannedDaysOff: 1})
+	_ = s.PutStats(ctx(), store.SprintStats{SprintJiraID: 1, DeliveredTotal: 50})
+	_ = s.PutStats(ctx(), store.SprintStats{SprintJiraID: 2, DeliveredTotal: 60})
+
+	cutoff := time.Now().UTC().Add(-3 * 365 * 24 * time.Hour)
+	res, err := s.Prune(ctx(), cutoff)
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if res.CapacityRows != 1 {
+		t.Errorf("expected 1 capacity row pruned, got %d", res.CapacityRows)
+	}
+
+	if rows, _ := s.ListCapacity(ctx(), 1); len(rows) != 0 {
+		t.Errorf("old sprint should have no capacity rows left, got %d", len(rows))
+	}
+	if rows, _ := s.ListCapacity(ctx(), 2); len(rows) != 1 {
+		t.Errorf("recent sprint capacity must survive, got %d rows", len(rows))
+	}
+
+	// The whole point: aggregates outlive the personal data.
+	stats, _ := s.ListStats(ctx(), 0)
+	if len(stats) != 2 {
+		t.Errorf("stats carry no personal data and must survive pruning, got %d", len(stats))
 	}
 }
