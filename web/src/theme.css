@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+/* Design tokens.
+ *
+ * The status colours are fixed and reserved: they mean state, never
+ * identity, and they are never reused as decoration. Two of them sit
+ * below 3:1 contrast on the light surface by design, which is why every
+ * badge in this UI ships an icon and a text label - a status colour
+ * never carries meaning on its own.
+ *
+ * Dark mode is a selected set of steps validated against the dark
+ * surface, not an automatic inversion of the light one.
+ */
+@theme {
+  --color-surface: #fcfcfb;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #f4f4f2;
+  --color-line: #e2e2dd;
+  --color-line-strong: #c9c9c2;
+
+  --color-ink: #1a1a19;
+  --color-ink-muted: #5c5c57;
+  --color-ink-faint: #8a8a83;
+
+  --color-accent: #1f6feb;
+
+  --color-status-good: #0ca30c;
+  --color-status-warning: #fab219;
+  --color-status-serious: #ec835a;
+  --color-status-critical: #d03b3b;
+
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  /* Dark tokens apply when the OS asks for dark, unless the page has
+   * explicitly been pinned to light; and always when pinned to dark. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --color-surface: #1a1a19;
+      --color-surface-raised: #232321;
+      --color-surface-sunken: #131312;
+      --color-line: #343431;
+      --color-line-strong: #4a4a45;
+
+      --color-ink: #f0f0ec;
+      --color-ink-muted: #a8a8a0;
+      --color-ink-faint: #76766f;
+
+      --color-accent: #6fa8ff;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --color-surface: #1a1a19;
+    --color-surface-raised: #232321;
+    --color-surface-sunken: #131312;
+    --color-line: #343431;
+    --color-line-strong: #4a4a45;
+
+    --color-ink: #f0f0ec;
+    --color-ink-muted: #a8a8a0;
+    --color-ink-faint: #76766f;
+
+    --color-accent: #6fa8ff;
+  }
+
+  body {
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Tabular numerals keep counts and ages from jittering between refreshes. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
