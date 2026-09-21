@@ -35,7 +35,11 @@ func runMergeReadiness(c *Context, v Values) (any, error) {
 	rows := gh.PMap(items, c.Concurrency, func(it map[string]any) map[string]any {
 		checks := prChecks(c, RepoName(it), Number(it), qa, ignore)
 		if checks == nil {
-			return nil
+			// Dropping the row made the rule render empty whenever checks
+			// could not be read - which looks like "nothing is open"
+			// rather than "check status is unavailable". Showing the pull
+			// request with unknown status is the honest answer.
+			checks = noChecks()
 		}
 		return Row(it, c.Now, checks)
 	})

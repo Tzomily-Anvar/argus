@@ -20,6 +20,7 @@ package gh
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -51,11 +52,32 @@ type WriteAttemptError struct{ msg string }
 
 func (e *WriteAttemptError) Error() string { return e.msg }
 
+// PartialError accompanies data that resolved alongside fields that did
+// not. Callers that can work with part of an answer should use the data
+// and ignore this; callers that cannot should treat it as a failure.
+type PartialError struct{ raw any }
+
+func (e *PartialError) Error() string {
+	b, _ := json.Marshal(e.raw)
+	msg := string(b)
+	if len(msg) > 300 {
+		msg = msg[:300]
+	}
+	return "graphql returned partial data: " + msg
+}
+
+// IsPartial reports whether an error is a partial GraphQL answer.
+func IsPartial(err error) bool {
+	var p *PartialError
+	return errors.As(err, &p)
+}
+
 // Client talks to GitHub. Safe for concurrent use.
 type Client struct {
-	http  *http.Client
-	token string
-	sem   chan struct{}
+	http      *http.Client
+	token     string
+	tokenType TokenType
+	sem       chan struct{}
 }
 
 // New returns a client bounded to `concurrency` in-flight requests. The
@@ -66,10 +88,32 @@ func New(token string, concurrency, timeoutSeconds int) *Client {
 		concurrency = 1
 	}
 	return &Client{
-		http:  &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
-		token: token,
-		sem:   make(chan struct{}, concurrency),
+		http:      &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
+		token:     token,
+		tokenType: resolveTokenType(token),
+		sem:       make(chan struct{}, concurrency),
 	}
+}
+
+// TokenType reports what kind of credential this client holds.
+func (c *Client) TokenType() TokenType { return c.tokenType }
+
+// resolveTokenType honours an explicit override and otherwise reads the
+// type from the token's prefix. The override exists for tokens issued
+// before GitHub used prefixes, and for anything it cannot recognise.
+func resolveTokenType(token string) TokenType {
+	switch strings.ToLower(config.String("ARGUS_GITHUB_TOKEN_TYPE", "auto")) {
+	case "fine-grained", "fine_grained", "finegrained":
+		return TokenFineGrained
+	case "classic":
+		return TokenClassic
+	}
+	if t := DetectTokenType(token); t != TokenUnknown {
+		return t
+	}
+	// Unrecognised: assume fine-grained, which is the kind people should
+	// be creating now, so the advice points at the right screen.
+	return TokenFineGrained
 }
 
 // NewFromEnv builds a client from configuration.
@@ -174,7 +218,7 @@ func (c *Client) attempt(method, reqURL string, encoded []byte) (map[string]any,
 		return nil, nil, err, true
 	}
 	if resp.StatusCode >= 400 {
-		return nil, nil, explain(resp.StatusCode, reqURL, raw), false
+		return nil, nil, explain(resp.StatusCode, reqURL, raw, c.tokenType), false
 	}
 
 	payload, err := decode(raw, reqURL)
@@ -208,22 +252,22 @@ func decode(raw []byte, reqURL string) (map[string]any, error) {
 // explain turns GitHub's terser failures into something actionable.
 // 401 and 403 here are nearly always one of three setup problems, and
 // the raw response says so only obliquely, so name them.
-func explain(status int, reqURL string, raw []byte) error {
+func explain(status int, reqURL string, raw []byte, tt TokenType) error {
 	detail := string(raw)
 	if len(detail) > 300 {
 		detail = detail[:300]
 	}
 	switch {
 	case status == 401:
-		return errf("GitHub rejected the token (401). It is missing, mistyped, expired, or revoked. " +
-			"Check ARGUS_GITHUB_TOKEN, or re-run `gh auth login`.")
+		return errf("GitHub rejected the %s (401). It is missing, mistyped, expired, or revoked. "+
+			"Check ARGUS_GITHUB_TOKEN.", tt.Label())
 	case status == 403 && strings.Contains(strings.ToLower(detail), "saml"):
 		return errf("GitHub returned 403 with a SAML/SSO error. The token is valid but has not been " +
 			"authorised for this organisation. Open the token in GitHub settings and use " +
 			"'Configure SSO' -> Authorize. See the token setup section in the README.")
 	case status == 403:
-		return errf("GitHub returned 403 for %s. Usually a missing scope (repo / read:org / "+
-			"security_events) or a rate limit. Detail: %s", reqURL, detail)
+		return errf("GitHub returned 403 for %s, using a %s. %s Detail: %s",
+			reqURL, tt.Label(), tt.permissionAdvice(), detail)
 	case status == 404:
 		return errf("GitHub returned 404 for %s. Either ARGUS_GITHUB_ORG names an organisation that "+
 			"does not exist, or your token cannot see it.", reqURL)
@@ -314,14 +358,32 @@ func (c *Client) GraphQL(query string, variables map[string]any) (map[string]any
 	if err != nil {
 		return nil, err
 	}
-	if errs, ok := payload["errors"]; ok {
-		b, _ := json.Marshal(errs)
-		msg := string(b)
-		if len(msg) > 300 {
-			msg = msg[:300]
-		}
-		return nil, errf("graphql: %s", msg)
-	}
+	return decodeGraphQL(payload)
+}
+
+// decodeGraphQL separates a usable answer from a failed one.
+func decodeGraphQL(payload map[string]any) (map[string]any, error) {
 	data, _ := payload["data"].(map[string]any)
+
+	// GraphQL answers partially: a field the token cannot read comes back
+	// as an error alongside the fields it could. Treating any error as
+	// fatal throws away everything that did resolve.
+	//
+	// That is not hypothetical. A fine-grained token cannot read check
+	// runs at all - GitHub grants that only to Apps - so every pull
+	// request query returns a FORBIDDEN on the check contexts and useful
+	// data beside it. Discarding the lot made the whole rule look empty
+	// rather than partially answered.
+	if errs, ok := payload["errors"]; ok {
+		if len(data) == 0 {
+			b, _ := json.Marshal(errs)
+			msg := string(b)
+			if len(msg) > 300 {
+				msg = msg[:300]
+			}
+			return nil, errf("graphql: %s", msg)
+		}
+		return data, &PartialError{raw: errs}
+	}
 	return data, nil
 }

@@ -11,7 +11,7 @@ query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){ pullRequest(number:$number){
     reviewDecision
     labels(first:30){nodes{name}}
-    commits(last:1){nodes{commit{statusCheckRollup{ state
+    commits(last:1){nodes{commit{oid statusCheckRollup{ state
       contexts(first:100){nodes{
         __typename
         ... on CheckRun{name conclusion}
@@ -43,7 +43,11 @@ func prChecks(c *Context, repo string, number int, qaLabel string, ignoreChecks 
 	data, err := c.Client.GraphQL(prChecksQuery, map[string]any{
 		"owner": c.Org, "name": repo, "number": number,
 	})
-	if err != nil {
+	// Partial data is still worth having: the review decision and labels
+	// usually resolve even when the check contexts do not, and a pull
+	// request with a known review state and unknown checks is far more
+	// useful than no row at all.
+	if err != nil && !gh.IsPartial(err) {
 		return nil
 	}
 	pr := gh.Map(gh.Map(data["repository"])["pullRequest"])
@@ -59,13 +63,26 @@ func prChecks(c *Context, repo string, number int, qaLabel string, ignoreChecks 
 	}
 
 	var rollup map[string]any
+	var headSHA string
 	if nodes := gh.List(gh.Map(pr["commits"])["nodes"]); len(nodes) > 0 {
-		rollup = gh.Map(gh.Map(gh.Map(nodes[0])["commit"])["statusCheckRollup"])
+		commit := gh.Map(gh.Map(nodes[0])["commit"])
+		headSHA = gh.Str(commit["oid"])
+		rollup = gh.Map(commit["statusCheckRollup"])
 	}
 
+	// A token without the Checks API still gets the rollup and its overall
+	// state, but every context node comes back as null - the checks are
+	// there and individually refused. Counting both tells the difference
+	// between "no checks ran" and "checks ran and cannot be read".
 	var realFail, policyFail []string
-	for _, raw := range gh.List(gh.Map(rollup["contexts"])["nodes"]) {
+	nodes := gh.List(gh.Map(rollup["contexts"])["nodes"])
+	readable := 0
+	for _, raw := range nodes {
 		ctx := gh.Map(raw)
+		if ctx == nil {
+			continue
+		}
+		readable++
 		name := gh.Str(ctx["name"])
 		if name == "" {
 			name = gh.Str(ctx["context"])
@@ -84,6 +101,18 @@ func prChecks(c *Context, repo string, number int, qaLabel string, ignoreChecks 
 		}
 	}
 
+	// Checks ran but none could be read, so fall back to workflow runs -
+	// a different API behind Actions: Read, which a fine-grained token can
+	// hold. It misses check runs posted by other apps, but it carries the
+	// conclusion of the team's own CI, which is the question being asked.
+	checksFrom := "check runs"
+	if readable == 0 && len(nodes) > 0 {
+		if runs, err := workflowRunsFor(c, repo, headSHA); err == nil && len(runs) > 0 {
+			realFail, policyFail = checksFromWorkflowRuns(runs, ignoreChecks)
+			checksFrom = "workflow runs"
+		}
+	}
+
 	decision := gh.Str(pr["reviewDecision"])
 	if decision == "" {
 		decision = "NONE"
@@ -97,6 +126,7 @@ func prChecks(c *Context, repo string, number int, qaLabel string, ignoreChecks 
 		"real_failures":   strs(realFail),
 		"policy_failures": strs(policyFail),
 		"checks_green":    len(realFail) == 0,
+		"checks_from":     checksFrom,
 	}
 }
 

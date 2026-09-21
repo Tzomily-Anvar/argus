@@ -95,3 +95,83 @@ func truncate(s string) string {
 	}
 	return s
 }
+
+// The token's prefix identifies its kind exactly, which is what lets the
+// error messages point at the right screen.
+func TestDetectTokenType(t *testing.T) {
+	cases := map[string]TokenType{
+		"github_pat_EXAMPLE": TokenFineGrained,
+		"ghp_EXAMPLE":        TokenClassic,
+		"gho_EXAMPLE":        TokenOAuth,
+		"ghu_EXAMPLE":        TokenAppUser,
+		"ghs_EXAMPLE":        TokenAppInstall,
+		"1234567890abcdef":   TokenUnknown,
+		"":                   TokenUnknown,
+	}
+	// Deliberately not token-shaped beyond the prefix: a fixture long
+	// enough to look like a credential trips the repository's own
+	// private-string check, and only the prefix is under test.
+	for token, want := range cases {
+		if got := DetectTokenType(token); got != want {
+			t.Errorf("DetectTokenType(%.14s…) = %q, want %q", token, got, want)
+		}
+	}
+}
+
+// The advice has to differ, because "check the scopes" sends someone
+// holding a fine-grained token to a screen that does not exist.
+func TestAdviceDiffersByTokenType(t *testing.T) {
+	fine := TokenFineGrained.permissionAdvice()
+	classic := TokenClassic.permissionAdvice()
+	if fine == classic {
+		t.Fatal("fine-grained and classic tokens need different advice")
+	}
+	if !strings.Contains(classic, "scopes") {
+		t.Error("classic advice should mention scopes")
+	}
+	if !strings.Contains(fine, "approved") {
+		t.Error("fine-grained advice should mention organisation approval, the most common trap")
+	}
+	if strings.Contains(fine, "scopes") {
+		t.Error("fine-grained advice must not send people looking for scopes")
+	}
+}
+
+// GraphQL answers partially. A token that cannot read one field gets an
+// error for that field and real data for the rest, and throwing the lot
+// away turns "check status unavailable" into "nothing is open".
+func TestGraphQLPartialDataIsKept(t *testing.T) {
+	// data present alongside errors: partial, and the data must survive.
+	payload := map[string]any{
+		"data":   map[string]any{"repository": map[string]any{"pullRequest": map[string]any{"reviewDecision": "APPROVED"}}},
+		"errors": []any{map[string]any{"type": "FORBIDDEN", "message": "Resource not accessible by personal access token"}},
+	}
+	data, err := decodeGraphQL(payload)
+	if !IsPartial(err) {
+		t.Fatalf("expected a partial error, got %v", err)
+	}
+	if data == nil {
+		t.Fatal("partial data must be returned, not discarded")
+	}
+	repo, _ := data["repository"].(map[string]any)
+	pr, _ := repo["pullRequest"].(map[string]any)
+	if pr["reviewDecision"] != "APPROVED" {
+		t.Errorf("the field that did resolve was lost: %v", data)
+	}
+}
+
+func TestGraphQLErrorsWithoutDataStayFatal(t *testing.T) {
+	payload := map[string]any{
+		"errors": []any{map[string]any{"message": "Could not resolve to a Repository"}},
+	}
+	data, err := decodeGraphQL(payload)
+	if err == nil {
+		t.Fatal("errors with no data must be an error")
+	}
+	if IsPartial(err) {
+		t.Error("nothing resolved, so this is a failure rather than a partial answer")
+	}
+	if data != nil {
+		t.Error("no data should be returned")
+	}
+}
