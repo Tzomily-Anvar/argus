@@ -1,0 +1,19 @@
+# Resolved secrets and local configuration. Only the .example templates
+# are ever committed.
+.env
+op.env
+*.env
+!.env.example
+!op.env.example
+
+# Build output.
+/argus
+/dist
+web/dist/*
+!web/dist/.gitkeep
+node_modules/
+
+.DS_Store
+
+# TypeScript incremental build state.
+*.tsbuildinfo

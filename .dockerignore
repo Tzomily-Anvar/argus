@@ -1,0 +1,15 @@
+# Keep secrets and local state out of the build context entirely.
+.env
+op.env
+*.env
+!.env.example
+!op.env.example
+
+.git
+.github
+node_modules
+web/node_modules
+web/dist
+*.md
+!README.md
+.DS_Store
