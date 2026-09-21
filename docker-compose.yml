@@ -1,0 +1,37 @@
+# One service. No database, no sidecar, nothing to provision.
+#
+# The container is meant to be left running: it sweeps in the background
+# and serves from memory, so the dashboard is instant whenever you open
+# it. That is also why the port is deliberately unusual - 18474 will not
+# collide with a dev server on 3000, 5173, 8000 or 8080.
+name: argus
+
+services:
+  argus:
+    build: .
+    image: argus
+    container_name: ${ARGUS_CONTAINER_NAME:-argus}
+    ports:
+      - "${ARGUS_PORT:-18474}:18474"
+
+    # Non-secret settings come from .env, which Compose reads automatically.
+    env_file:
+      - path: .env
+        required: false
+
+    environment:
+      # The token is injected at `up` time by run.sh, from 1Password or
+      # from your gh login. It is never written to a file or baked into
+      # the image.
+      ARGUS_GITHUB_TOKEN: "${ARGUS_GITHUB_TOKEN:-}"
+
+    # Come back after a reboot, and after a crash, until explicitly stopped.
+    restart: unless-stopped
+
+    # distroless has no shell, so the healthcheck calls the binary itself.
+    healthcheck:
+      test: ["CMD", "/argus", "-healthcheck"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
