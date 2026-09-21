@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Catches a credential before it is in history at all.
+# Catches a credential, or the wrong identity, before it is in history at all.
 #
 # The pre-push hook is the last line of defence, but by then the thing is
 # committed and removing it means rewriting history. Here it is still just
-# an unstage.
+# an unstage, or one git config away.
 #
 # Enable once with:  git config core.hooksPath .githooks
-exec "$(git rev-parse --show-toplevel)/scripts/private-check.sh" --staged
+set -uo pipefail
+root="$(git rev-parse --show-toplevel)"
+
+"$root/scripts/identity-check.sh" --config || exit 1
+exec "$root/scripts/private-check.sh" --staged
