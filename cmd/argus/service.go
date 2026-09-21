@@ -203,6 +203,8 @@ WantedBy=default.target
 // installer and a privileged account, and Argus only ever needs to run
 // as the person whose GitHub access it is using.
 
+// Untested: this compiles and is written from the documented behaviour
+// of schtasks, but nobody has yet run Argus on Windows.
 const windowsTaskName = "Argus"
 
 func windowsService(action string) error {

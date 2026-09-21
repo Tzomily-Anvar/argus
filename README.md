@@ -157,7 +157,14 @@ argus service uninstall   # undo it
 
 Every release on the
 [Releases page](https://github.com/Tzomily-Anvar/argus/releases) carries
-builds for macOS and Linux (amd64 and arm64) and for Windows. Download
+builds for macOS and Linux (amd64 and arm64) and for Windows.
+
+> **Windows is built but untested.** It compiles, and the code paths for
+> it are written — `%AppData%` for configuration, Task Scheduler for
+> starting at login — but nobody has yet run Argus on Windows. If you do,
+> an issue saying whether it worked would be genuinely useful. The
+> `systemd --user` unit on Linux is in the same position: written and
+> reviewed, not yet run in anger. Download
 the archive for your platform, extract it, and put `argus` somewhere on
 your `PATH`. Then it is the same as above:
 
