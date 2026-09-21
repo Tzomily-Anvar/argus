@@ -15,6 +15,24 @@ It sweeps in the background and serves from memory, so the dashboard is
 
 ---
 
+## Why this exists
+
+Hello! Argus was made to automate part of my work, and has tools necessary
+for running my team the way I need. Some of the tools have to do with PR
+statuses and points of attention for me, other tools have to do with
+reporting on Sprints and handling the backlog. As a Lead Engineer in a
+startup my needs are various, and when I noticed how much time could be
+saved by making tools for these jobs instead of using AI for them, it felt
+like a journey worth taking. This repo is also a learning place for me, to
+try new things and test tools, languages, etc. Feel free to use it, leave
+remarks or suggestions.
+
+And if you did end up here, I hope Argus the all-seeing sees what you need
+him to see — or, if you like the Odyssey, Argus is your loyal hound
+waiting for you to go on your next hunt.
+
+---
+
 ## What it does, and what it will never do
 
 Argus only ever **reads**. It does not comment, approve, request changes,
