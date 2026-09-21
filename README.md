@@ -32,6 +32,28 @@ snapshot lives in the container's memory and is gone when it stops.
 
 ---
 
+## What you see
+
+A summary row across the top — what is waiting on you, what is ready to
+merge, what nobody has claimed — then one section per question:
+
+| Section | Answers |
+|---|---|
+| **Overview** | Everything at once, ordered by how much it is your move. Sections with nothing in them collapse into a single "all clear" line. |
+| **To review** | Other people's pull requests waiting on *you*. |
+| **Ready to merge** | Approved, green, nothing left to do. |
+| **Ready to QA** | Approved and green, only the QA label outstanding. Appears only if you configure one. |
+| **Unclaimed** | Review-ready, but nobody has been assigned. |
+| **Yours** | Your own open pull requests, drafts included. |
+| **All open** | The full inventory, with review and check status. |
+| **Stale** | Pull requests and branches that have stopped moving. |
+| **Security** | Dependabot and code-scanning alerts, vendored noise discounted. |
+
+The left rail switches between tools. There is one today; it is a rail
+rather than a tab strip because the next ones drop in beside it. At the
+bottom of it are four colour themes — Slate, Glacier, Nightfall, Pine —
+each with its own light and dark, remembered per browser.
+
 ## Setup
 
 Three steps: a token, a config file, and `./run.sh up`. Budget ten
@@ -187,6 +209,10 @@ cp .env.example .env
 $EDITOR .env          # set ARGUS_GITHUB_ORG to your organisation
 ./run.sh up
 ```
+
+Argus listens on **loopback only**, so the dashboard is reachable from
+your machine and nowhere else. It has no login, and it does not need one
+for that reason — see [SECURITY.md](SECURITY.md) before changing it.
 
 Open **<http://argus.localhost:18474>** — or `localhost:18474`, whichever
 you prefer. `*.localhost` resolves to 127.0.0.1 in browsers and modern
