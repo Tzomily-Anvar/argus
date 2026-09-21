@@ -6,10 +6,12 @@ import {
 } from "./api";
 import { applyTheme, loadPrefs, savePrefs, type Prefs } from "./theme";
 import { availableTools } from "./tools";
+import { Icon } from "./components/Icons";
 import { Sidebar } from "./components/Sidebar";
 import { SectionTabs, type Section } from "./components/SectionTabs";
 import { StatTiles, type Stat } from "./components/StatTiles";
-import { BranchTable, Empty, PRTable } from "./components/Tables";
+import { Empty, PRTable } from "./components/Tables";
+import { StaleView } from "./components/StaleView";
 import { Security, type SecurityData } from "./components/Security";
 import { RulesPanel } from "./components/RulesPanel";
 import { PolicyHintBanner } from "./components/PolicyHint";
@@ -105,26 +107,40 @@ export default function App() {
   const security = data?.results["security"]?.data as SecurityData | undefined;
 
   // Approved with nothing genuinely failing. Policy gates are excluded
-  // from checks_green by the rule, so a missing label does not keep a
-  // pull request out of this list.
-  const ready = allOpen.filter((p) => p.review_decision === "APPROVED" && p.checks_green);
+  // from checks_green by the rule, so a red "missing label" check does
+  // not by itself keep a pull request out of these lists.
+  const approvedAndGreen = allOpen.filter((p) => p.review_decision === "APPROVED" && p.checks_green);
+
+  // A QA label is optional, and most organisations do not use one. When
+  // none is configured there is no QA stage to speak of, so the pile is
+  // not split and the QA section never appears.
+  const qaInUse = allOpen.some((p) => p.qa_label_used);
+  const ready = qaInUse ? approvedAndGreen.filter((p) => p.has_qa_label) : approvedAndGreen;
+  const awaitingQA = qaInUse ? approvedAndGreen.filter((p) => !p.has_qa_label) : [];
 
   const defs: SectionDef[] = [
     { id: "review_requested", label: "On you", title: "Waiting on your review", why: why("review_requested"),
       count: onYou.length, urgent: true, body: () => <PRTable rows={onYou} /> },
     { id: "ready", label: "Ready to merge", title: "Ready to merge",
-      why: "Approved, with nothing actually failing. A missing policy label does not keep a pull request out of this list.",
+      why: qaInUse
+        ? "Reviewed, approved, green, and QA accepted. Nothing is left to do but press the button."
+        : "Approved with nothing actually failing. A red policy check does not keep a pull request out of this list.",
       count: ready.length, body: () => <PRTable rows={ready} /> },
+    ...(qaInUse
+      ? [{ id: "awaiting_qa", label: "Ready to QA", title: "Waiting on QA",
+          why: "Reviewed, approved and green - the QA label is the only thing left. These are the ones to hand over, not to chase the author about.",
+          count: awaitingQA.length, body: () => <PRTable rows={awaitingQA} /> }]
+      : []),
     { id: "unreviewed", label: "Unclaimed", title: "Nobody has picked these up", why: why("unreviewed"),
       count: unclaimed.length, body: () => <PRTable rows={unclaimed} /> },
     { id: "my_prs", label: "Yours", title: "Your open pull requests", why: why("my_prs"),
       count: mine.length, body: () => <PRTable rows={mine} showAuthor={false} /> },
     { id: "merge_readiness", label: "All open", title: "Open pull requests", why: why("merge_readiness"),
       count: allOpen.length, body: () => <PRTable rows={allOpen} /> },
-    { id: "stale_prs", label: "Stale", title: "Stale pull requests", why: why("stale_prs"),
-      count: stale?.rows?.length ?? 0, body: () => <PRTable rows={stale?.rows ?? []} /> },
-    { id: "stale_branches", label: "Branches", title: "Stale branches", why: why("stale_branches"),
-      count: branches.length, body: () => <BranchTable rows={branches} /> },
+    { id: "stale", label: "Stale", title: "Abandoned work",
+      why: "Pull requests and branches that have stopped moving. Long-lived branches drift from main and get harder to merge the longer they sit - finish them or close them.",
+      count: (stale?.rows?.length ?? 0) + branches.length,
+      body: () => <StaleView prs={stale?.rows ?? []} botCount={stale?.bot_count ?? 0} branches={branches} /> },
     { id: "security", label: "Security", title: "Security alerts", why: why("security"),
       count: security?.dependabot?.criticals?.length ?? 0, urgent: true,
       body: () => (security ? <Security data={security} /> : <Empty />) },
@@ -133,7 +149,6 @@ export default function App() {
   const sections: Section[] = [
     { id: "overview", label: "Overview" },
     ...defs.map((d) => ({ id: d.id, label: d.label, count: d.count, urgent: d.urgent })),
-    { id: "__rules", label: "Rules" },
   ];
 
   // The overview stacks the same sections, ordered by how much each one
@@ -149,21 +164,28 @@ export default function App() {
       priority: 100 - i * 10,
       urgent: d.urgent,
       render:
-        d.id === "stale_branches"
-          ? preview.branches(branches)
+        d.id === "stale"
+          ? (limit: number) => (
+              <StaleView
+                prs={(stale?.rows ?? []).slice(0, limit)}
+                botCount={stale?.bot_count ?? 0}
+                branches={branches.slice(0, limit)}
+              />
+            )
           : preview.prs(
               d.id === "review_requested" ? onYou
               : d.id === "ready" ? ready
+              : d.id === "awaiting_qa" ? awaitingQA
               : d.id === "unreviewed" ? unclaimed
-              : d.id === "my_prs" ? mine
-              : (stale?.rows ?? []),
+              : mine,
               d.id !== "my_prs",
             ),
     }));
 
   const stats: Stat[] = useMemo(() => [
     { label: "On you", value: onYou.length, hint: "reviews requested from you", tone: "critical", onClick: () => setActive("review_requested") },
-    { label: "Ready to merge", value: ready.length, hint: "approved and green", tone: "good", onClick: () => setActive("ready") },
+    { label: "Ready to merge", value: ready.length, hint: qaInUse ? "approved, green, QA accepted" : "approved and green", tone: "good", onClick: () => setActive("ready") },
+    ...(qaInUse ? [{ label: "Ready to QA", value: awaitingQA.length, hint: "only the QA label is missing", tone: "warning" as const, onClick: () => setActive("awaiting_qa") }] : []),
     { label: "Unclaimed", value: unclaimed.length, hint: "no reviewer assigned", tone: "warning", onClick: () => setActive("unreviewed") },
     { label: "Stale", value: stale?.rows?.length ?? 0, hint: `${stale?.bot_count ?? 0} bot PRs not shown`, onClick: () => setActive("stale_prs") },
     { label: "Critical alerts", value: security?.dependabot?.criticals?.length ?? 0, hint: "first-party code only", tone: "critical", onClick: () => setActive("security") },
@@ -171,7 +193,8 @@ export default function App() {
   ], [data]);
 
   const def = defs.find((d) => d.id === active);
-  const result = data?.results[active === "ready" ? "merge_readiness" : active];
+  const resultKey = active === "ready" ? "merge_readiness" : active === "stale" ? "stale_prs" : active;
+  const result = data?.results[resultKey];
 
   return (
     <div className={`shell${collapsed ? " collapsed" : ""}`}>
@@ -191,8 +214,8 @@ export default function App() {
         <div className="mx-auto max-w-5xl px-6 pt-6 pb-20">
           <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-lg font-semibold tracking-tight">Pull requests</h1>
-            <div className="flex items-center gap-2.5">
-              <span className="text-xs" style={{ color: "var(--faint)" }}>
+            <div className="flex items-center gap-2">
+              <span className="mr-0.5 text-xs" style={{ color: "var(--faint)" }}>
                 {data?.sweeping ? "sweeping…" : data?.ready ? `as of ${ago(data.age_seconds)}` : "first sweep…"}
               </span>
               <button
@@ -202,6 +225,21 @@ export default function App() {
                 style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
               >
                 Refresh
+              </button>
+              <button
+                onClick={() => setActive(active === "__rules" ? "overview" : "__rules")}
+                aria-pressed={active === "__rules"}
+                title="How each check is defined, and how to change it"
+                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium"
+                style={{
+                  background: active === "__rules" ? "var(--surface-2)" : "var(--surface)",
+                  border: "1px solid var(--line)",
+                  boxShadow: "var(--shadow)",
+                  color: active === "__rules" ? "var(--ink)" : "var(--muted)",
+                }}
+              >
+                <Icon.sliders />
+                Rules
               </button>
             </div>
           </header>
@@ -221,9 +259,11 @@ export default function App() {
 
           {data?.ready && (
             <>
-              <div className="card mb-6 overflow-hidden">
-                <StatTiles stats={stats} />
-              </div>
+              {active === "overview" && (
+                <div className="card mb-6 overflow-hidden">
+                  <StatTiles stats={stats} />
+                </div>
+              )}
 
               <SectionTabs sections={sections} active={active} onSelect={setActive} />
 
