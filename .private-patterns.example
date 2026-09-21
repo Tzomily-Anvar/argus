@@ -1,0 +1,30 @@
+# Strings that must never reach this public repository.
+#
+# Copy to .private-patterns, which is gitignored, and fill in your own.
+# Keep the real file local - putting these values in a committed file
+# would publish exactly what you are trying to withhold.
+#
+# One extended regular expression per line; blank lines and # comments are
+# ignored. Matching is case-insensitive.
+
+# Your employer, in the spellings that actually appear
+# example-company
+# examplecompany
+
+# Internal hosts and services
+# .*\.internal\.example\.com
+# example\.atlassian\.net
+
+# Identifier formats specific to your systems. Match the shape, not a
+# real value - the point is to keep real values out of this file.
+# [0-9]{6}:[0-9a-f-]{36}
+
+# Credentials, in case something slips past GitHub's own scanning
+ghp_[A-Za-z0-9]{20,}
+gho_[A-Za-z0-9]{20,}
+github_pat_[A-Za-z0-9_]{20,}
+sk-ant-[A-Za-z0-9-]{20,}
+BEGIN [A-Z ]*PRIVATE KEY
+
+# Colleagues' names, if any risk appearing in a fixture or a comment
+# Firstname Lastname

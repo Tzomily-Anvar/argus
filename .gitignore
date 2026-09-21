@@ -12,6 +12,10 @@ op.env
 /data/
 argus-data/
 
+# The private-string patterns themselves. Committing these would publish
+# exactly what they exist to withhold. Only the .example is tracked.
+.private-patterns
+
 # Build output.
 /argus
 /dist

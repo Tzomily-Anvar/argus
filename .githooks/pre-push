@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Last line of defence before anything becomes public.
+#
+# Enable once with:  git config core.hooksPath .githooks
+exec "$(git rev-parse --show-toplevel)/scripts/private-check.sh" "$@"

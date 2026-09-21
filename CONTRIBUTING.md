@@ -98,6 +98,35 @@ curl -fsS localhost:18474/api/rules > /tmp/rules.json
 # then regenerate the rule blocks from that JSON
 ```
 
+## Keeping private strings out
+
+This repository is public and was extracted from an internal one, so
+there is a check that refuses to let private strings reach it:
+
+```bash
+cp .private-patterns.example .private-patterns   # then fill it in
+git config core.hooksPath .githooks              # once per clone
+```
+
+`.private-patterns` is gitignored and holds the strings you must not
+publish - an employer name, internal hosts, identifier formats, colleagues'
+names. The patterns deliberately do not live in a committed file: a check
+that hardcoded "the name we must not publish" would publish it.
+
+From then on every `git push` is scanned first, and it refuses if anything
+matches - in file contents, file paths, commit messages or author
+identities, because a name can leak through any of them.
+
+```bash
+./scripts/private-check.sh           # what is about to be pushed
+./scripts/private-check.sh --all     # the entire history
+./scripts/private-check.sh --staged  # what is staged right now
+```
+
+Without a `.private-patterns` file the check does nothing and says so, so
+a clone without one is not silently unprotected - it is visibly
+unconfigured.
+
 ## Frontend
 
 ```bash
