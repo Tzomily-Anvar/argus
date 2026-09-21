@@ -19,10 +19,16 @@ COPY web/ ./
 RUN npm run build
 
 # ---- 2. build the binary ----------------------------------------------
-FROM golang:1.25-alpine AS build
+# Must be at least the `go` directive in go.mod, which a dependency can
+# raise: adding goose moved it to 1.26 and this line did not follow, so
+# the image stopped building while every other check still passed. CI
+# builds the image for exactly that reason.
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 
-COPY go.mod ./
+# Both files: go mod download verifies every module against go.sum, so
+# copying only go.mod fails the moment the project has a dependency.
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .

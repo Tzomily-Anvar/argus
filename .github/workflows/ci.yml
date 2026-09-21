@@ -1,0 +1,140 @@
+# Runs on every pull request and every push to main.
+#
+# The point of this file is that a contributor's pull request is checked
+# before a human looks at it, and that main never silently drifts out of
+# a working state.
+#
+# Action versions are pinned to a major tag rather than floating: a public
+# repository runs whatever a third-party action's default branch happens
+# to contain, so pinning is the difference between a supply chain you
+# chose and one you inherited.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Read-only by default. Nothing here needs to write to the repository, and
+# a token that cannot write cannot be abused into writing.
+permissions:
+  contents: read
+
+concurrency:
+  # A new push supersedes the run already in flight for that branch.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+
+    services:
+      # The store has two backends and they are only trustworthy because
+      # the same conformance suite runs against both. Without a database
+      # here, half of that guarantee would go unchecked on every pull
+      # request.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: argus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Formatting
+        run: |
+          # gofmt exits 0 whatever it finds, so the check is on its output.
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Tests
+        env:
+          ARGUS_TEST_DATABASE_URL: postgres://postgres:ci@localhost:5432/argus_test?sslmode=disable
+        run: go test -race ./...
+
+      - name: Tidy go.mod
+        run: |
+          # A go.mod that does not match the imports means someone added a
+          # dependency without tidying, and the next person gets the noise.
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+  web:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        # ci, not install: it installs exactly the lockfile and fails if
+        # package.json and the lockfile disagree.
+        run: npm ci
+
+      - name: Types
+        run: npx tsc -b --force
+
+      - name: Build
+        run: npm run build
+
+  image:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Builds the real multi-stage image, which is the only way to catch a
+      # Dockerfile that breaks while the Go and npm builds both pass.
+      # Loaded rather than pushed - nothing here publishes anything.
+      - name: Build
+        run: docker build -t argus:ci .
+
+      - name: Check it starts and answers
+        run: |
+          docker run -d --name argus-ci -p 18474:18474 \
+            -e ARGUS_GITHUB_ORG=example \
+            -e ARGUS_GITHUB_TOKEN=not-a-real-token \
+            -e ARGUS_BIND=0.0.0.0 \
+            argus:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:18474/healthz >/dev/null 2>&1; then
+              echo "healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "did not become healthy; logs:"
+          docker logs argus-ci
+          exit 1
