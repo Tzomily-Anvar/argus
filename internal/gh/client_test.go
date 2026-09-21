@@ -15,7 +15,7 @@ func TestRejectsWriteMethods(t *testing.T) {
 		http.MethodPost, http.MethodPut, http.MethodPatch,
 		http.MethodDelete, http.MethodHead, http.MethodOptions,
 	} {
-		err := assertReadOnly(method, apiBase+"/repos/o/r/issues/1/comments", nil)
+		err := assertReadOnly(method, apiBase+"/repos/o/r/issues/1/comments", graphqlURL, nil)
 		if err == nil {
 			t.Errorf("%s against the REST API was allowed; it must be refused", method)
 			continue
@@ -27,7 +27,7 @@ func TestRejectsWriteMethods(t *testing.T) {
 }
 
 func TestAllowsGet(t *testing.T) {
-	if err := assertReadOnly(http.MethodGet, apiBase+"/user", nil); err != nil {
+	if err := assertReadOnly(http.MethodGet, apiBase+"/user", graphqlURL, nil); err != nil {
 		t.Fatalf("GET must be allowed, got %v", err)
 	}
 }
@@ -41,7 +41,7 @@ func TestGraphQLQueriesAllowed(t *testing.T) {
 	}
 	for _, q := range queries {
 		body := map[string]any{"query": q}
-		if err := assertReadOnly(http.MethodPost, graphqlURL, body); err != nil {
+		if err := assertReadOnly(http.MethodPost, graphqlURL, graphqlURL, body); err != nil {
 			t.Errorf("query %q must be allowed, got %v", truncate(q), err)
 		}
 	}
@@ -56,7 +56,7 @@ func TestGraphQLMutationsRefused(t *testing.T) {
 	}
 	for _, m := range mutations {
 		body := map[string]any{"query": m}
-		err := assertReadOnly(http.MethodPost, graphqlURL, body)
+		err := assertReadOnly(http.MethodPost, graphqlURL, graphqlURL, body)
 		if err == nil {
 			t.Errorf("mutation %q was allowed; it must be refused", truncate(m))
 			continue
@@ -71,7 +71,7 @@ func TestGraphQLMutationsRefused(t *testing.T) {
 // with a well-formed query body, must still be refused.
 func TestPostOnlyToGraphQLEndpoint(t *testing.T) {
 	body := map[string]any{"query": "query { viewer { login } }"}
-	if err := assertReadOnly(http.MethodPost, apiBase+"/repos/o/r/merges", body); err == nil {
+	if err := assertReadOnly(http.MethodPost, apiBase+"/repos/o/r/merges", graphqlURL, body); err == nil {
 		t.Fatal("POST to a REST endpoint was allowed; it must be refused")
 	}
 }

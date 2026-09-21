@@ -85,6 +85,14 @@ type Client struct {
 	token     TokenSource
 	tokenType TokenType
 	sem       chan struct{}
+
+	// Where the API is. Constant in production - the fields exist so a
+	// test can point the real request path at an httptest server rather
+	// than reimplement it.
+	base    string
+	graphql string
+
+	accountCache
 }
 
 // New returns a client bounded to `concurrency` in-flight requests. The
@@ -109,7 +117,20 @@ func NewWithSource(src TokenSource, kind TokenType, concurrency, timeoutSeconds 
 		token:     src,
 		tokenType: kind,
 		sem:       make(chan struct{}, concurrency),
+		base:      apiBase,
+		graphql:   graphqlURL,
 	}
+}
+
+// NewForTest returns a client that talks to base instead of GitHub, so a
+// test drives the same do() path everything else uses. There is no way
+// to redirect a client built by New or NewWithSource, which is the
+// point: nothing configurable can send a real sweep somewhere else.
+func NewForTest(base, token string) *Client {
+	c := New(token, 1, 10)
+	c.base = strings.TrimSuffix(base, "/")
+	c.graphql = c.base + "/graphql"
+	return c
 }
 
 // TokenType reports what kind of credential this client holds.
@@ -151,7 +172,8 @@ func NewFromEnv() (*Client, error) {
 	//    GITHUB_TOKEN, which are usually exported for some other tool and
 	//    would otherwise quietly override `argus login`.
 	if config.UseGitHubApp() {
-		src := ghauth.NewSource(config.GitHubAppClientID(), config.DataDir())
+		src := ghauth.NewSource(config.GitHubAppClientID(), config.DataDir(),
+			config.DataDir() == config.DefaultDataDir())
 		if src.SignedIn() {
 			return NewWithSource(src.Token, TokenAppUser, config.Concurrency(), config.HTTPTimeout()), nil
 		}
@@ -167,11 +189,15 @@ func NewFromEnv() (*Client, error) {
 			"or set ARGUS_GITHUB_TOKEN to a personal access token")
 }
 
-func assertReadOnly(method, reqURL string, body any) error {
+// assertReadOnly is given the GraphQL endpoint rather than assuming the
+// constant, because a client under test has its own. It stays an exact
+// match either way: "a URL that ends in /graphql" would be a weaker
+// guarantee than the one this package makes.
+func assertReadOnly(method, reqURL, graphqlEndpoint string, body any) error {
 	if method == http.MethodGet {
 		return nil
 	}
-	if method == http.MethodPost && reqURL == graphqlURL {
+	if method == http.MethodPost && reqURL == graphqlEndpoint {
 		m, _ := body.(map[string]any)
 		q, _ := m["query"].(string)
 		switch t := strings.TrimSpace(stripLeadingComments(q)); {
@@ -201,7 +227,7 @@ func stripLeadingComments(q string) string {
 // transient network failures; an explicit HTTP error response is final
 // and returned immediately.
 func (c *Client) do(method, reqURL string, body any) (map[string]any, http.Header, error) {
-	if err := assertReadOnly(method, reqURL, body); err != nil {
+	if err := assertReadOnly(method, reqURL, c.graphql, body); err != nil {
 		return nil, nil, err
 	}
 
@@ -315,7 +341,7 @@ func explain(status int, reqURL string, raw []byte, tt TokenType) error {
 		return errf("GitHub returned 403 for %s, using a %s. %s Detail: %s",
 			reqURL, tt.Label(), tt.permissionAdvice(), detail)
 	case status == 404:
-		return errf("GitHub returned 404 for %s. Either ARGUS_GITHUB_ORG names an organisation that "+
+		return errf("GitHub returned 404 for %s. Either ARGUS_GITHUB_ORG names an account that "+
 			"does not exist, or your token cannot see it.", reqURL)
 	}
 	return errf("%d for %s :: %s", status, reqURL, detail)
@@ -324,7 +350,7 @@ func explain(status int, reqURL string, raw []byte, tt TokenType) error {
 // ---- REST ------------------------------------------------------------
 
 func (c *Client) Get(path string, params url.Values) (map[string]any, error) {
-	u := apiBase + path
+	u := c.base + path
 	if params != nil {
 		u += "?" + params.Encode()
 	}
@@ -346,7 +372,7 @@ func (c *Client) GetAll(path string, params url.Values) ([]any, error) {
 	if params.Get("per_page") == "" {
 		params.Set("per_page", "100")
 	}
-	u := apiBase + path + "?" + params.Encode()
+	u := c.base + path + "?" + params.Encode()
 
 	var out []any
 	for u != "" {
@@ -398,7 +424,7 @@ func (c *Client) SearchIssues(q string) ([]any, error) {
 // ---- GraphQL ---------------------------------------------------------
 
 func (c *Client) GraphQL(query string, variables map[string]any) (map[string]any, error) {
-	payload, _, err := c.do(http.MethodPost, graphqlURL, map[string]any{
+	payload, _, err := c.do(http.MethodPost, c.graphql, map[string]any{
 		"query": query, "variables": variables,
 	})
 	if err != nil {

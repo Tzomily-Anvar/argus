@@ -62,8 +62,8 @@ func setup() error {
 		fmt.Println()
 	}
 
-	// Signing in first, so the organisation can be checked for real
-	// rather than just written down and discovered to be wrong later.
+	// Signing in first, so the account can be checked for real rather
+	// than just written down and discovered to be wrong later.
 	if !appSource().SignedIn() {
 		fmt.Printf("  Argus signs in to GitHub with a device code. Nothing to create,\n" +
 			"  no token to paste, and it can only ever read what you can read.\n\n")
@@ -83,7 +83,7 @@ func setup() error {
 		fmt.Printf("  Already signed in to GitHub.\n\n")
 	}
 
-	org, err := w.askOrg()
+	org, err := w.askAccount()
 	if err != nil {
 		return err
 	}
@@ -131,58 +131,68 @@ func setup() error {
 // wizard holds the one reader every prompt shares.
 type wizard struct{ in *bufio.Reader }
 
-// askOrg keeps asking until GitHub recognises the answer, because an
-// organisation that does not exist produces a dashboard that is empty
-// for a reason nobody can see.
-func (w *wizard) askOrg() (string, error) {
+// askAccount keeps asking until GitHub recognises the answer, because a
+// name that does not exist produces a dashboard that is empty for a
+// reason nobody can see.
+//
+// Either kind of account is accepted. Plenty of people keep their
+// repositories under their own profile rather than in an organisation,
+// and asking them for an organisation they do not have - then refusing
+// their username - is the wizard failing at the one question it exists
+// to ask.
+func (w *wizard) askAccount() (string, error) {
 	for {
-		answer, err := w.ask("GitHub organisation", "",
+		answer, err := w.ask("GitHub organisation or username", "",
 			"    Argus needs one to sweep. It is the name in\n"+
-				"    github.com/<organisation>.")
+				"    github.com/<name>, whether that is an organisation or you.")
 		if err != nil {
 			return "", err
 		}
-		org, ok := orgFromAnswer(answer)
+		name, ok := accountFromAnswer(answer)
 		if !ok {
-			fmt.Printf("    ✗ that does not look like an organisation name. It is the bare\n" +
-				"      name in github.com/<organisation>: letters, digits and hyphens.\n")
+			fmt.Printf("    ✗ that does not look like a GitHub name. It is the bare name in\n" +
+				"      github.com/<name>: letters, digits and hyphens.\n")
 			continue
 		}
-		if org != answer {
+		if name != answer {
 			// Said out loud rather than done quietly. Pasting the
 			// address instead of the name is the common answer here, but
 			// a value taken out of it is still a guess at what was meant.
-			fmt.Printf("    Taking %q from that.\n", org)
+			fmt.Printf("    Taking %q from that.\n", name)
 		}
-		switch checkOrg(org) {
-		case orgOK:
-			fmt.Printf("    ✓ found\n")
-			return org, nil
-		case orgNoAuth:
+		kind, result := checkAccount(name)
+		switch result {
+		case accountOK:
+			// Naming what was found is the confirmation. Someone who
+			// meant their organisation and typed their username sees
+			// the difference here, while it still costs nothing to fix.
+			fmt.Printf("    ✓ found, a %s\n", kind.Label())
+			return name, nil
+		case accountNoAuth:
 			fmt.Printf("    ? not signed in, so this cannot be checked now - taking it as given\n")
-			return org, nil
+			return name, nil
 		default:
-			fmt.Printf("    ✗ GitHub does not show that organisation to you.\n" +
-				"      Check the spelling, or that you are a member of it.\n")
+			fmt.Printf("    ✗ GitHub does not show an account of that name to you.\n" +
+				"      Check the spelling, and that you can see it while signed in.\n")
 			anyway, err := w.confirm("Use it anyway?", false)
 			if err != nil {
 				return "", err
 			}
 			if anyway {
-				return org, nil
+				return name, nil
 			}
 		}
 	}
 }
 
-// orgFromAnswer pulls the organisation name out of whatever was typed.
+// accountFromAnswer pulls the account name out of whatever was typed.
 //
 // The answer is often the browser's address bar rather than the name,
-// because that is where someone looks when asked which organisation they
+// because that is where someone looks when asked which account they
 // mean. Anything that is still not a name after that is refused:
 // ARGUS_GITHUB_ORG goes straight into an API path, so a wrong value here
 // buys an empty dashboard and no explanation of why.
-func orgFromAnswer(answer string) (string, bool) {
+func accountFromAnswer(answer string) (string, bool) {
 	s := strings.TrimSpace(answer)
 	if i := strings.Index(s, "://"); i >= 0 {
 		s = s[i+3:]
@@ -199,7 +209,7 @@ func orgFromAnswer(answer string) (string, bool) {
 		case part == "orgs" || part == "enterprises":
 			continue // what github.com puts in front of the name
 		}
-		if !validOrgName(part) {
+		if !validLogin(part) {
 			return "", false
 		}
 		return part, true
@@ -207,12 +217,13 @@ func orgFromAnswer(answer string) (string, bool) {
 	return "", false
 }
 
-// validOrgName follows GitHub's own rule for a login: letters, digits
-// and hyphens, none at either end, and no more than 39 characters.
+// validLogin follows GitHub's own rule for a login: letters, digits and
+// hyphens, none at either end, and no more than 39 characters. It is the
+// same rule for an organisation and for a person.
 //
 // Checked here as well as against the API so that a typo is still caught
 // when nobody is signed in and the name cannot be looked up.
-func validOrgName(s string) bool {
+func validLogin(s string) bool {
 	if s == "" || len(s) > 39 || strings.HasPrefix(s, "-") || strings.HasSuffix(s, "-") {
 		return false
 	}
@@ -226,23 +237,30 @@ func validOrgName(s string) bool {
 	return true
 }
 
-type orgResult int
+type accountResult int
 
 const (
-	orgBad orgResult = iota
-	orgOK
-	orgNoAuth
+	accountBad accountResult = iota
+	accountOK
+	accountNoAuth
 )
 
-func checkOrg(org string) orgResult {
+// checkAccount asks GitHub what the name is.
+//
+// This used to ask /orgs/{name}, which answers 404 for a person - so a
+// valid personal account was rejected as a typo. /users/{name} answers
+// for both kinds and says which, so the same one request now validates
+// the name and decides how the rest of Argus will read it.
+func checkAccount(name string) (gh.AccountKind, accountResult) {
 	client, err := gh.NewFromEnv()
 	if err != nil {
-		return orgNoAuth
+		return gh.AccountUnknown, accountNoAuth
 	}
-	if _, err := client.Get("/orgs/"+org, nil); err != nil {
-		return orgBad
+	kind, err := client.AccountKindOf(name)
+	if err != nil {
+		return gh.AccountUnknown, accountBad
 	}
-	return orgOK
+	return kind, accountOK
 }
 
 // writeSetup starts from the same annotated template `argus init` uses,

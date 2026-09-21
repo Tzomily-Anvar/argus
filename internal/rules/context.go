@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Tzomily-Anvar/argus/internal/config"
@@ -13,47 +14,85 @@ import (
 // Context is what every rule is handed: an authenticated client plus the
 // few facts each one needs about who is asking. Built once per sweep.
 type Context struct {
-	Client      *gh.Client
-	Org         string
+	Client *gh.Client
+
+	// Org is the account being swept. It is an organisation login or a
+	// personal one, and Account says which - several endpoints exist for
+	// only one of the two. The field keeps its name because the
+	// snapshot, the API and the dashboard all already call it that.
+	Org     string
+	Account gh.AccountKind
+
 	Me          string
 	Teams       []string
 	Now         time.Time
 	Concurrency int
 	Scope       Scope
+
+	// The account's repositories, listed at most once per sweep. Two
+	// rules want the same list and they run concurrently, so the work is
+	// shared rather than done twice.
+	reposOnce sync.Once
+	repos     []map[string]any
+	reposErr  error
 }
 
-// NewContext resolves the viewer's identity and team memberships. This is
-// one GET plus one paginated GET, well under a second.
+// Personal reports whether the configured account is somebody's own
+// rather than an organisation.
+func (c *Context) Personal() bool { return c.Account.Personal() }
+
+// NewContext resolves which kind of account is configured, the viewer's
+// identity, and their team memberships. Two or three small GETs, well
+// under a second.
 func NewContext(client *gh.Client) (*Context, error) {
-	org, err := config.Org()
+	account, err := config.Org()
 	if err != nil {
 		return nil, err
 	}
+
+	// First, because everything after it depends on the answer, and
+	// because a name GitHub does not recognise is worth failing on here
+	// with a plain message rather than as eight separate rule errors.
+	kind, err := client.AccountKindOf(account)
+	if err != nil {
+		return nil, err
+	}
+
 	user, err := client.Get("/user", nil)
 	if err != nil {
 		return nil, err
 	}
-	teamsRaw, err := client.GetAll("/user/teams", nil)
-	if err != nil {
-		return nil, err
-	}
+
+	// Teams belong to organisations. On a personal account the filter
+	// below could never match, so the request is not made at all: it is
+	// one fewer permission the token has to carry for a result that is
+	// empty by definition.
 	var teams []string
-	for _, t := range gh.Maps(teamsRaw) {
-		if gh.Str(gh.Map(t["organization"])["login"]) == org {
-			if slug := gh.Str(t["slug"]); slug != "" {
-				teams = append(teams, slug)
+	if !kind.Personal() {
+		teamsRaw, err := client.GetAll("/user/teams", nil)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range gh.Maps(teamsRaw) {
+			if gh.Str(gh.Map(t["organization"])["login"]) == account {
+				if slug := gh.Str(t["slug"]); slug != "" {
+					teams = append(teams, slug)
+				}
 			}
 		}
 	}
+
 	return &Context{
 		Client:      client,
-		Org:         org,
+		Org:         account,
+		Account:     kind,
 		Me:          gh.Str(user["login"]),
 		Teams:       teams,
 		Now:         time.Now().UTC(),
 		Concurrency: config.Concurrency(),
 		Scope: Scope{
-			Org:      org,
+			Org:      account,
+			Personal: kind.Personal(),
 			Only:     config.Repos(),
 			Excluded: config.ExcludeRepos(),
 			Archived: config.IncludeArchived(),
