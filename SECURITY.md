@@ -23,8 +23,30 @@ beginning with `query`. A `mutation` is refused before it leaves the
 process. This is asserted in `internal/gh/client_test.go`, so removing
 the guarantee breaks the build.
 
-**It stores nothing.** There is no database and no state written to disk.
-The snapshot lives in memory for the lifetime of the container.
+**What it stores depends on the tools you enable.**
+
+The pull request tool stores nothing: its snapshot lives in memory and is
+gone when the container stops.
+
+The sprint report stores what Jira has no source for — each person's
+baseline capacity, how many days of a sprint they were away, and any note
+explaining a difference between the two. That is personal data about
+named colleagues, and it is treated as such:
+
+- It never leaves the machine running Argus. There is no hosted component.
+- It is excluded from version control, and a pre-push hook refuses to let
+  it through.
+- Absence is recorded only as **planned** or **unplanned**, never with a
+  reason. That distinction carries the entire analytical signal — leave
+  booked in advance should already be in the plan, absence that arose
+  during the sprint explains a shortfall — while recording *why* someone
+  was away would make this health data.
+- Per-person records are deleted after three years by default
+  (`ARGUS_SPRINT_RETAIN_YEARS`). The aggregates that trends are drawn from
+  carry no personal data and are kept.
+
+If you enable the sprint report, you are running a system that holds
+personal data about your colleagues. Tell them.
 
 **It holds no credential of its own.** The token is yours, supplied at
 start time from 1Password or the GitHub CLI, and injected into the
