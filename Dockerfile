@@ -7,7 +7,10 @@
 # non-root user and starts instantly.
 
 # ---- 1. build the dashboard -------------------------------------------
-FROM node:22-alpine AS web
+# --platform=$BUILDPLATFORM: this stage only emits static files, so it
+# should run natively on whatever machine is building rather than under
+# emulation.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /web
 
 # Copy the manifests first so `npm ci` is cached until dependencies
@@ -23,7 +26,7 @@ RUN npm run build
 # raise: adding goose moved it to 1.26 and this line did not follow, so
 # the image stopped building while every other check still passed. CI
 # builds the image for exactly that reason.
-FROM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 
 # Both files: go mod download verifies every module against go.sum, so
@@ -39,8 +42,16 @@ COPY --from=web /web/dist ./web/dist
 # CGO_ENABLED=0 produces a fully static binary, which is what allows the
 # scratch-like final stage. -s -w strips debug info; this is a dashboard,
 # not something you attach a debugger to in production.
-ENV CGO_ENABLED=0 GOOS=linux
-RUN go build -trimpath -ldflags="-s -w" -o /argus ./cmd/argus
+# Go cross-compiles, so the toolchain runs natively on the build machine
+# and emits a binary for the target. Hardcoding GOOS=linux with no GOARCH
+# produced an amd64 binary inside an arm64 image on Apple Silicon, which
+# is what the "image platform does not match" warning was reporting.
+# BuildKit supplies these two automatically.
+ARG TARGETOS
+ARG TARGETARCH
+ENV CGO_ENABLED=0
+RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" -o /argus ./cmd/argus
 
 # ---- 3. ship ----------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot

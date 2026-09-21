@@ -17,6 +17,24 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Re-entry point for `op run`, which needs an executable to hand the
+# resolved environment to rather than a shell function.
+if [[ "${1:-}" == "--compose" ]]; then
+  shift
+  ENGINE="${ARGUS_ENGINE:-}"
+  if [[ -z "$ENGINE" ]]; then
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then ENGINE=docker
+    elif command -v podman >/dev/null 2>&1; then ENGINE=podman; fi
+  fi
+  case "$ENGINE" in
+    docker) exec docker compose "$@" ;;
+    podman)
+      if podman compose --help >/dev/null 2>&1; then exec podman compose "$@"; fi
+      exec podman-compose "$@" ;;
+    *) echo "no container engine found" >&2; exit 1 ;;
+  esac
+fi
+
 RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; DIM=$'\033[2m'; OFF=$'\033[0m'
 ok()   { printf '%s✓%s %s\n' "$GREEN" "$OFF" "$1"; }
 warn() { printf '%s!%s %s\n' "$YELLOW" "$OFF" "$1"; }
@@ -24,6 +42,43 @@ bad()  { printf '%s✗%s %s\n' "$RED" "$OFF" "$1"; }
 
 port() { grep -E '^ARGUS_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '"' || true; }
 PORT="$(port)"; PORT="${PORT:-18474}"
+
+# Container engine. Docker if it is running, otherwise podman - which is a
+# drop-in for everything used here and is what people reach for when Docker
+# Desktop is unavailable or not licensed for their company.
+detect_engine() {
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    echo docker
+  elif command -v podman >/dev/null 2>&1; then
+    echo podman
+  fi
+}
+ENGINE="${ARGUS_ENGINE:-$(detect_engine)}"
+
+# Compose, spelled for whichever engine is present. podman ships `podman
+# compose` in recent versions and older installs use the separate
+# podman-compose; both take the same arguments as `docker compose`.
+compose() {
+  case "$ENGINE" in
+    docker) docker compose "$@" ;;
+    podman)
+      if podman compose --help >/dev/null 2>&1; then
+        podman compose "$@"
+      elif command -v podman-compose >/dev/null 2>&1; then
+        podman-compose "$@"
+      else
+        bad "podman is installed but has no compose support."
+        echo "  Install podman-compose, or set ARGUS_ENGINE=docker if you have Docker."
+        exit 1
+      fi
+      ;;
+    *)
+      bad "No container engine found."
+      echo "  Install Docker (docker.com/get-started) or podman (podman.io)."
+      exit 1
+      ;;
+  esac
+}
 
 need_env() {
   if [[ ! -f .env ]]; then
@@ -40,12 +95,13 @@ need_env() {
   fi
 }
 
-# Run docker compose with the token resolved into the environment.
+# Run compose, whichever engine is present, with the token resolved into
+# the environment.
 with_token() {
   if [[ -f op.env ]] && command -v op >/dev/null 2>&1; then
-    op run --env-file=op.env -- docker compose "$@"
+    op run --env-file=op.env -- "$0" --compose "$@"
   elif command -v gh >/dev/null 2>&1 && gh auth token >/dev/null 2>&1; then
-    ARGUS_GITHUB_TOKEN="$(gh auth token)" docker compose "$@"
+    ARGUS_GITHUB_TOKEN="$(gh auth token)" compose "$@"
   else
     bad "No GitHub token available."
     echo "  Either:"
@@ -72,19 +128,22 @@ case "${1:-up}" in
     ok "recreated → http://localhost:${PORT}"
     ;;
   down|stop)
-    docker compose down
+    compose down
     ;;
   logs)
-    docker compose logs -f
+    compose logs -f
     ;;
   status|ps)
-    docker compose ps
+    compose ps
     ;;
   doctor)
     echo "Argus setup check"
     echo
-    command -v docker >/dev/null 2>&1 && ok "docker installed" || bad "docker not found - install Docker Desktop"
-    docker info >/dev/null 2>&1 && ok "docker daemon running" || bad "docker daemon not running - start Docker Desktop"
+    case "$ENGINE" in
+      docker) ok "using docker ($(docker --version 2>/dev/null | head -1))" ;;
+      podman) ok "using podman ($(podman --version 2>/dev/null))" ;;
+      *)      bad "no container engine found - install Docker or podman" ;;
+    esac
 
     if [[ -f .env ]]; then
       if grep -qE '^ARGUS_GITHUB_ORG=your-org-here' .env; then

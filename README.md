@@ -77,8 +77,13 @@ each with its own light and dark, remembered per browser.
 Three steps: a token, a config file, and `./run.sh up`. Budget ten
 minutes the first time.
 
-You need [Docker](https://docs.docker.com/get-started/get-docker/). You
-do **not** need Go, Node, or anything else — the image builds both.
+You need **Docker or podman** — `run.sh` uses whichever it finds, and
+`ARGUS_ENGINE` forces one if you have both. You do **not** need Go, Node,
+or anything else; the image builds both.
+
+The image is built for whatever architecture you are on, so it runs
+natively on an Apple Silicon Mac and on an x86 server from the same
+Dockerfile, with no emulation.
 
 ### 1. Create a GitHub token
 
