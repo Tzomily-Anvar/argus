@@ -376,6 +376,24 @@ cd web && npm run dev
 
 Adding a rule means adding one file — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## How this was built
+
+Argus was written with [Claude Code](https://claude.com/claude-code)
+doing most of the typing, and the direction, review and decisions coming
+from a person.
+
+That division is worth stating plainly, because it is visible in the
+result. The architecture calls — Go over Python, no database until
+something needs one, a background sweep rather than sweeping on page
+load — were human decisions, argued for and sometimes argued against.
+So were several corrections that an assistant working alone would have
+shipped: a section labelled "Ready to merge" that listed every open pull
+request, a summary panel that vanished as you navigated, and a tab called
+"On you" that most readers took to mean the opposite of what it did.
+
+Every line was read before it was committed. If you find something wrong
+here, it is the author's to answer for.
+
 ## Licence
 
 [MIT](LICENSE).
