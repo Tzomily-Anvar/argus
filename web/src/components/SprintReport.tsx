@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { SprintReport as Report, SprintFlag } from "../api";
+import type { SprintReport as Report, SprintFlag, EpicGroup } from "../api";
 import { Badge } from "./Badge";
 import { StatTiles, type Stat } from "./StatTiles";
 
@@ -40,6 +40,18 @@ function Section({
       </header>
       <div style={{ borderTop: "1px solid var(--line)" }}>{children}</div>
     </section>
+  );
+}
+
+/* An epic is a ticket, so it opens like one. Work that belongs to no
+ * epic has no key to open, and neither has anything if no Jira base URL
+ * is configured, so both read as the plain label they are. */
+function EpicName({ epic }: { epic: EpicGroup }) {
+  if (!epic.url) return <>{epic.name}</>;
+  return (
+    <a href={epic.url} target="_blank" rel="noreferrer" className="lnk">
+      {epic.name}
+    </a>
   );
 }
 
@@ -89,9 +101,9 @@ function EpicBars({ report }: { report: Report }) {
 
       <div className="space-y-2">
         {report.epics.map((e) => (
-          <div key={e.name} className="flex items-center gap-3">
-            <div className="w-56 shrink-0 truncate text-[13px]" title={e.name}>
-              {e.name}
+          <div key={e.key ?? e.name} className="flex items-center gap-3">
+            <div className="w-56 shrink-0 truncate text-[13px]" title={e.key ? `${e.key} · ${e.name}` : e.name}>
+              <EpicName epic={e} />
             </div>
             <div className="h-5 flex-1 overflow-hidden rounded" style={{ background: "var(--surface-2)" }}>
               <div
