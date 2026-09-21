@@ -366,9 +366,16 @@ func (c *Client) Get(path string, params url.Values) (map[string]any, error) {
 // rejected outright. The next URL is unknowable until the current
 // response arrives, so these pages cannot be fetched in parallel.
 func (c *Client) GetAll(path string, params url.Values) ([]any, error) {
-	if params == nil {
-		params = url.Values{}
+	// Copied, not used in place. url.Values is a map, and this walks the
+	// pages by setting one - so a caller that fans this out across
+	// goroutines with the same params, which is exactly what the
+	// per-repository security feeds do, would otherwise have several
+	// goroutines writing to its map at once.
+	copied := url.Values{}
+	for k, v := range params {
+		copied[k] = append([]string(nil), v...)
 	}
+	params = copied
 	if params.Get("per_page") == "" {
 		params.Set("per_page", "100")
 	}

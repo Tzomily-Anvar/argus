@@ -2,6 +2,8 @@ package gh
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -173,5 +175,27 @@ func TestGraphQLErrorsWithoutDataStayFatal(t *testing.T) {
 	}
 	if data != nil {
 		t.Error("no data should be returned")
+	}
+}
+
+// GetAll walks pages by setting a parameter, so it must not do that to
+// the map it was handed: url.Values is a map, and the security rule fans
+// this out over every repository with one shared set of parameters.
+func TestGetAllDoesNotTouchTheCallersParams(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	params := url.Values{"state": {"open"}}
+	before := params.Encode()
+
+	c := NewForTest(srv.URL, "ghp_x")
+	if _, err := c.GetAll("/anything", params); err != nil {
+		t.Fatalf("GetAll: %v", err)
+	}
+	if got := params.Encode(); got != before {
+		t.Errorf("GetAll modified the caller's params:\n got %q\nwant %q", got, before)
 	}
 }
