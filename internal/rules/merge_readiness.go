@@ -5,9 +5,9 @@ import "github.com/Tzomily-Anvar/argus/internal/gh"
 func init() {
 	Register(Rule{
 		ID:          "merge_readiness",
-		Title:       "Ready to merge",
-		Description: "Every open, review-ready pull request with its review decision and check status.",
-		Why:         "Shows what is approved and green but still sitting there. Merging these is usually the cheapest win available.",
+		Title:       "Open pull requests",
+		Description: "Every open, review-ready pull request, with its review decision and check status attached.",
+		Why:         "The full inventory. The status column is the point: it separates what is approved and green from what is still waiting on a review or a fix.",
 		Enabled:     true,
 		Params: append([]Param{
 			{Name: "exclude_drafts", Desc: "Skip draft pull requests.", Default: true},
