@@ -6,6 +6,8 @@
 #
 # One extended regular expression per line; blank lines and # comments are
 # ignored. Matching is case-insensitive.
+#
+# Every line here is checked at commit time and again before a push.
 
 # Your employer, in the spellings that actually appear
 # example-company
@@ -15,16 +17,20 @@
 # .*\.internal\.example\.com
 # example\.atlassian\.net
 
-# Identifier formats specific to your systems. Match the shape, not a
-# real value - the point is to keep real values out of this file.
-# [0-9]{6}:[0-9a-f-]{36}
+# Identifier formats specific to your systems.
+#
+# Match the SHAPE, not a list of known values. A list only catches the
+# ids you already know about, so a new colleague's would slip past every
+# one of them - and listing real values here would publish exactly what
+# you are trying to withhold.
+# [0-9]{6}:[0-9a-f-]{8,}     an Atlassian account id
 
-# Credentials, in case something slips past GitHub's own scanning
-ghp_[A-Za-z0-9]{20,}
-gho_[A-Za-z0-9]{20,}
-github_pat_[A-Za-z0-9_]{20,}
-sk-ant-[A-Za-z0-9-]{20,}
-BEGIN [A-Z ]*PRIVATE KEY
-
-# Colleagues' names, if any risk appearing in a fixture or a comment
+# Colleagues' names. Full names only: a lone first name matches ordinary
+# words, and a check that cries wolf is one people learn to bypass.
 # Firstname Lastname
+
+# Credentials do NOT belong here. Issued-token prefixes and private key
+# blocks are built into scripts/private-check.sh, so they are checked
+# whether or not this file exists - a clone that protects nothing would
+# be the worst possible default for the one mistake that cannot be taken
+# back.
