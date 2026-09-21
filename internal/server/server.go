@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -40,9 +41,16 @@ func New(cache *sweep.Cache) *Server {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
 
 func (s *Server) routes() {
+	// The healthcheck also says which Argus this is. Someone running the
+	// container and the binary at once otherwise gets a cheerful "running"
+	// from `argus doctor` that is really the other one answering.
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte("ok"))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":    "ok",
+			"container": config.InContainer(),
+			"pid":       os.Getpid(),
+		})
 	})
 
 	// The whole dashboard in one call: identity, freshness, and every
