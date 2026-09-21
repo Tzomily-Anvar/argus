@@ -16,15 +16,22 @@ import (
 // Docker sets ARGUS_IN_CONTAINER, so the two cases are distinguished
 // explicitly rather than guessed at from the filesystem.
 
+// DefaultDataDir is where data would live with nothing overridden. The
+// keyring holds a single item for the machine, so it belongs to this
+// location and not to a directory someone has redirected Argus at.
+func DefaultDataDir() string {
+	if InContainer() {
+		return "/data"
+	}
+	return filepath.Join(userDataHome(), "argus")
+}
+
 // DataDir is where sessions and the sprint report's storage live.
 func DataDir() string {
 	if v := String("ARGUS_DATA_DIR", ""); v != "" {
 		return v
 	}
-	if InContainer() {
-		return "/data"
-	}
-	return filepath.Join(userDataHome(), "argus")
+	return defaultDataDir()
 }
 
 // ConfigDir is where the configuration file lives.
@@ -32,6 +39,21 @@ func ConfigDir() string {
 	if v := String("ARGUS_CONFIG_DIR", ""); v != "" {
 		return v
 	}
+	return defaultConfigDir()
+}
+
+// The defaults, without the override. `argus config` has to show what a
+// setting would be if you had not set it, which the accessors above
+// cannot say once you have.
+
+func defaultDataDir() string {
+	if InContainer() {
+		return "/data"
+	}
+	return filepath.Join(userDataHome(), "argus")
+}
+
+func defaultConfigDir() string {
 	if InContainer() {
 		return "/data"
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Tzomily-Anvar/argus/internal/config"
+	"github.com/Tzomily-Anvar/argus/internal/gh"
 	"github.com/Tzomily-Anvar/argus/internal/term"
 )
 
@@ -28,8 +29,9 @@ func initConfig() error {
 	fmt.Printf(`
   Wrote %s
 
-  Open it and set ARGUS_GITHUB_ORG to your organisation. That is the only
-  required setting; everything else has a working default.
+  Open it and set ARGUS_GITHUB_ORG to your organisation, or to your own
+  username if your repositories live under your personal account. That is
+  the only required setting; everything else has a working default.
 
   Then:
       argus doctor     check the setup
@@ -73,11 +75,24 @@ func doctor() error {
 	org, err := config.Org()
 	switch {
 	case err != nil:
-		bad("organisation", "not set", "set ARGUS_GITHUB_ORG in your configuration")
+		bad("account", "not set", "set ARGUS_GITHUB_ORG in your configuration")
 	case org == "your-org-here":
-		bad("organisation", "still the placeholder", "set ARGUS_GITHUB_ORG to your organisation")
+		bad("account", "still the placeholder",
+			"set ARGUS_GITHUB_ORG to your organisation, or to your own username")
 	default:
-		ok("organisation", org)
+		// Which kind of account it is decides which endpoints Argus can
+		// use - teams and the account-wide security feeds exist for an
+		// organisation only - so it is worth saying out loud here rather
+		// than leaving someone to infer it from a rule that looked
+		// quiet.
+		kind, kerr := accountKind(org)
+		switch {
+		case kerr != nil:
+			ok("account", org)
+			warn("account type", kerr.Error())
+		default:
+			ok("account", org, dim+kind.Label()+off)
+		}
 	}
 
 	switch {
@@ -139,22 +154,51 @@ func doctor() error {
 	return nil
 }
 
+// accountKind asks GitHub whether a name is an organisation or a person.
+//
+// Doctor reports rather than fails on anything that goes wrong here: not
+// being able to check is a different thing from the answer being bad,
+// and someone who has not signed in yet should not be told their account
+// is wrong.
+func accountKind(name string) (gh.AccountKind, error) {
+	client, err := gh.NewFromEnv()
+	if err != nil {
+		return gh.AccountUnknown, fmt.Errorf("not signed in, so this cannot be checked")
+	}
+	kind, err := client.AccountKindOf(name)
+	if err != nil {
+		return gh.AccountUnknown, fmt.Errorf("could not be checked: %v", err)
+	}
+	return kind, nil
+}
+
 // usage is printed for -help and for an unknown command.
 func usage() {
-	fmt.Fprintf(os.Stderr, `Argus - a read-only dashboard for a GitHub organisation.
+	fmt.Fprintf(os.Stderr, `Argus - a read-only dashboard for a GitHub organisation or account.
 
   argus                run it
   argus setup          answer a few questions and be done
   argus init           write a starter configuration file
   argus doctor         check the setup and explain anything missing
+  argus config         see and change any setting - `+"`argus config --help`"+`
   argus login          sign in to the configured GitHub App
   argus logout         forget that session
   argus service install    run at login, so it is always warm
   argus service uninstall  stop doing that
   argus version        which build this is
 
-Configuration is read from, in order: the environment, $ARGUS_CONFIG,
-%s, then ./.env
+Every setting can be listed, explained and changed from the command line:
+
+  argus config                 every setting, its value, and where it came from
+  argus config get KEY         one setting, in full
+  argus config set KEY VALUE   write it to the configuration file
+
+A setting is read from the environment first, then the configuration
+file, then the built-in default - so an exported variable quietly beats
+anything in the file, and `+"`argus config`"+` will say when one is. The file is
+$ARGUS_CONFIG, or ./.env in a checkout, or
+
+    %s
 
 Docs: %s
 `, config.ConfigFile(), term.Link(os.Stderr, "https://github.com/Tzomily-Anvar/argus"))
@@ -171,12 +215,13 @@ func firstRun() {
 		fmt.Fprintf(os.Stderr, `
   Argus is not configured yet.
 
-  Set ARGUS_GITHUB_ORG in your .env beside docker-compose.yml, then:
+  Set ARGUS_GITHUB_ORG in your .env beside docker-compose.yml - your
+  organisation, or your own username - then:
 
       ./run.sh up
 
   Copy .env.example to .env if you have not already. Everything except
-  the organisation has a working default.
+  the account has a working default.
 
 `)
 		return
@@ -186,7 +231,8 @@ func firstRun() {
   Argus is not configured yet.
 
   1.  argus init      write a starter configuration file and say where
-                      it is, then open it and set your organisation
+                      it is, then open it and set the organisation or
+                      username to sweep
 
   2.  argus login     sign in to GitHub
                       (or put a token in the file instead - either works)

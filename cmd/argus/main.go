@@ -1,4 +1,5 @@
-// Command argus serves a read-only overview of a GitHub organisation.
+// Command argus serves a read-only overview of a GitHub organisation,
+// or of a personal account.
 //
 // It sweeps in the background and serves from memory, so the dashboard is
 // instant whenever you open it. Leave the container running and it stays
@@ -129,8 +130,12 @@ func probe() int {
 
 // command runs a subcommand.
 func command(name string) error {
-	// init is the one command that must work before configuration exists.
-	if name != "init" {
+	// init is the one command that must work before configuration exists,
+	// and config is the one that must not have the file loaded: Load
+	// copies it into the environment, and afterwards nothing can tell a
+	// value set in the file from one exported in the shell - which is the
+	// very thing `argus config` is there to report.
+	if name != "init" && name != "config" {
 		if _, err := config.Load(); err != nil {
 			return err
 		}
@@ -138,6 +143,8 @@ func command(name string) error {
 	switch name {
 	case "init":
 		return initConfig()
+	case "config":
+		return configCommand(os.Args[2:])
 	case "doctor":
 		return doctor()
 	case "login":
@@ -168,7 +175,8 @@ func command(name string) error {
 
 // appSource builds the App token source from configuration.
 func appSource() *ghauth.Source {
-	return ghauth.NewSource(config.GitHubAppClientID(), config.DataDir())
+	return ghauth.NewSource(config.GitHubAppClientID(), config.DataDir(),
+		config.DataDir() == config.DefaultDataDir())
 }
 
 // appSession signs in to, or out of, the configured GitHub App.
