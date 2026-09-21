@@ -57,8 +57,8 @@ export function PolicyHintBanner({ hints }: { hints: Hint[] }) {
             </button>
           </div>
           <p className="mt-2 text-xs" style={{ color: "var(--muted)" }}>
-            To report it separately instead of as a failure, add this to your{" "}
-            <code className="font-mono">.env</code> and restart:
+            To report it separately instead of as a failure, add this to your configuration file
+            (<code className="font-mono">argus doctor</code> prints where it is) and restart:
           </p>
           <pre
             className="mt-1 overflow-x-auto rounded p-2 font-mono text-xs"

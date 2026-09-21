@@ -24,8 +24,9 @@ export function RulesPanel({ rules }: { rules: RuleInfo[] }) {
       <p className="text-sm" style={{ color: "var(--muted)" }}>
         This page reports how each check is currently configured; it does not change anything.
         Each check is independent — to turn one off or retune it, set the environment variable
-        shown in your <code className="font-mono text-xs">.env</code> and restart. Adding a new
-        check means adding one file; see CONTRIBUTING.md.
+        shown in your configuration file and restart;{" "}
+        <code className="font-mono text-xs">argus doctor</code> prints where that file is. Adding a
+        new check means adding one file; see CONTRIBUTING.md.
       </p>
 
       {rules.map((rule) => (
