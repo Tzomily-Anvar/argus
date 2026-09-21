@@ -35,19 +35,15 @@ func runStaleBranches(c *Context, v Values) (any, error) {
 	branchCut := c.Now.AddDate(0, 0, -v.Int("days"))
 	skip := v.Strs("ignore_prefixes")
 
-	reposRaw, err := c.Client.GetAll("/orgs/"+c.Org+"/repos", Params("type", "all", "sort", "pushed"))
+	// Scope and archived repositories are already accounted for; what is
+	// left is this rule's own "has anything happened here lately" filter.
+	inScope, err := c.Repos()
 	if err != nil {
 		return nil, err
 	}
 
 	var repos []map[string]any
-	for _, r := range gh.Maps(reposRaw) {
-		if gh.Bool(r["archived"]) && !c.Scope.Archived {
-			continue
-		}
-		if !c.Scope.Allows(gh.Str(r["name"])) {
-			continue
-		}
+	for _, r := range inScope {
 		pushed, err := time.Parse(time.RFC3339, gh.Str(r["pushed_at"]))
 		if err != nil || !pushed.After(pushCut) {
 			continue

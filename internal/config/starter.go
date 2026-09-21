@@ -11,7 +11,9 @@ const starter = `# Argus configuration.
 #
 # Full reference: https://github.com/Tzomily-Anvar/argus/blob/main/.env.example
 
-# The GitHub organisation to sweep.
+# The GitHub account to sweep: an organisation, or your own username if
+# your repositories live under your personal account. Argus works out
+# which it is on its own.
 ARGUS_GITHUB_ORG=your-org-here
 
 # How to authenticate. Pick one:

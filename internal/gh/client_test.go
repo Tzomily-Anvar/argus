@@ -2,6 +2,8 @@ package gh
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -15,7 +17,7 @@ func TestRejectsWriteMethods(t *testing.T) {
 		http.MethodPost, http.MethodPut, http.MethodPatch,
 		http.MethodDelete, http.MethodHead, http.MethodOptions,
 	} {
-		err := assertReadOnly(method, apiBase+"/repos/o/r/issues/1/comments", nil)
+		err := assertReadOnly(method, apiBase+"/repos/o/r/issues/1/comments", graphqlURL, nil)
 		if err == nil {
 			t.Errorf("%s against the REST API was allowed; it must be refused", method)
 			continue
@@ -27,7 +29,7 @@ func TestRejectsWriteMethods(t *testing.T) {
 }
 
 func TestAllowsGet(t *testing.T) {
-	if err := assertReadOnly(http.MethodGet, apiBase+"/user", nil); err != nil {
+	if err := assertReadOnly(http.MethodGet, apiBase+"/user", graphqlURL, nil); err != nil {
 		t.Fatalf("GET must be allowed, got %v", err)
 	}
 }
@@ -41,7 +43,7 @@ func TestGraphQLQueriesAllowed(t *testing.T) {
 	}
 	for _, q := range queries {
 		body := map[string]any{"query": q}
-		if err := assertReadOnly(http.MethodPost, graphqlURL, body); err != nil {
+		if err := assertReadOnly(http.MethodPost, graphqlURL, graphqlURL, body); err != nil {
 			t.Errorf("query %q must be allowed, got %v", truncate(q), err)
 		}
 	}
@@ -56,7 +58,7 @@ func TestGraphQLMutationsRefused(t *testing.T) {
 	}
 	for _, m := range mutations {
 		body := map[string]any{"query": m}
-		err := assertReadOnly(http.MethodPost, graphqlURL, body)
+		err := assertReadOnly(http.MethodPost, graphqlURL, graphqlURL, body)
 		if err == nil {
 			t.Errorf("mutation %q was allowed; it must be refused", truncate(m))
 			continue
@@ -71,7 +73,7 @@ func TestGraphQLMutationsRefused(t *testing.T) {
 // with a well-formed query body, must still be refused.
 func TestPostOnlyToGraphQLEndpoint(t *testing.T) {
 	body := map[string]any{"query": "query { viewer { login } }"}
-	if err := assertReadOnly(http.MethodPost, apiBase+"/repos/o/r/merges", body); err == nil {
+	if err := assertReadOnly(http.MethodPost, apiBase+"/repos/o/r/merges", graphqlURL, body); err == nil {
 		t.Fatal("POST to a REST endpoint was allowed; it must be refused")
 	}
 }
@@ -173,5 +175,27 @@ func TestGraphQLErrorsWithoutDataStayFatal(t *testing.T) {
 	}
 	if data != nil {
 		t.Error("no data should be returned")
+	}
+}
+
+// GetAll walks pages by setting a parameter, so it must not do that to
+// the map it was handed: url.Values is a map, and the security rule fans
+// this out over every repository with one shared set of parameters.
+func TestGetAllDoesNotTouchTheCallersParams(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	params := url.Values{"state": {"open"}}
+	before := params.Encode()
+
+	c := NewForTest(srv.URL, "ghp_x")
+	if _, err := c.GetAll("/anything", params); err != nil {
+		t.Fatalf("GetAll: %v", err)
+	}
+	if got := params.Encode(); got != before {
+		t.Errorf("GetAll modified the caller's params:\n got %q\nwant %q", got, before)
 	}
 }

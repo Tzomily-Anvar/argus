@@ -12,6 +12,47 @@ func TestWholeOrgByDefault(t *testing.T) {
 	}
 }
 
+// Search names the account with a different qualifier depending on what
+// kind it is. Using the wrong one is not an error - it simply matches
+// nothing, which is the failure mode hardest to notice.
+func TestOwnerQualifierFollowsTheAccountKind(t *testing.T) {
+	cases := []struct {
+		name  string
+		scope Scope
+		want  string
+	}{
+		{
+			name:  "an organisation",
+			scope: Scope{Org: "your-org"},
+			want:  "org:your-org archived:false",
+		},
+		{
+			name:  "a personal account",
+			scope: Scope{Org: "octocat", Personal: true},
+			want:  "user:octocat archived:false",
+		},
+		{
+			name:  "exclusions subtract from either kind",
+			scope: Scope{Org: "octocat", Personal: true, Excluded: []string{"sandbox"}},
+			want:  "user:octocat -repo:octocat/sandbox archived:false",
+		},
+		{
+			// repo: is spelled the same way for both, so an allowlist
+			// never has to know which kind of account it names.
+			name:  "an allowlist is the same either way",
+			scope: Scope{Org: "octocat", Personal: true, Only: []string{"api"}},
+			want:  "repo:octocat/api archived:false",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.scope.Query(); got != tc.want {
+				t.Errorf("Query() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestArchivedIncludedOnRequest(t *testing.T) {
 	s := Scope{Org: "acme", Archived: true}
 	if got := s.Query(); got != "org:acme" {

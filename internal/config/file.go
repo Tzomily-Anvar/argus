@@ -49,6 +49,25 @@ func Load() (string, error) {
 	return "", nil
 }
 
+// ActiveFile returns the configuration file Load would use, or the one
+// that would be created if there is none.
+//
+// Not the same as ConfigFile: inside a checkout the file being read is
+// ./.env, and `argus config` that read and wrote the file under your home
+// directory instead would be reporting on, and editing, a file the server
+// never looks at.
+func ActiveFile() string {
+	for _, path := range candidates() {
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ConfigFile()
+}
+
 func candidates() []string {
 	return []string{
 		os.Getenv("ARGUS_CONFIG"),
@@ -66,16 +85,10 @@ func loadFile(path string) error {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+		key, value, ok := parseLine(scanner.Text())
+		if !ok {
 			continue
 		}
-		key, value, found := strings.Cut(line, "=")
-		if !found {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		value = strings.Trim(strings.TrimSpace(value), `"'`)
 
 		// An environment variable wins, but only if it says something.
 		// Compose declares "${ARGUS_GITHUB_TOKEN:-}" so the variable
@@ -90,6 +103,24 @@ func loadFile(path string) error {
 		}
 	}
 	return scanner.Err()
+}
+
+// parseLine reads one line of a configuration file.
+//
+// Every reader of the file goes through here - Load, and the `argus
+// config` commands that have to say what the file currently holds. Two
+// parsers that disagreed by a trimmed quote would have `argus config
+// list` confidently reporting a value the server never saw.
+func parseLine(raw string) (key, value string, ok bool) {
+	line := strings.TrimSpace(raw)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return "", "", false
+	}
+	key, value, found := strings.Cut(line, "=")
+	if !found {
+		return "", "", false
+	}
+	return strings.TrimSpace(key), strings.Trim(strings.TrimSpace(value), `"'`), true
 }
 
 // WriteStarter creates a configuration file, and refuses to overwrite one.

@@ -8,7 +8,8 @@ func init() {
 		Why:         "These are blocked on you specifically. Nothing else on the dashboard is as directly your move.",
 		Enabled:     true,
 		Params: []Param{
-			{Name: "include_teams", Desc: "Also count reviews requested from your teams, not just you personally.", Default: true},
+			{Name: "include_teams", Desc: "Also count reviews requested from your teams, not just you personally. " +
+				"A personal account has no teams, so this does nothing there.", Default: true},
 		},
 		Run: runReviewRequested,
 	})

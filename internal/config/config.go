@@ -86,14 +86,20 @@ func Strings(key string, def []string) []string {
 	return out
 }
 
-// Org is the GitHub organisation to sweep. Required, no default.
+// Org is the GitHub account to sweep. Required, no default.
+//
+// It takes an organisation or a personal account: which one it is, is
+// detected from the name rather than declared, so there is nothing to
+// set differently and nobody has to know that GitHub treats the two as
+// separate things. The setting keeps its name because changing it would
+// break every configuration file already written.
 func Org() (string, error) {
 	if v := String("ARGUS_GITHUB_ORG", ""); v != "" {
 		return v, nil
 	}
 	return "", &Missing{
 		Key:  "ARGUS_GITHUB_ORG",
-		Hint: "This is the GitHub organisation to sweep.",
+		Hint: "This is the GitHub organisation, or your own username, to sweep.",
 	}
 }
 
@@ -128,7 +134,7 @@ func Token() (string, error) {
 }
 
 // Repos is an allowlist of repository names. Empty means the whole
-// organisation, which is the default: most people want everything.
+// account, which is the default: most people want everything.
 func Repos() []string { return Strings("ARGUS_REPOS", nil) }
 
 // ExcludeRepos names repositories to skip. Applied everywhere, so a
