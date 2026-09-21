@@ -7,6 +7,8 @@
 #   ./run.sh restart   rebuild and recreate, re-reading .env and the token
 #   ./run.sh logs      follow the logs
 #   ./run.sh status    show container state
+#   ./run.sh login     sign in to the GitHub App, if one is configured
+#   ./run.sh logout    forget that session
 #   ./run.sh doctor    check the setup and explain anything missing
 #
 # The GitHub token is resolved at start time - from 1Password if you have
@@ -136,6 +138,19 @@ case "${1:-up}" in
   status|ps)
     compose ps
     ;;
+  login|logout)
+    # Runs on the host, in the foreground: a device code expires in
+    # fifteen minutes, and one printed by a detached container would sit
+    # unread in its logs until it did.
+    need_env
+    if ! command -v go >/dev/null 2>&1 && [[ ! -x ./argus ]]; then
+      bad "Signing in needs the binary. Either install Go, or run:"
+      echo "    $ENGINE run --rm -it --env-file .env -v argus_argus-data:/data argus -$cmd"
+      exit 1
+    fi
+    set -a; . ./.env; set +a
+    if [[ -x ./argus ]]; then ./argus "-$cmd"; else go run ./cmd/argus "-$cmd"; fi
+    ;;
   doctor)
     echo "Argus setup check"
     echo
@@ -178,7 +193,7 @@ case "${1:-up}" in
     fi
     ;;
   *)
-    echo "usage: ./run.sh [up|down|restart|logs|status|doctor]" >&2
+    echo "usage: ./run.sh [up|down|restart|logs|status|doctor|login|logout]" >&2
     exit 1
     ;;
 esac

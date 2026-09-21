@@ -71,7 +71,9 @@ COPY --from=build --chown=nonroot:nonroot /data /data
 VOLUME ["/data"]
 
 # Not a secret and not org-specific: just the port the server listens on.
-ENV ARGUS_PORT=18474
+# Tells Argus it is containerised, so it uses /data rather than a
+# per-user directory that does not exist here.
+ENV ARGUS_PORT=18474 ARGUS_IN_CONTAINER=true
 EXPOSE 18474
 
 USER nonroot:nonroot
