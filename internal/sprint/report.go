@@ -97,6 +97,9 @@ type Story struct {
 
 // EpicGroup is delivery grouped by the epic it belonged to, which is how
 // stakeholders read a sprint - by what moved, not by who moved it.
+//
+// Key and URL are empty for work that belongs to no epic: there is
+// nothing in Jira to open, so the group is a name and nothing more.
 type EpicGroup struct {
 	Key        string  `json:"key,omitempty"`
 	Name       string  `json:"name"`
@@ -118,6 +121,7 @@ type Row struct {
 	HasPoints bool      `json:"has_points"`
 	Done      bool      `json:"done"`
 	Epic      string    `json:"epic,omitempty"`
+	EpicKey   string    `json:"epic_key,omitempty"`
 	Created   time.Time `json:"created"`
 	Resolved  time.Time `json:"resolved,omitempty"`
 	URL       string    `json:"url"`

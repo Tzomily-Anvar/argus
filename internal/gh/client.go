@@ -19,6 +19,7 @@ package gh
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,7 @@ import (
 	"time"
 
 	"github.com/Tzomily-Anvar/argus/internal/config"
+	"github.com/Tzomily-Anvar/argus/internal/ghauth"
 )
 
 const (
@@ -73,9 +75,14 @@ func IsPartial(err error) bool {
 }
 
 // Client talks to GitHub. Safe for concurrent use.
+// TokenSource yields a valid token for each request. A personal access
+// token is a constant; a GitHub App's user token expires every eight
+// hours, so it cannot be captured once at construction.
+type TokenSource func(context.Context) (string, error)
+
 type Client struct {
 	http      *http.Client
-	token     string
+	token     TokenSource
 	tokenType TokenType
 	sem       chan struct{}
 }
@@ -87,10 +94,20 @@ func New(token string, concurrency, timeoutSeconds int) *Client {
 	if concurrency < 1 {
 		concurrency = 1
 	}
+	return NewWithSource(
+		func(context.Context) (string, error) { return token, nil },
+		resolveTokenType(token), concurrency, timeoutSeconds)
+}
+
+// NewWithSource builds a client whose token is fetched per request.
+func NewWithSource(src TokenSource, kind TokenType, concurrency, timeoutSeconds int) *Client {
+	if concurrency < 1 {
+		concurrency = 1
+	}
 	return &Client{
 		http:      &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
-		token:     token,
-		tokenType: resolveTokenType(token),
+		token:     src,
+		tokenType: kind,
 		sem:       make(chan struct{}, concurrency),
 	}
 }
@@ -116,13 +133,38 @@ func resolveTokenType(token string) TokenType {
 	return TokenFineGrained
 }
 
-// NewFromEnv builds a client from configuration.
+// NewFromEnv builds a client from whichever credential is configured.
+//
+// A token that someone has actually set wins. The App's client id ships
+// with a default so `argus login` needs no setup, which makes "an App is
+// configured" true of every installation - so it cannot also be the
+// signal to prefer the App, or everyone already using a token would
+// silently lose it on upgrade.
 func NewFromEnv() (*Client, error) {
-	tok, err := config.Token()
-	if err != nil {
-		return nil, err
+	// 1. A token set for Argus specifically. This is the container's
+	//    path, and an explicit choice either way.
+	if tok := config.ArgusToken(); tok != "" {
+		return New(tok, config.Concurrency(), config.HTTPTimeout()), nil
 	}
-	return New(tok, config.Concurrency(), config.HTTPTimeout()), nil
+
+	// 2. A sign-in someone actually performed. It outranks GH_TOKEN and
+	//    GITHUB_TOKEN, which are usually exported for some other tool and
+	//    would otherwise quietly override `argus login`.
+	if config.UseGitHubApp() {
+		src := ghauth.NewSource(config.GitHubAppClientID(), config.DataDir())
+		if src.SignedIn() {
+			return NewWithSource(src.Token, TokenAppUser, config.Concurrency(), config.HTTPTimeout()), nil
+		}
+	}
+
+	// 3. Whatever the environment already had.
+	if tok := config.AmbientToken(); tok != "" {
+		return New(tok, config.Concurrency(), config.HTTPTimeout()), nil
+	}
+
+	return nil, fmt.Errorf(
+		"no GitHub credential yet. Run `argus login` to sign in, " +
+			"or set ARGUS_GITHUB_TOKEN to a personal access token")
 }
 
 func assertReadOnly(method, reqURL string, body any) error {
@@ -197,7 +239,11 @@ func (c *Client) attempt(method, reqURL string, encoded []byte) (map[string]any,
 	if err != nil {
 		return nil, nil, errf("building request: %v", err), false
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	tok, err := c.token(context.Background())
+	if err != nil {
+		return nil, nil, err, false
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", userAgent)

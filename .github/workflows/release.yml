@@ -1,0 +1,86 @@
+# Cutting a release.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# GitHub then builds macOS, Linux and Windows binaries for both
+# architectures, attaches them to the release, and updates the Homebrew
+# tap. Nothing is built on anyone's laptop, and the checksums come from a
+# machine nobody has a shell on.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write     # create the release and upload the archives
+  id-token: write     # the OIDC token attest-build-provenance signs with
+  attestations: write # provenance, so a downloader can verify the build
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # GoReleaser reads this token through a template, so an unset secret
+      # arrives as an empty string rather than a missing key: the run would
+      # get all the way to the tap push and then fail on an authentication
+      # error that reads as if the tap repository had gone missing - after
+      # the release itself has already been published. Checking first means
+      # the failure names the thing that is actually wrong, before anything
+      # is built or published.
+      - name: Check the tap token is present
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$TAP_GITHUB_TOKEN" ]; then
+            echo "TAP_GITHUB_TOKEN is not set, so the Homebrew tap cannot be updated."
+            echo "Add it as a repository secret, or drop homebrew_casks from .goreleaser.yaml."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # goreleaser reads tags to build the changelog
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The dashboard is compiled into the binary, so it has to exist
+      # before the Go build runs. GoReleaser's before-hooks do this too;
+      # running it here means a frontend failure is reported as one.
+      - name: Build the dashboard
+        run: npm ci && npm run build
+        working-directory: web
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean --skip=before
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A token that may write to Tzomily-Anvar/homebrew-tap. The
+          # built-in GITHUB_TOKEN cannot: it is scoped to this repository.
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      # Every file the release publishes, one glob per line. Windows gets a
+      # zip rather than a tar.gz (format_overrides in .goreleaser.yaml), so
+      # matching only *.tar.gz left the two Windows archives with no
+      # provenance at all - and an archive nobody can verify is the one
+      # worth tampering with. checksums.txt is listed for the same reason:
+      # it is a published file, and people check it, so it should answer to
+      # `gh attestation verify` instead of looking unattested.
+      - name: Attest the archives
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt

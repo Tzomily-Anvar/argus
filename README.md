@@ -5,9 +5,10 @@ Jira: what is waiting on your review, what is ready to merge, what has
 gone stale, which security alerts matter, and where a sprint's capacity
 actually went.
 
-It runs as **one container on your own machine** and authenticates with
-**your own** credentials, so everything is scoped to what you can already
-see. Nothing is hosted and nothing is shared.
+It runs **on your own machine** — as a single binary or as one container
+— and authenticates with **your own** credentials, so everything is
+scoped to what you can already see. Nothing is hosted and nothing is
+shared.
 
 It sweeps in the background and serves from memory, so the dashboard is
 **instant whenever you open it**, however slow the underlying API was.
@@ -81,23 +82,134 @@ dark, remembered per browser.
 
 ---
 
-## Quick start
+## Installing
+
+There are three ways in, in the order most people should try them. They
+all end in the same place: a dashboard at
+**<http://argus.localhost:18474>**, sweeping in the background so the
+answer is already there when you look. `*.localhost` resolves to
+127.0.0.1 with no `/etc/hosts` entry and no `sudo`.
+
+Argus binds to **loopback only**. It has no login and does not need one,
+because anything that can reach it is already on your machine.
+
+### How it signs in
+
+Worth settling first, because it is the part people get wrong.
+
+The default is a **GitHub App sign-in**: run `argus login` and there is
+nothing to configure beforehand — no token to create, no private key to
+download. It uses the user-to-server device flow, which means there is no
+client secret and no private key anywhere: not on your machine, not in
+this repository. The token it gets back acts as *you*, so it can reach
+exactly what you can already reach, and nothing else.
+
+A **personal access token** still works if you would rather hold your own
+credential. Set `ARGUS_GITHUB_TOKEN` and Argus uses that instead —
+[docs/github-token.md](docs/github-token.md) has the exact permissions,
+the SSO step, and a script that names whatever is missing.
+
+With **neither**, Argus falls back to the token your existing
+`gh auth login` already has, which is usually enough for a first look.
+
+### 1. Homebrew — macOS
+
+The shortest path, and the one to take unless you have a reason not to.
+
+```bash
+brew install Tzomily-Anvar/tap/argus
+argus setup     # answers three questions and writes the configuration
+argus           # run it
+```
+
+`argus setup` asks for your organisation, offers to sign you in, and
+asks whether you want the sprint report. It checks the organisation
+against GitHub while you are still there to correct it, and writes
+`config.env` under your usual configuration directory — a
+package-manager install has no repository to write into.
+
+Signing in prints a short code and points you at
+<https://github.com/login/device>. You type the code in, approve it, and
+that is the whole of it.
+
+If you would rather see every setting and choose for yourself, the long
+way round does the same job:
+
+```bash
+argus init      # writes the annotated configuration file
+argus login     # sign in to GitHub
+argus doctor    # checks the setup and explains anything missing
+```
+
+`ARGUS_GITHUB_ORG` is the only required setting. Everything else has a
+working default, and the file `argus init` writes documents all of it.
+
+To have Argus start at login and keep sweeping in the background — so the
+dashboard is already current the moment you open it, rather than starting
+to fetch while you wait:
+
+```bash
+argus service install     # a launchd agent, per-user, no root
+argus service uninstall   # undo it
+```
+
+### 2. Download the binary — Linux, Windows, or anyone not using Homebrew
+
+Every release on the
+[Releases page](https://github.com/Tzomily-Anvar/argus/releases) carries
+builds for macOS and Linux (amd64 and arm64) and for Windows.
+
+> **Windows is built but untested.** It compiles, and the code paths for
+> it are written — `%AppData%` for configuration, Task Scheduler for
+> starting at login — but nobody has yet run Argus on Windows. If you do,
+> an issue saying whether it worked would be genuinely useful. The
+> `systemd --user` unit on Linux is in the same position: written and
+> reviewed, not yet run in anger. Download
+the archive for your platform, extract it, and put `argus` somewhere on
+your `PATH`. Then it is the same as above:
+
+```bash
+argus setup
+argus
+```
+
+On **macOS**, a binary you downloaded is quarantined by Gatekeeper, which
+refuses to run it and blames you rather than the quarantine. Clear it:
+
+```bash
+xattr -dr com.apple.quarantine ./argus
+```
+
+The Homebrew cask does that for you, which is one reason to prefer it.
+
+On **Windows**, `argus service install` registers a Task Scheduler entry
+that starts Argus at login; on **Linux** it writes a `systemd --user`
+unit. Both are per-user and unprivileged — nothing here needs root.
+
+Releases are built by GitHub Actions rather than on anyone's laptop, and
+each one is published with a build provenance attestation. If you would
+rather not take that on trust:
+
+```bash
+gh attestation verify argus_1.0.0_linux_amd64.tar.gz \
+  --repo Tzomily-Anvar/argus
+```
+
+### 3. Docker
+
+The right choice if you want Argus running continuously on a server, or
+if you already live in Docker and would rather not have another binary on
+your `PATH`.
 
 You need **Docker or podman** — `run.sh` uses whichever it finds. You do
-**not** need Go or Node; the image builds both, for whichever architecture
-you are on.
+**not** need Go or Node; the image builds both, for whichever
+architecture you are on.
 
 ```bash
 cp .env.example .env     # set ARGUS_GITHUB_ORG
 cp op.env.example op.env # or skip this and use `gh auth login`
 ./run.sh up
 ```
-
-Open **<http://argus.localhost:18474>**. `*.localhost` resolves to
-127.0.0.1 with no `/etc/hosts` entry and no `sudo`.
-
-Argus binds to **loopback only**. It has no login and does not need one,
-because anything that can reach it is already on your machine.
 
 ```bash
 ./run.sh doctor    # check the setup and explain anything missing
@@ -155,19 +267,40 @@ from the code.
 
 | What you see | What it means |
 |---|---|
-| `ARGUS_GITHUB_ORG is required` | No `.env`, or it still says `your-org-here`. |
+| `ARGUS_GITHUB_ORG is required` | No `config.env` or `.env`, or it still says `your-org-here`. |
 | `GitHub rejected the token (401)` | Token missing, mistyped, expired, or revoked. |
 | `403 with a SAML/SSO error` | Token is valid but not authorised for the org — see [SSO](#if-your-organisation-uses-saml-single-sign-on). |
 | `403` on the security section only | Token cannot read org-wide alerts. Add `security_events`, or set `ARGUS_RULE_SECURITY_ENABLED=false`. |
 | `404` for the org | `ARGUS_GITHUB_ORG` is wrong, or your token cannot see it. |
 | Empty sections, no error | Genuinely nothing to show. The Rules panel confirms which checks ran. |
-| Port already in use | Set `ARGUS_PORT` in `.env`. |
+| Port already in use | Set `ARGUS_PORT` in your configuration file. |
 
-`./run.sh doctor` checks all of the above and says which step failed.
+`argus doctor` checks all of the above and says which step failed, as
+does `./run.sh doctor` on the Docker path.
 
 ---
 
 ## Updating
+
+However you installed it, your settings and your session are kept outside
+the thing being replaced, so an update never costs you either.
+
+Homebrew:
+
+```bash
+brew upgrade argus
+```
+
+If you installed the background service, run `argus service uninstall`
+and `argus service install` afterwards: the unit points at the exact
+binary it was written for, and an upgrade moves that.
+
+A downloaded binary: take the new archive from the
+[Releases page](https://github.com/Tzomily-Anvar/argus/releases) and
+replace the one on your `PATH`. Your `config.env` is in your
+configuration directory, not next to the binary, so it stays where it is.
+
+Docker:
 
 ```bash
 git pull

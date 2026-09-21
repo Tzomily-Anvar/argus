@@ -7,15 +7,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/gh"
+	"github.com/Tzomily-Anvar/argus/internal/ghauth"
 	"github.com/Tzomily-Anvar/argus/internal/rules"
 	"github.com/Tzomily-Anvar/argus/internal/server"
 	"github.com/Tzomily-Anvar/argus/internal/sweep"
@@ -27,13 +30,38 @@ func main() {
 	// The final image is distroless: no shell, no curl. So the container
 	// healthcheck runs this binary with -healthcheck, which just probes
 	// the local server and reports via exit status.
+	// Subcommands come before flags so the common ones read as words
+	// rather than switches: `argus login`, not `argus -login`.
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
+		if err := command(os.Args[1]); err != nil {
+			fmt.Fprintf(os.Stderr, "\n  argus: %s\n\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	healthcheck := flag.Bool("healthcheck", false, "probe the local server and exit 0 if healthy")
+	flag.Usage = usage
 	flag.Parse()
 	if *healthcheck {
 		os.Exit(probe())
 	}
 
+	// Configuration is loaded before anything reads a setting.
+	if _, err := config.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  argus: %s\n\n", err)
+		os.Exit(1)
+	}
+
 	if err := run(); err != nil {
+		// Someone who has never configured Argus needs a first step, not
+		// the name of a setting they have no file to put it in. Installed
+		// from a package manager there is no repository to go and read.
+		var missing *config.Missing
+		if errors.As(err, &missing) && config.Loaded() == "" {
+			firstRun()
+			os.Exit(1)
+		}
 		// Configuration problems are the common case here and deserve a
 		// readable message, not a stack trace.
 		fmt.Fprintf(os.Stderr, "\n  argus: %s\n\n", err)
@@ -92,4 +120,90 @@ func probe() int {
 		return 1
 	}
 	return 0
+}
+
+// command runs a subcommand.
+func command(name string) error {
+	// init is the one command that must work before configuration exists.
+	if name != "init" {
+		if _, err := config.Load(); err != nil {
+			return err
+		}
+	}
+	switch name {
+	case "init":
+		return initConfig()
+	case "doctor":
+		return doctor()
+	case "login":
+		return appSession(true)
+	case "logout":
+		return appSession(false)
+	case "service":
+		action := "install"
+		if len(os.Args) > 2 {
+			action = os.Args[2]
+		}
+		if action != "install" && action != "uninstall" {
+			return fmt.Errorf("usage: argus service [install|uninstall]")
+		}
+		return serviceCommand(action)
+	case "setup":
+		return setup()
+	case "version", "--version":
+		fmt.Println(versionString())
+		return nil
+	case "help":
+		usage()
+		return nil
+	}
+	usage()
+	return fmt.Errorf("unknown command %q", name)
+}
+
+// appSource builds the App token source from configuration.
+func appSource() *ghauth.Source {
+	return ghauth.NewSource(config.GitHubAppClientID(), config.DataDir())
+}
+
+// appSession signs in to, or out of, the configured GitHub App.
+//
+// This runs in the foreground on purpose. A device code expires in
+// fifteen minutes, and one printed by a detached container would sit
+// unread in the logs until it did.
+func appSession(login bool) error {
+	id := config.GitHubAppClientID()
+	if id == "" {
+		return fmt.Errorf(
+			"no GitHub App configured. Set ARGUS_GITHUB_APP_CLIENT_ID, or use a personal access token")
+	}
+	src := appSource()
+
+	if !login {
+		if err := src.Logout(); err != nil {
+			return err
+		}
+		fmt.Println("Signed out. The session has been removed.")
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 16*time.Minute)
+	defer cancel()
+
+	err := src.Login(ctx, func(code ghauth.DeviceCode) {
+		fmt.Printf("\n  Open %s\n  and enter this code:\n\n      %s\n\n  Waiting...\n",
+			code.VerificationURI, code.UserCode)
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, ghauth.ErrExpired):
+			return fmt.Errorf("the code expired before it was entered. Run this again")
+		case errors.Is(err, ghauth.ErrDenied):
+			return fmt.Errorf("authorisation was declined")
+		}
+		return err
+	}
+
+	fmt.Printf("\n  Signed in. The session is kept in %s\n\n", src.SessionPath())
+	return nil
 }

@@ -46,7 +46,7 @@ func Build(in Inputs) Report {
 	// Accumulators.
 	delivered := map[string]float64{}     // account id -> points
 	rowsFor := map[string][]Row{}         // account id -> their issues
-	epicPoints := map[string]*EpicGroup{} // epic name -> group
+	epicPoints := map[string]*EpicGroup{} // epic key, or name -> group
 	var unattributed float64
 
 	for _, is := range in.Issues {
@@ -160,13 +160,14 @@ func toRow(is jira.Issue, in Inputs, closed time.Time) Row {
 		Done:      in.Rules.IsDone(is.Fields.Status.Name),
 		Created:   is.Fields.Created.Time,
 		Resolved:  is.Fields.Resolved.Time,
-		URL:       in.BaseURL + "/browse/" + is.Key,
+		URL:       browseURL(in.BaseURL, is.Key),
 	}
 	if is.Fields.Assignee != nil {
 		row.Assignee = is.Fields.Assignee.DisplayName
 	}
 	if is.Fields.Parent != nil {
 		row.Epic = is.Fields.Parent.Fields.Summary
+		row.EpicKey = is.Fields.Parent.Key
 	}
 	return row
 }
@@ -241,15 +242,20 @@ func buildPeople(
 	return out
 }
 
+// addToEpic groups by the epic's key where there is one, so two epics
+// that happen to share a summary stay two epics.
 func addToEpic(groups map[string]*EpicGroup, row Row) {
-	name := row.Epic
+	name, id := row.Epic, row.EpicKey
 	if name == "" {
 		name = "(no epic)"
 	}
-	g := groups[name]
+	if id == "" {
+		id = "name:" + name
+	}
+	g := groups[id]
 	if g == nil {
-		g = &EpicGroup{Name: name}
-		groups[name] = g
+		g = &EpicGroup{Key: row.EpicKey, Name: name}
+		groups[id] = g
 	}
 	g.Points += row.Points
 	g.IssueCount++
@@ -267,6 +273,9 @@ func finishEpics(groups map[string]*EpicGroup, total float64, in Inputs) []EpicG
 		if total > 0 {
 			g.Share = g.Points / total
 		}
+		// Work with no epic has no key, so it keeps no URL and is read
+		// as the plain label it is.
+		g.URL = browseURL(in.BaseURL, g.Key)
 		out = append(out, *g)
 	}
 	// Largest first: the point of this section is where the sprint went.

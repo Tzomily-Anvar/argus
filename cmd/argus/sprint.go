@@ -86,7 +86,7 @@ func openStore(ctx context.Context) (store.Store, error) {
 		log.Printf("argus: storage = postgres")
 		return pgstore.New(ctx, dsn)
 	}
-	dir := config.String("ARGUS_DATA_DIR", "/data")
+	dir := config.DataDir()
 	log.Printf("argus: storage = files in %s", dir)
 	return jsonstore.New(dir)
 }

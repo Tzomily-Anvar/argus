@@ -4,7 +4,8 @@
 //
 //	environment variable  >  built-in default
 //
-// The environment layer is what you set in .env (see .env.example).
+// The environment layer is what you set in your configuration file
+// (see .env.example for every setting, annotated).
 // Nothing here carries a company-specific default: ARGUS_GITHUB_ORG is
 // required and has none, so Argus refuses to start rather than silently
 // sweeping somewhere you did not intend.
@@ -92,12 +93,28 @@ func Org() (string, error) {
 	}
 	return "", &Missing{
 		Key:  "ARGUS_GITHUB_ORG",
-		Hint: "Set it in your .env - this is the GitHub organisation to sweep.",
+		Hint: "This is the GitHub organisation to sweep.",
 	}
 }
 
 // Token is the caller's own GitHub token. Everything Argus shows is
 // scoped to it, so two people running Argus see two different dashboards.
+// ArgusToken is a token set specifically for Argus, as opposed to one
+// that merely happens to be in the environment. The difference decides
+// whether it outranks a deliberate `argus login`.
+func ArgusToken() string { return String("ARGUS_GITHUB_TOKEN", "") }
+
+// AmbientToken is a token Argus inherited - GH_TOKEN or GITHUB_TOKEN,
+// which plenty of people export for other tools entirely.
+func AmbientToken() string {
+	for _, k := range []string{"GH_TOKEN", "GITHUB_TOKEN"} {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func Token() (string, error) {
 	for _, k := range []string{"ARGUS_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
@@ -106,7 +123,7 @@ func Token() (string, error) {
 	}
 	return "", &Missing{
 		Key:  "ARGUS_GITHUB_TOKEN",
-		Hint: "See the token setup section in the README, or run `gh auth login` and let run.sh pass it through.",
+		Hint: "Run `argus login` to sign in instead, or see the token setup section in the README.",
 	}
 }
 
@@ -122,6 +139,26 @@ func ExcludeRepos() []string { return Strings("ARGUS_EXCLUDE_REPOS", nil) }
 // IncludeArchived reports whether archived repositories are swept. They
 // are excluded by default: nothing in an archive is actionable.
 func IncludeArchived() bool { return Bool("ARGUS_INCLUDE_ARCHIVED", false) }
+
+// GitHubAppClientID enables the GitHub App path. A client id is public -
+// the device flow needs no client secret - so it ships as an ordinary
+// default rather than a credential.
+//
+// Set it and Argus signs in as an App user instead of using a personal
+// access token, which is what makes read-only enforced by GitHub rather
+// than by this code alone.
+//
+// This default is the published Argus App, so `argus login` works on a
+// fresh install with nothing configured. Run your own App instead by
+// setting this - the flow is identical, only the App differs.
+const publishedAppClientID = "Iv23liJ9UcLoW3YL1foH"
+
+func GitHubAppClientID() string {
+	return String("ARGUS_GITHUB_APP_CLIENT_ID", publishedAppClientID)
+}
+
+// UseGitHubApp reports whether the App path is configured.
+func UseGitHubApp() bool { return GitHubAppClientID() != "" }
 
 func Port() string { return String("ARGUS_PORT", "18474") }
 

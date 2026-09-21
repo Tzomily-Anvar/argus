@@ -120,6 +120,7 @@ export type SprintRow = {
   has_points: boolean;
   done: boolean;
   epic?: string;
+  epic_key?: string;
   url: string;
 };
 
@@ -144,6 +145,9 @@ export type EpicGroup = {
   points: number;
   share: number;
   issue_count: number;
+  /** Absent for work that belongs to no epic, and when no Jira base URL
+   *  is configured: there is then nothing to open. */
+  url?: string;
 };
 
 export type SprintFlag = {
