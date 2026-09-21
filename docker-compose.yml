@@ -27,10 +27,20 @@ services:
       # from your gh login. It is never written to a file or baked into
       # the image.
       ARGUS_GITHUB_TOKEN: "${ARGUS_GITHUB_TOKEN:-}"
+
+      # Jira, for the sprint report. Resolved by run.sh from 1Password or
+      # your environment, and absent unless the tool is enabled.
+      ARGUS_JIRA_EMAIL: "${ARGUS_JIRA_EMAIL:-}"
+      ARGUS_JIRA_TOKEN: "${ARGUS_JIRA_TOKEN:-}"
       # Docker forwards to the container's address, not its loopback, so
       # the server must listen broadly *inside* the container. The port
       # mapping above is what limits real exposure to this machine.
       ARGUS_BIND: "0.0.0.0"
+
+    volumes:
+      # The sprint report stores baselines, capacity and notes. It lives
+      # on a volume so it survives rebuilds, and never inside the repo.
+      - argus-data:/data
 
     # Come back after a reboot, and after a crash, until explicitly stopped.
     restart: unless-stopped
@@ -42,3 +52,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+volumes:
+  argus-data:

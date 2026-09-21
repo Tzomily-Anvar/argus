@@ -53,10 +53,22 @@ ENV CGO_ENABLED=0
 RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /argus ./cmd/argus
 
+# The storage directory has to exist in the image, owned by the user the
+# final stage runs as. Docker takes its ownership from the image when it
+# first populates a named volume, and distroless has no shell to chown it
+# afterwards - so without this the container runs unprivileged against a
+# root-owned directory and every write fails.
+RUN mkdir -p /data && chown 65532:65532 /data
+
 # ---- 3. ship ----------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /argus /argus
+COPY --from=build --chown=nonroot:nonroot /data /data
+
+# Where the sprint report keeps baselines, capacity and notes. Mounted as
+# a volume by compose so it survives rebuilds.
+VOLUME ["/data"]
 
 # Not a secret and not org-specific: just the port the server listens on.
 ENV ARGUS_PORT=18474
