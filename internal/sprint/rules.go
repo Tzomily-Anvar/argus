@@ -38,6 +38,16 @@ type Rules struct {
 	ExcludedFromSayDo []string
 }
 
+// DefaultStoryLinkTypes are the issue link types that tie a container to
+// the work beneath it.
+//
+// Measured over five sprints of one team's finished Stories, Blocks
+// carries most of the association, Relates a handful more, and
+// migration_parent is a legacy type left behind by a move between
+// projects. All three are wanted, which is why this is a list and why it
+// is configurable rather than assumed.
+var DefaultStoryLinkTypes = []string{"Blocks", "migration_parent", "Relates"}
+
 func has(list []string, name string) bool {
 	for _, s := range list {
 		if strings.EqualFold(strings.TrimSpace(s), name) {
@@ -67,6 +77,16 @@ func (r Rules) ExpectsPointsWhenDone(issueType string) bool { return !r.IsContai
 // resolve should not.
 func (r Rules) ExpectsPointsWhenOpen(issueType string) bool {
 	return !r.IsContainer(issueType) && !has(r.EstimatedOnResolve, issueType)
+}
+
+// IsWork reports whether an issue type is work in its own right, as
+// opposed to something that holds other work.
+//
+// Used when reading a container's links: those reach upwards to the Epic
+// as well as downwards to the Tasks, and an Epic above a Story is not
+// work underneath it.
+func (r Rules) IsWork(issueType string) bool {
+	return !r.IsContainer(issueType) && !has(r.ExcludedFromSayDo, issueType)
 }
 
 // InSayDo reports whether an issue type counts toward say/do.

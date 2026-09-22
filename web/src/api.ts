@@ -110,6 +110,11 @@ export type SprintOption = {
   report_at?: string;
 };
 
+/** How an issue stands relative to the sprint being reported on. This is
+ *  not the same question as `done`: an issue can be done now and have
+ *  been open throughout the sprint you are looking at. */
+export type SprintIssueState = "concluded" | "carried" | "finished_earlier";
+
 export type SprintRow = {
   key: string;
   summary: string;
@@ -121,6 +126,23 @@ export type SprintRow = {
   done: boolean;
   epic?: string;
   epic_key?: string;
+  state: SprintIssueState;
+  /** What this sprint counts for the issue, which is not its size: a
+   *  ticket finishing here hands back what earlier sprints were already
+   *  credited for it, and one still open earns only what was worked on
+   *  here. Across every sprint it touched these sum to `points`. */
+  credited: number;
+  prior_points?: number;
+  /** The figure came from the planning estimate because the actual was
+   *  never filled in. */
+  used_estimate?: boolean;
+  concluded_at?: string;
+  /** Whether anybody picked it up during this sprint. An open ticket
+   *  nobody touched is not work that happened. */
+  active: boolean;
+  started_earlier?: boolean;
+  time_logged: boolean;
+  hours_logged?: number;
   url: string;
 };
 
@@ -133,8 +155,20 @@ export type SprintPerson = {
   delta: number;
   planned_days_off: number;
   unplanned_days_off: number;
+  /** The part of a negative delta that unplanned absence accounts for.
+   *  Capacity is reduced by planned leave only, so unplanned absence
+   *  shows up here as part of what a shortfall is made of rather than
+   *  quietly shrinking the number the shortfall is measured against. */
+  shortfall_from_absence: number;
   note?: string;
-  registered: boolean;
+  /** False for somebody who delivered work here without being on the
+   *  team's roster - a contractor, or another team's engineer. */
+  on_roster: boolean;
+  /** True only for somebody on the roster, opted in, and with a baseline.
+   *  Baseline, capacity and delta mean nothing when it is false, and that
+   *  person counts towards no capacity total. Their delivered points
+   *  still count towards the sprint. */
+  measured: boolean;
   rows: SprintRow[];
 };
 
@@ -155,7 +189,22 @@ export type SprintFlag = {
   message: string;
   key?: string;
   url?: string;
+  /** The tickets behind a flag that speaks for several at once, so one
+   *  row can stand in for what would otherwise be nine. */
+  keys?: string[];
   jql?: string;
+};
+
+/** Whether a person has been through this sprint's availability.
+ *
+ *  Three states, because an empty capacity table means two different
+ *  things: nobody has opened this sprint, or somebody opened it and
+ *  everyone was at their baseline. The second is an answer. */
+export type CapacityReview = {
+  state: "not_reviewed" | "adjusted" | "no_adjustments";
+  reviewed_at?: string;
+  /** How many people were away for any part of the sprint. */
+  adjusted: number;
 };
 
 export type SprintReport = {
@@ -166,6 +215,12 @@ export type SprintReport = {
     state: string;
     starts: string;
     ends: string;
+    /** The stretch this sprint claims work in. Not `starts` and `ends`: a
+     *  sprint is completed when somebody clicks Complete Sprint, often
+     *  days after the date it was meant to end, and that click decides
+     *  which sprint a finished ticket belongs to. */
+    counts_from: string;
+    counts_until: string;
     provisional: boolean;
     browse_url: string;
   };
@@ -175,18 +230,35 @@ export type SprintReport = {
     delivered_total: number;
     planned_days_off: number;
     unplanned_days_off: number;
+    shortfall_from_absence: number;
     promised: number;
     injected: number;
     completed: number;
     issue_count: number;
     done_count: number;
+    carried_over: number;
+    carried_active: number;
+    never_started: number;
+    finished_from_earlier: number;
+    finished_earlier: number;
+    prior_points_deducted: number;
     unattributed_points: number;
   };
   people: SprintPerson[];
-  stories_concluded: { key: string; summary: string; points: number; epic?: string; url: string }[];
+  stories_concluded: {
+    key: string;
+    summary: string;
+    points: number;
+    epic?: string;
+    url: string;
+    linked_points: number;
+    linked_count: number;
+    concluded_at: string;
+  }[];
   epics: EpicGroup[];
   carryover: SprintRow[];
   flags: SprintFlag[];
+  capacity_review: CapacityReview;
   generated_at: string;
 };
 
@@ -206,11 +278,19 @@ export const fetchSprintReport = (n: number, refresh = false) =>
   getJSON<ReportResult>(`/api/sprint/report?sprint=${n}${refresh ? "&refresh=1" : ""}`);
 
 
+/** One person on the roster, as stored.
+ *
+ *  `active` is the opt-in: true means this person is measured against
+ *  their baseline, false means they are known and deliberately not
+ *  measured - a manager, somebody on loan, somebody who has left. It is
+ *  never a reason to delete them, because what they delivered still
+ *  happened and an old sprint still has to be able to name them. */
 export type StoredPerson = {
   account_id: string;
   name: string;
   baseline: number;
   active: boolean;
+  updated_at?: string;
 };
 
 export type StoredCapacity = {
@@ -234,8 +314,51 @@ async function putJSON(path: string, body: unknown): Promise<void> {
   }
 }
 
+export const fetchPeople = () => getJSON<{ people: StoredPerson[] }>("/api/sprint/people");
 export const savePerson = (p: StoredPerson) => putJSON("/api/sprint/people", p);
+
+
+// ---- importing the roster from an Atlassian team ---------------------
+
+/** What an import found about one person.
+ *
+ *  `new` is on the Atlassian team and not on the roster - the thing an
+ *  import is for. `on_roster` is on both. `departed` is on the roster and
+ *  no longer on the team: raised for a decision, never removed here. */
+export type TeamCandidate = {
+  account_id: string;
+  name: string;
+  state: "new" | "on_roster" | "departed";
+  baseline: number;
+  opted_in: boolean;
+  /** The Atlassian account's own state, which is not the same thing as
+   *  being opted in here. */
+  account_active: boolean;
+  /** False for an app or a service desk account. */
+  human: boolean;
+  /** Whether to tick this one for you. Only a new, active, human account
+   *  is; everything else is a decision to make deliberately. */
+  suggested: boolean;
+};
+
+export type TeamImport = {
+  /** False when no Atlassian team is configured, which is an ordinary
+   *  answer rather than a failure: the panel explains what to set instead
+   *  of offering a button that cannot work. */
+  configured: boolean;
+  reason?: string;
+  team_name?: string;
+  candidates: TeamCandidate[];
+};
+
+export const fetchTeamImport = () => getJSON<TeamImport>("/api/sprint/team");
 export const saveCapacity = (c: StoredCapacity) => putJSON("/api/sprint/capacity", c);
+
+/** Record, or withdraw, the statement that a sprint's availability has
+ *  been checked. Recording it with no capacity rows is how "everyone was
+ *  available" is said. */
+export const saveSprintReview = (sprintJiraID: number, reviewed: boolean) =>
+  putJSON("/api/sprint/review", { sprint_jira_id: sprintJiraID, reviewed });
 
 
 export type Conventions = {

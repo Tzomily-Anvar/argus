@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SprintOption } from "../api";
+import { formatDateRange } from "../dates";
 
 /* The sprint picker.
  *
@@ -140,9 +141,9 @@ export function SprintPicker({
                     current
                   </span>
                 )}
-                <span className="ml-auto shrink-0 text-[11.5px]" style={{ color: "var(--muted)" }}>
+                <span className="ml-auto shrink-0 text-[11.5px] whitespace-nowrap" style={{ color: "var(--muted)" }}>
                   {s.has_report && "stored · "}
-                  {s.ends ? s.ends.slice(0, 10) : s.state}
+                  {formatDateRange(s.starts, s.ends) || s.state}
                 </span>
               </button>
             ))}
@@ -176,7 +177,12 @@ function SprintButton({ s, on, onPick }: { s: SprintOption; on: boolean; onPick:
         )}
       </div>
       <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--muted)" }}>
-        <span>{s.ends ? s.ends.slice(0, 10) : s.state}</span>
+        {/* The whole span, not just the end date. A single date on a tab
+            reads as "the sprint", and it was the end one, so a sprint that
+            ran from late August looked like a sprint in September. The
+            year is left off while both ends fall in this one, because
+            four repeated digits on every tab is width spent on nothing. */}
+        <span className="whitespace-nowrap">{formatDateRange(s.starts, s.ends) || s.state}</span>
         {/* Marked from local storage, so it renders before Jira answers. */}
         {s.has_report && <span title="Already built, so it opens instantly">· stored</span>}
       </div>

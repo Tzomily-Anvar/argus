@@ -1,13 +1,17 @@
 import { useState } from "react";
-import type { SprintReport as Report, SprintFlag, EpicGroup } from "../api";
+import type { SprintReport as Report, SprintFlag, EpicGroup, CapacityReview } from "../api";
 import { Badge } from "./Badge";
 import { StatTiles, type Stat } from "./StatTiles";
+import { formatDay } from "../dates";
 
 function flagTone(kind: string): "critical" | "warning" | "info" {
   switch (kind) {
     case "done_unassigned":
       return "critical";
     case "done_no_estimate":
+    case "no_baseline":
+    case "story_work_unsized":
+    case "story_points_mismatch":
       return "warning";
     default:
       return "info";
@@ -154,24 +158,53 @@ function PeopleTable({ report }: { report: Report }) {
               >
                 <td className="px-4 py-2.5">
                   {p.name}
-                  {!p.registered && (
+                  {/* Two different things, and conflating them is what
+                      made this column confusing. Somebody nobody has
+                      registered is a gap to close; somebody deliberately
+                      left off the roster is an answer already given. Both
+                      keep their delivered points either way. */}
+                  {!p.on_roster && (
                     <span className="ml-2">
-                      <Badge tone="info" label="not on roster" />
+                      <Badge
+                        tone="info"
+                        label="not on roster"
+                        title="Delivered work here without being on the team's roster. The points count towards the sprint; there is no baseline to measure them against."
+                      />
+                    </span>
+                  )}
+                  {p.on_roster && !p.measured && (
+                    <span className="ml-2">
+                      <Badge
+                        tone="info"
+                        label="not measured"
+                        title="On the roster and opted out of measurement, so no baseline is compared. Their delivered points still count."
+                      />
                     </span>
                   )}
                 </td>
                 <td className="tnum px-4 py-2.5 text-right" style={{ color: "var(--muted)" }}>
-                  {p.registered ? p.baseline.toFixed(1) : "—"}
+                  {p.measured ? p.baseline.toFixed(1) : "—"}
                 </td>
                 <td className="tnum px-4 py-2.5 text-right" style={{ color: "var(--muted)" }}>
-                  {p.registered ? p.capacity.toFixed(1) : "—"}
+                  {p.measured ? p.capacity.toFixed(1) : "—"}
                 </td>
                 <td className="tnum px-4 py-2.5 text-right font-semibold">{p.delivered.toFixed(1)}</td>
                 <td
                   className="tnum px-4 py-2.5 text-right"
-                  style={{ color: !p.registered ? "var(--faint)" : p.delta < 0 ? "var(--warn)" : "var(--good)" }}
+                  style={{ color: !p.measured ? "var(--faint)" : p.delta < 0 ? "var(--warn)" : "var(--good)" }}
                 >
-                  {p.registered ? (p.delta > 0 ? "+" : "") + p.delta.toFixed(1) : "—"}
+                  {p.measured ? (p.delta > 0 ? "+" : "") + p.delta.toFixed(1) : "—"}
+                  {/* Unplanned absence no longer shrinks capacity, so a
+                      shortfall stays visible as a shortfall. Saying how
+                      much of it was absence nobody could plan around is
+                      the explanation that used to be hidden inside the
+                      capacity figure - it accounts for part of the gap,
+                      it does not excuse it. */}
+                  {p.measured && p.shortfall_from_absence > 0 && (
+                    <div className="text-[11px] font-normal" style={{ color: "var(--faint)" }}>
+                      {p.shortfall_from_absence.toFixed(1)} unplanned
+                    </div>
+                  )}
                 </td>
                 <td className="tnum px-4 py-2.5 text-right text-[12.5px]" style={{ color: "var(--muted)" }}>
                   {p.planned_days_off + p.unplanned_days_off > 0
@@ -194,8 +227,16 @@ function PeopleTable({ report }: { report: Report }) {
                               {r.key}
                             </a>
                             <span className="truncate">{r.summary}</span>
+                            {/* Credited, not size. A ticket that spans
+                                sprints is shared between them, so the
+                                number in this table has to be the share
+                                this sprint took or the rows will not add
+                                up to the total above them. */}
                             <span className="tnum ml-auto shrink-0" style={{ color: "var(--muted)" }}>
-                              {r.has_points ? r.points.toFixed(1) : "no estimate"}
+                              {r.has_points
+                                ? r.credited.toFixed(2).replace(/\.?0+$/, "") +
+                                  (r.credited !== r.points ? ` of ${r.points.toFixed(1)}` : "")
+                                : "no estimate"}
                             </span>
                           </li>
                         ))}
@@ -210,6 +251,41 @@ function PeopleTable({ report }: { report: Report }) {
       </table>
     </div>
   );
+}
+
+/* Whether these capacity figures have been confirmed by a person.
+ *
+ * Three states, not two. A sprint with nobody away and a sprint nobody
+ * has filled in both have an empty capacity table, and reading the second
+ * as the first would quietly turn a gap into a claim. */
+function CapacityReviewBadge({ review }: { review: CapacityReview }) {
+  const on = formatDay(review.reviewed_at);
+  switch (review.state) {
+    case "no_adjustments":
+      return (
+        <Badge
+          tone="good"
+          label="Capacity: nobody was away"
+          title={`Checked on ${on}: everyone was at their baseline.`}
+        />
+      );
+    case "adjusted":
+      return (
+        <Badge
+          tone="good"
+          label={`Capacity: ${review.adjusted} ${review.adjusted === 1 ? "person" : "people"} away`}
+          title={`Checked on ${on}.`}
+        />
+      );
+    default:
+      return (
+        <Badge
+          tone="warning"
+          label="Capacity not reviewed"
+          title="Nobody has confirmed who was available, so these are baselines rather than measured capacity."
+        />
+      );
+  }
 }
 
 function Flags({ flags }: { flags: SprintFlag[] }) {
@@ -231,6 +307,13 @@ function Flags({ flags }: { flags: SprintFlag[] }) {
               open
             </a>
           )}
+          {/* A flag speaking for several tickets keeps them behind it, so
+              one row can stand in for what would otherwise be nine. */}
+          {f.keys && f.keys.length > 0 && (
+            <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--faint)" }}>
+              {f.keys.join(" ")}
+            </span>
+          )}
           {/* Verify the whole set in Jira: trust in a number comes from
               being able to check it. */}
           {f.jql && (
@@ -247,12 +330,26 @@ function Flags({ flags }: { flags: SprintFlag[] }) {
 export function SprintReportView({ report }: { report: Report }) {
   const s = report.summary;
   const storyPts = report.stories_concluded.reduce((a, b) => a + b.points, 0);
+  const carry = report.carryover;
 
   const stats: Stat[] = [
-    { label: "Delivered", value: Math.round(s.delivered_total * 10) / 10, hint: "tasks and bugs, done", tone: "good" },
-    { label: "Capacity", value: Math.round(s.capacity_total * 10) / 10, hint: "baseline less time away" },
+    {
+      label: "Delivered",
+      value: Math.round(s.delivered_total * 10) / 10,
+      hint: s.finished_from_earlier > 0
+        ? `tasks and bugs finished here · ${s.finished_from_earlier} started earlier`
+        : "tasks and bugs finished here",
+      tone: "good",
+    },
+    {
+      label: "Capacity",
+      value: Math.round(s.capacity_total * 10) / 10,
+      hint: s.shortfall_from_absence > 0
+        ? `baseline less planned leave · ${s.shortfall_from_absence.toFixed(1)} lost to unplanned`
+        : "baseline less planned leave",
+    },
     { label: "Say / do", value: s.completed, hint: `of ${s.promised + s.injected} (${s.injected} injected)` },
-    { label: "Stories done", value: report.stories_concluded.length, hint: `${storyPts.toFixed(1)} pts, reported separately` },
+    { label: "Stories done", value: report.stories_concluded.length, hint: `${storyPts.toFixed(1)} pts, never in delivered` },
     { label: "Needs a look", value: report.flags.length, hint: "flags raised", tone: report.flags.length > 0 ? "warning" : "neutral" },
   ];
 
@@ -273,9 +370,12 @@ export function SprintReportView({ report }: { report: Report }) {
         title="Per person"
         hint="Click a row for the tickets behind the number. Container types are excluded, so this is the work itself rather than rollups above it."
         right={
-          s.unattributed_points > 0 ? (
-            <Badge tone="warning" label={`${s.unattributed_points.toFixed(1)} pts unassigned`} />
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-2">
+            <CapacityReviewBadge review={report.capacity_review} />
+            {s.unattributed_points > 0 && (
+              <Badge tone="warning" label={`${s.unattributed_points.toFixed(1)} pts unassigned`} />
+            )}
+          </div>
         }
       >
         <PeopleTable report={report} />
@@ -283,7 +383,7 @@ export function SprintReportView({ report }: { report: Report }) {
 
       <Section
         title="Stories concluded"
-        hint="Containers that finished this sprint. Their points are a rollup of the work beneath them, so they are reported here rather than counted as anyone's capacity."
+        hint="Finished here, meaning the Story is done and so is everything linked beneath it. Their points are a rollup of that work, so they are reported here and never counted as delivery."
       >
         {report.stories_concluded.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>
@@ -300,6 +400,14 @@ export function SprintReportView({ report }: { report: Report }) {
                 <span className="tnum shrink-0" style={{ color: "var(--muted)" }}>
                   {st.points.toFixed(1)} pts
                 </span>
+                {/* The work underneath, beside the rollup above it. The
+                    two disagreeing is the case worth looking at, and it
+                    reads better here than as a flag nobody opens. */}
+                <span className="tnum shrink-0 text-xs" style={{ color: "var(--faint)" }}>
+                  {st.linked_count === 0
+                    ? "no linked work"
+                    : `${st.linked_count} linked · ${st.linked_points.toFixed(1)}`}
+                </span>
               </li>
             ))}
           </ul>
@@ -310,19 +418,29 @@ export function SprintReportView({ report }: { report: Report }) {
         <Flags flags={report.flags} />
       </Section>
 
-      <Section title="Carryover" hint="Open at the end of the sprint, going into the next.">
-        {report.carryover.length === 0 ? (
+      <Section
+        title="Carryover"
+        hint="Still open when the sprint closed, going into the next. Work nobody picked up is marked: it is not the same as work somebody could not finish."
+        right={
+          s.never_started > 0 ? (
+            <Badge tone="info" label={`${s.never_started} never started`} />
+          ) : undefined
+        }
+      >
+        {carry.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>
             Nothing carried over.
           </p>
         ) : (
           <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
-            {report.carryover.map((r) => (
+            {carry.map((r) => (
               <li key={r.key} className="flex items-baseline gap-2 px-4 py-2.5 text-[13px]">
                 <a href={r.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
                   {r.key}
                 </a>
                 <span className="flex-1 truncate">{r.summary}</span>
+                {!r.active && <Badge tone="info" label="never started" />}
+                {r.active && !r.time_logged && <Badge tone="warning" label="no time logged" />}
                 <span className="shrink-0 text-xs" style={{ color: "var(--muted)" }}>
                   {r.status}
                 </span>
