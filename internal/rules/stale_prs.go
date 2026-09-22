@@ -17,7 +17,11 @@ func init() {
 
 func runStalePRs(c *Context, v Values) (any, error) {
 	cut := c.Now.AddDate(0, 0, -v.Int("days")).Format("2006-01-02")
-	items, err := c.Search("is:pr is:open created:<" + cut)
+	// created:<YYYY-MM-DD is a plain comparison on the date part, which an
+	// RFC3339 timestamp sorts the same way as a string.
+	items, err := c.OpenPRsWhere("is:pr is:open created:<"+cut, func(it map[string]any) bool {
+		return day(gstr(it["created_at"])) < cut
+	})
 	if err != nil {
 		return nil, err
 	}

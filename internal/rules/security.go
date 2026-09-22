@@ -138,8 +138,10 @@ func accountAlerts(c *Context, feed string, params url.Values) ([]any, error) {
 
 	var out []any
 	var firstErr error
+	errs := make([]error, 0, len(got))
 	refused := 0
 	for _, b := range got {
+		errs = append(errs, b.err)
 		if b.err != nil {
 			refused++
 			if firstErr == nil {
@@ -148,6 +150,13 @@ func accountAlerts(c *Context, feed string, params url.Values) ([]any, error) {
 			continue
 		}
 		out = append(out, b.alerts...)
+	}
+	// A repository that refused because the feature is off is ordinary
+	// and is skipped. One that refused because the budget ran out is not:
+	// skipping it turns "we did not look" into "nothing was found", which
+	// is the wrong thing to believe about your own security alerts.
+	if err := firstRateLimit(errs); err != nil {
+		return nil, err
 	}
 	if refused == len(repos) {
 		return nil, fmt.Errorf(
@@ -300,8 +309,15 @@ func codeScanningAlerts(c *Context, scope Scope) (map[string]any, error) {
 	return map[string]any{"by_repo": counts, "crit_high": Rows(critHigh), "total": total}, nil
 }
 
+const dependabotAuthor = "app/dependabot"
+
 func dependabotPRs(c *Context) (map[string]any, error) {
-	items, err := c.Search("is:pr is:open author:app/dependabot")
+	// Dependabot is the noisiest author on most accounts - a hundred open
+	// pull requests here - so this was two of the sweep's search requests
+	// on its own, for a set the shared listing already holds.
+	items, err := c.OpenPRsWhere("is:pr is:open author:"+dependabotAuthor, func(it map[string]any) bool {
+		return MatchesAuthor(it, dependabotAuthor)
+	})
 	if err != nil {
 		return nil, err
 	}

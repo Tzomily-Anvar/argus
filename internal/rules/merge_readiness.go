@@ -19,21 +19,32 @@ func init() {
 
 func runMergeReadiness(c *Context, v Values) (any, error) {
 	q := "is:pr is:open"
-	if v.Bool("exclude_drafts") {
+	drafts, authors := v.Bool("exclude_drafts"), v.Strs("exclude_authors")
+	if drafts {
 		q += " draft:false"
 	}
-	for _, a := range v.Strs("exclude_authors") {
+	for _, a := range authors {
 		q += " -author:" + a
 	}
 
-	items, err := c.Search(q)
+	items, err := c.OpenPRsWhere(q, func(it map[string]any) bool {
+		if drafts && gh.Bool(it["draft"]) {
+			return false
+		}
+		for _, a := range authors {
+			if MatchesAuthor(it, a) {
+				return false
+			}
+		}
+		return true
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	qa, ignore := v.Str("qa_label"), v.Strs("ignore_checks")
-	rows := gh.PMap(items, c.Concurrency, func(it map[string]any) map[string]any {
-		checks := prChecks(c, RepoName(it), Number(it), qa, ignore)
+	got := gh.PMap(items, c.Concurrency, func(it map[string]any) checked {
+		checks, err := prChecks(c, RepoName(it), Number(it), qa, ignore)
 		if checks == nil {
 			// Dropping the row made the rule render empty whenever checks
 			// could not be read - which looks like "nothing is open"
@@ -41,9 +52,13 @@ func runMergeReadiness(c *Context, v Values) (any, error) {
 			// request with unknown status is the honest answer.
 			checks = noChecks()
 		}
-		return Row(it, c.Now, checks)
+		return checked{row: Row(it, c.Now, checks), err: err}
 	})
 
+	rows, err := unpack(got)
+	if err != nil {
+		return nil, err
+	}
 	clean := Compact(rows)
 	return map[string]any{
 		"rows": Rows(clean),

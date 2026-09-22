@@ -35,6 +35,19 @@ type Context struct {
 	reposOnce sync.Once
 	repos     []map[string]any
 	reposErr  error
+
+	// Every open pull request in scope, searched at most once per sweep.
+	// Four rules each used to run their own search for a subset of this
+	// one list, and search is the tightest budget GitHub grants.
+	openPRsOnce sync.Once
+	openPRs     []map[string]any
+	openPRsErr  error
+	openPRsFull bool
+
+	// One fetch per pull request per sweep, however many rules ask. See
+	// pullRequest below.
+	prMu    sync.Mutex
+	prNodes map[string]*prNode
 }
 
 // Personal reports whether the configured account is somebody's own
@@ -102,7 +115,7 @@ func NewContext(client *gh.Client) (*Context, error) {
 
 // Search runs an issue search scoped to the configured repositories.
 func (c *Context) Search(query string) ([]map[string]any, error) {
-	items, err := c.Client.SearchIssues(c.Scope.Query() + " " + query)
+	items, _, err := c.Client.SearchIssues(c.Scope.Query() + " " + query)
 	if err != nil {
 		return nil, err
 	}
@@ -224,4 +237,120 @@ func Params(kv ...string) url.Values {
 		v.Set(kv[i], kv[i+1])
 	}
 	return v
+}
+
+// ---- shared work ------------------------------------------------------
+
+// OpenPRs returns every open pull request in scope, searched at most once
+// per sweep, and whether that listing is complete.
+//
+// Four rules - the inventory, your own pull requests, the stale ones and
+// the Dependabot count - each ran a search for a different subset of the
+// same set. Search is metered at thirty requests a minute against five
+// thousand an hour for everything else, so those were the four most
+// expensive requests in the sweep and three of them were redundant.
+//
+// The completeness flag is not decoration. Search stops at a thousand
+// results however many match, so on a busy account one broad query can be
+// truncated where the narrow ones would not have been. When that happens
+// this listing is not a valid stand-in for anything and the caller must
+// run its own query - the sweep costs more, and reports the truth.
+func (c *Context) OpenPRs() ([]map[string]any, bool, error) {
+	c.openPRsOnce.Do(func() {
+		items, total, err := c.Client.SearchIssues(c.Scope.Query() + " is:pr is:open")
+		if err != nil {
+			c.openPRsErr = err
+			return
+		}
+		c.openPRs = gh.Maps(items)
+		c.openPRsFull = total <= gh.SearchCeiling
+	})
+	return c.openPRs, c.openPRsFull, c.openPRsErr
+}
+
+// OpenPRsWhere returns the open pull requests matching a predicate, or
+// falls back to running `query` as its own search when the shared listing
+// cannot be trusted. Either way the caller gets the same set.
+func (c *Context) OpenPRsWhere(query string, keep func(map[string]any) bool) ([]map[string]any, error) {
+	all, complete, err := c.OpenPRs()
+	if err != nil {
+		return nil, err
+	}
+	if !complete {
+		return c.Search(query)
+	}
+	out := make([]map[string]any, 0, len(all))
+	for _, it := range all {
+		if keep(it) {
+			out = append(out, it)
+		}
+	}
+	return out, nil
+}
+
+// MatchesAuthor applies search's author: qualifier to an item that has
+// already been fetched.
+//
+// GitHub spells an app's authorship two ways: the search qualifier wants
+// app/dependabot, and the result it hands back carries the login
+// dependabot[bot]. Filtering locally means speaking both, so the one
+// place that translates between them is here rather than in each rule.
+func MatchesAuthor(item map[string]any, qualifier string) bool {
+	login := AuthorLogin(item)
+	if app, ok := strings.CutPrefix(qualifier, "app/"); ok {
+		return strings.EqualFold(login, app+"[bot]")
+	}
+	return strings.EqualFold(login, qualifier)
+}
+
+// prNode is one pull request's detail, fetched once however many rules
+// want it.
+type prNode struct {
+	once sync.Once
+	data map[string]any
+	err  error
+}
+
+// PullRequest returns a pull request's review state, labels and checks,
+// fetched at most once per sweep.
+//
+// Three rules want the same pull request. The inventory wants its review
+// decision and check results; your own pull requests want the same for
+// the ones you wrote; the unreviewed rule wants to know whether anyone
+// has been asked. They ran concurrently and each fetched it separately,
+// and the unreviewed rule fetched it over REST for a single field that
+// the other two were already getting.
+//
+// The raw node is shared rather than the interpretation of it, because
+// the interpretation depends on each rule's own configured policy gates.
+func (c *Context) PullRequest(repo string, number int) (map[string]any, error) {
+	key := repo + "#" + strconv.Itoa(number)
+
+	c.prMu.Lock()
+	if c.prNodes == nil {
+		c.prNodes = map[string]*prNode{}
+	}
+	n, ok := c.prNodes[key]
+	if !ok {
+		n = &prNode{}
+		c.prNodes[key] = n
+	}
+	c.prMu.Unlock()
+
+	n.once.Do(func() {
+		data, err := c.Client.GraphQL(pullRequestQuery, map[string]any{
+			"owner": c.Org, "name": repo, "number": number,
+		})
+		// Partial data is still worth having: the review decision and
+		// labels usually resolve even when the check contexts do not.
+		if err != nil && !gh.IsPartial(err) {
+			n.err = err
+			return
+		}
+		n.data = gh.Map(gh.Map(data["repository"])["pullRequest"])
+		if n.data == nil {
+			n.err = err
+		}
+	})
+	return n.data, n.err
 }

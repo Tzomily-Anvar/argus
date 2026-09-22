@@ -6,10 +6,16 @@ import (
 	"github.com/Tzomily-Anvar/argus/internal/gh"
 )
 
-const prChecksQuery = `
+// One query for everything any rule wants about a pull request.
+//
+// reviewRequests is here for the unreviewed rule, which used to fetch the
+// whole pull request over REST for nothing but this count. It costs a
+// field on a query two other rules were already making.
+const pullRequestQuery = `
 query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){ pullRequest(number:$number){
     reviewDecision
+    reviewRequests(first:1){totalCount}
     labels(first:30){nodes{name}}
     commits(last:1){nodes{commit{oid statusCheckRollup{ state
       contexts(first:100){nodes{
@@ -37,22 +43,13 @@ var failedConclusions = map[string]bool{
 // separately as policy failures, leaving real_failures to mean what it
 // says: something is actually broken.
 //
-// Returns nil if the PR could not be read; callers decide whether that is
-// fatal or just a row without check data.
-func prChecks(c *Context, repo string, number int, qaLabel string, ignoreChecks []string) map[string]any {
-	data, err := c.Client.GraphQL(prChecksQuery, map[string]any{
-		"owner": c.Org, "name": repo, "number": number,
-	})
-	// Partial data is still worth having: the review decision and labels
-	// usually resolve even when the check contexts do not, and a pull
-	// request with a known review state and unknown checks is far more
-	// useful than no row at all.
-	if err != nil && !gh.IsPartial(err) {
-		return nil
-	}
-	pr := gh.Map(gh.Map(data["repository"])["pullRequest"])
-	if pr == nil {
-		return nil
+// Returns nil data if the pull request could not be read, alongside the
+// reason. Callers decide whether that is fatal or just a row without
+// check data - but a rate limit is never "just a row": see the rules.
+func prChecks(c *Context, repo string, number int, qaLabel string, ignoreChecks []string) (map[string]any, error) {
+	pr, err := c.PullRequest(repo, number)
+	if err != nil || pr == nil {
+		return nil, err
 	}
 
 	var labels []string
@@ -127,7 +124,14 @@ func prChecks(c *Context, repo string, number int, qaLabel string, ignoreChecks 
 		"policy_failures": strs(policyFail),
 		"checks_green":    len(realFail) == 0,
 		"checks_from":     checksFrom,
-	}
+	}, nil
+}
+
+// ReviewRequested reports whether anyone - a person or a team - has been
+// asked to review. GraphQL's reviewRequests covers both, where REST needs
+// requested_reviewers and requested_teams read separately.
+func reviewRequested(pr map[string]any) bool {
+	return gh.Num(gh.Map(pr["reviewRequests"])["totalCount"]) > 0
 }
 
 // noChecks is the placeholder used when a PR's checks could not be read,
