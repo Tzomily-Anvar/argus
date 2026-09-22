@@ -15,14 +15,16 @@ func init() {
 }
 
 func runMyPRs(c *Context, v Values) (any, error) {
-	items, err := c.Search("is:pr is:open author:" + c.Me)
+	items, err := c.OpenPRsWhere("is:pr is:open author:"+c.Me, func(it map[string]any) bool {
+		return MatchesAuthor(it, c.Me)
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	qa, ignore := v.Str("qa_label"), v.Strs("ignore_checks")
-	rows := gh.PMap(items, c.Concurrency, func(it map[string]any) map[string]any {
-		checks := prChecks(c, RepoName(it), Number(it), qa, ignore)
+	got := gh.PMap(items, c.Concurrency, func(it map[string]any) checked {
+		checks, err := prChecks(c, RepoName(it), Number(it), qa, ignore)
 		if checks == nil {
 			// Unlike merge_readiness, a PR whose checks cannot be read is
 			// still worth showing: it is yours, and you should know it exists.
@@ -32,8 +34,12 @@ func runMyPRs(c *Context, v Values) (any, error) {
 		for k, val := range checks {
 			extra[k] = val
 		}
-		return Row(it, c.Now, extra)
+		return checked{row: Row(it, c.Now, extra), err: err}
 	})
 
+	rows, err := unpack(got)
+	if err != nil {
+		return nil, err
+	}
 	return SortByAge(Compact(rows)), nil
 }

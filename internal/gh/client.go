@@ -93,15 +93,29 @@ type Client struct {
 	graphql string
 
 	accountCache
+	conditionalCache
+
+	// Named rather than embedded: the meter has a graphql counter and the
+	// client has a graphql endpoint, and one shadowing the other is the
+	// kind of mistake that compiles.
+	spend meter
 }
+
+// maxConcurrency is a ceiling on however many in-flight requests someone
+// configures.
+//
+// GitHub's own advice on secondary rate limits is to make requests
+// serially. Argus does not - a sweep that fetched thirty repositories one
+// after another would take long enough to be useless - but "as many as
+// you like" is not the other end of that trade. The ceiling exists so a
+// mistyped ARGUS_CONCURRENCY cannot turn a background tool into something
+// that hammers a shared API on somebody's behalf.
+const maxConcurrency = 32
 
 // New returns a client bounded to `concurrency` in-flight requests. The
 // bound is shared across every rule sweeping at once, which is what
 // keeps us clear of GitHub's secondary rate limits.
 func New(token string, concurrency, timeoutSeconds int) *Client {
-	if concurrency < 1 {
-		concurrency = 1
-	}
 	return NewWithSource(
 		func(context.Context) (string, error) { return token, nil },
 		resolveTokenType(token), concurrency, timeoutSeconds)
@@ -111,6 +125,9 @@ func New(token string, concurrency, timeoutSeconds int) *Client {
 func NewWithSource(src TokenSource, kind TokenType, concurrency, timeoutSeconds int) *Client {
 	if concurrency < 1 {
 		concurrency = 1
+	}
+	if concurrency > maxConcurrency {
+		concurrency = maxConcurrency
 	}
 	return &Client{
 		http:      &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
@@ -239,35 +256,64 @@ func (c *Client) do(method, reqURL string, body any) (map[string]any, http.Heade
 		}
 	}
 
+	// Classified once rather than per attempt: a retried search is still
+	// a search, and it is charged to the search bucket either way.
+	bucket := bucketOf(method, reqURL, c.graphql)
+
+	// Refuse to dip into the reserve. Cheaper than asking GitHub, and it
+	// happens before the request rather than after the damage.
+	if err := c.spend.reserveCheck(bucket); err != nil {
+		return nil, nil, err
+	}
+
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		payload, headers, err, retry := c.attempt(method, reqURL, encoded)
+		if attempt > 0 {
+			c.spend.countRetry()
+		}
+		c.spend.count(bucket)
+		payload, headers, err, wait := c.attempt(method, reqURL, encoded, bucket, attempt)
 		if err == nil {
 			return payload, headers, nil
 		}
-		if !retry {
+		if wait < 0 {
 			return nil, nil, err
 		}
 		lastErr = err
-		time.Sleep(time.Duration(500*(attempt+1)) * time.Millisecond)
+		if attempt == maxAttempts-1 {
+			break
+		}
+		time.Sleep(wait)
 	}
-	return nil, nil, errf("network error for %s after %d attempts: %v", reqURL, maxAttempts, lastErr)
+	// Returned as-is when it is a rate limit, because the type is how a
+	// rule tells "incomplete" from "broken" and wrapping it would lose
+	// that distinction on exactly the failure that most needs it.
+	if IsRateLimited(lastErr) {
+		return nil, nil, lastErr
+	}
+	return nil, nil, errf("gave up on %s after %d attempts: %v", reqURL, maxAttempts, lastErr)
 }
 
 // attempt performs one request. The body is closed before returning, so
 // a retry loop cannot accumulate open connections.
-func (c *Client) attempt(method, reqURL string, encoded []byte) (map[string]any, http.Header, error, bool) {
+//
+// The last return value is how long to wait before trying again, or a
+// negative duration for "this is final, do not retry". A transient
+// network fault backs off gently; a secondary rate limit waits as long as
+// GitHub asked and holds the rest of the client back with it; an
+// exhausted primary limit or a plain HTTP error does not retry at all.
+func (c *Client) attempt(method, reqURL string, encoded []byte, bucket string, attempt int) (map[string]any, http.Header, error, time.Duration) {
 	var reader io.Reader
 	if encoded != nil {
 		reader = bytes.NewReader(encoded)
 	}
 	req, err := http.NewRequest(method, reqURL, reader)
 	if err != nil {
-		return nil, nil, errf("building request: %v", err), false
+		return nil, nil, errf("building request: %v", err), -1
 	}
 	tok, err := c.token(context.Background())
 	if err != nil {
-		return nil, nil, err, false
+		return nil, nil, err, -1
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -277,27 +323,81 @@ func (c *Client) attempt(method, reqURL string, encoded []byte) (map[string]any,
 		req.Header.Set("Content-Type", "application/json")
 	}
 
+	// Ask GitHub whether anything has changed. An unchanged resource
+	// answers 304 with no body and costs no rate limit.
+	var prior cachedResponse
+	conditional := method == http.MethodGet
+	if conditional {
+		if e, ok := c.cached(reqURL); ok {
+			prior = e
+			req.Header.Set("If-None-Match", e.etag)
+		}
+	}
+
+	// A secondary rate limit holds the whole client, so honour it before
+	// taking a slot rather than while occupying one.
+	c.spend.waitTurn()
+
 	c.sem <- struct{}{}
 	resp, err := c.http.Do(req)
 	<-c.sem
 	if err != nil {
-		return nil, nil, err, true
+		return nil, nil, err, backoff(attempt)
 	}
 	defer resp.Body.Close()
 
+	// Free information: GitHub states what is left of the bucket this
+	// request was charged to, on every response including the failures.
+	c.spend.observe(resp.Header, bucket)
+
+	if resp.StatusCode == http.StatusNotModified && prior.raw != nil {
+		c.spend.countNotModified()
+		// Decoded afresh rather than handed out: callers write into what
+		// they are given, and two sweeps must not share one map.
+		payload, err := decode(prior.raw, reqURL)
+		if err != nil {
+			return nil, nil, err, -1
+		}
+		return payload, prior.headers, nil, -1
+	}
+
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, nil, err, true
+		return nil, nil, err, backoff(attempt)
 	}
 	if resp.StatusCode >= 400 {
-		return nil, nil, explain(resp.StatusCode, reqURL, raw, c.tokenType), false
+		if wait, ok := secondaryWait(resp.StatusCode, resp.Header, string(raw)); ok {
+			if wait > maxSecondaryWait {
+				return nil, nil, &RateLimitError{
+					Resource: bucket, Secondary: true,
+					msg: fmt.Sprintf("GitHub asked for a %s pause on %s (secondary rate limit), "+
+						"which is longer than Argus will hold a sweep open. This result is "+
+						"incomplete rather than empty.", wait, reqURL),
+				}, -1
+			}
+			// Hold every other goroutine back too. One of them backing
+			// off while the rest keep knocking is not stopping.
+			c.spend.hold(wait)
+			return nil, nil, &RateLimitError{
+				Resource: bucket, Secondary: true,
+				msg: fmt.Sprintf("GitHub applied a secondary rate limit on %s; waited %s", reqURL, wait),
+			}, wait
+		}
+		if rl := primaryExhausted(resp.StatusCode, resp.Header, bucket); rl != nil {
+			return nil, nil, rl, -1
+		}
+		return nil, nil, explain(resp.StatusCode, reqURL, raw, c.tokenType), -1
+	}
+
+	if conditional {
+		c.remember(reqURL, resp.Header.Get("ETag"), raw, resp.Header)
 	}
 
 	payload, err := decode(raw, reqURL)
 	if err != nil {
-		return nil, nil, err, false
+		return nil, nil, err, -1
 	}
-	return payload, resp.Header, nil, false
+	return payload, resp.Header, nil, -1
 }
 
 // decode normalises GitHub's two response shapes. List endpoints return
@@ -382,7 +482,10 @@ func (c *Client) GetAll(path string, params url.Values) ([]any, error) {
 	u := c.base + path + "?" + params.Encode()
 
 	var out []any
-	for u != "" {
+	for page := 0; u != ""; page++ {
+		if page > 0 {
+			c.spend.countPage()
+		}
 		payload, headers, err := c.do(http.MethodGet, u, nil)
 		if err != nil {
 			return nil, err
@@ -397,6 +500,13 @@ func (c *Client) GetAll(path string, params url.Values) ([]any, error) {
 	return out, nil
 }
 
+// backoff is the gentle, linear wait for a transient network fault -
+// unchanged from before, and deliberately unrelated to the rate-limit
+// waits, which come from GitHub rather than from us.
+func backoff(attempt int) time.Duration {
+	return time.Duration(500*(attempt+1)) * time.Millisecond
+}
+
 func nextLink(header string) string {
 	for _, part := range strings.Split(header, ",") {
 		seg := strings.Split(part, ";")
@@ -407,17 +517,31 @@ func nextLink(header string) string {
 	return ""
 }
 
-// SearchIssues pages the issue search API. Capped because search returns
-// at most 1000 results anyway, so an unbounded loop is just a slow way
-// to reach that ceiling.
-func (c *Client) SearchIssues(q string) ([]any, error) {
+// SearchIssues pages the issue search API, returning the results and the
+// total GitHub says match.
+//
+// Capped at ten pages because search returns at most 1000 results anyway,
+// so an unbounded loop is just a slow way to reach that ceiling. The
+// total is returned rather than inferred from the slice because those two
+// numbers differ exactly when the ceiling was hit, and a caller deciding
+// whether one broad query can stand in for several narrow ones needs to
+// know that before it trusts the answer.
+//
+// Search is the tightest budget GitHub hands out - thirty requests a
+// minute, against five thousand an hour for everything else - so each
+// page here is worth roughly a hundred and sixty ordinary requests.
+func (c *Client) SearchIssues(q string) ([]any, int, error) {
 	var items []any
-	for page := 1; page <= 10; page++ {
+	total := 0
+	for page := 1; page <= searchPageCap; page++ {
 		payload, err := c.Get("/search/issues", url.Values{
 			"q": {q}, "per_page": {"100"}, "page": {fmt.Sprint(page)},
 		})
 		if err != nil {
-			return nil, err
+			return nil, 0, err
+		}
+		if page == 1 {
+			total = int(Num(payload["total_count"]))
 		}
 		batch, _ := payload["items"].([]any)
 		items = append(items, batch...)
@@ -425,8 +549,15 @@ func (c *Client) SearchIssues(q string) ([]any, error) {
 			break
 		}
 	}
-	return items, nil
+	return items, total, nil
 }
+
+// SearchCeiling is the most results the issue search API will hand back,
+// however many match. Past it a query is answering a different question
+// from the one that was asked.
+const SearchCeiling = 1000
+
+const searchPageCap = SearchCeiling / 100
 
 // ---- GraphQL ---------------------------------------------------------
 
