@@ -113,6 +113,24 @@ type Capacity struct {
 // DaysOff is the total absence, planned and unplanned together.
 func (c Capacity) DaysOff() float64 { return c.PlannedDaysOff + c.UnplannedDaysOff }
 
+// Capacity review is a fact about a SPRINT, not about a person, which is
+// why it is a pair of Store methods rather than another field above.
+//
+// A sprint where everybody was available produces no capacity rows at
+// all, and neither does a sprint nobody has looked at yet. Those are
+// different facts - one is an answer, the other is a gap - and without
+// somewhere to record the first they are the same absence of rows.
+//
+// It cannot be per-person either: there is no row to hang "needed no
+// adjustment" on for somebody who needed none, and writing zeroes for
+// everyone would mean inventing rows to represent nothing having
+// happened. One timestamp per sprint says exactly what was done: a human
+// went through this sprint's availability, on this date.
+//
+// It lives beside the sprint rather than on Sprint itself so that the
+// sweep, which rewrites a Sprint whenever it rebuilds a report, cannot
+// wipe it.
+
 // SprintStats is the summary kept for one finished sprint, so trends can
 // be drawn without re-fetching years of Jira history.
 type SprintStats struct {
@@ -165,6 +183,16 @@ type Store interface {
 	// Capacity
 	PutCapacity(ctx context.Context, c Capacity) error
 	ListCapacity(ctx context.Context, sprintJiraID int64) ([]Capacity, error)
+
+	// SetCapacityReviewed records - or withdraws - the statement that a
+	// human has been through this sprint's availability. Passing false
+	// clears it, so a review can be reopened.
+	SetCapacityReviewed(ctx context.Context, sprintJiraID int64, reviewed bool) error
+
+	// CapacityReviewedAt returns when that statement was made, or the zero
+	// time if it never was. A sprint that does not exist is
+	// ErrUnknownReference, as it is for capacity.
+	CapacityReviewedAt(ctx context.Context, sprintJiraID int64) (time.Time, error)
 
 	// Stats, for trends
 	PutStats(ctx context.Context, s SprintStats) error

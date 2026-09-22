@@ -87,6 +87,57 @@ go test ./...
 `Why`, uniquely named parameters, and supported parameter types — so a
 rule missing its help text fails the build rather than shipping blank.
 
+## Changing what is stored
+
+Argus holds things nobody can rebuild: the roster, each person's
+baseline, who was away in which sprint, and the record that a sprint's
+capacity was checked. None of it has a source to re-fetch from, so a
+schema change that loses it is not a bug to fix in the next release.
+
+**Fields may be added. Fields may be deprecated. Fields are never
+renamed, retyped or repurposed.**
+
+Adding is safe by construction: a record written before the field
+existed reads it as its zero value. The other three are not, and all
+three fail silently rather than loudly — a renamed field reads as zero,
+which nothing can tell apart from "never set", and every unit test in
+the codebase still passes because a round-trip always agrees with
+itself.
+
+A field that has to change meaning gets a **new name**, and the old one
+is read for one release: write both, prefer the new one on read, and
+drop the old only in the release after. Retiring a field means leaving
+it in place and no longer using it, so old files still decode.
+
+Two tests hold this:
+
+- `internal/store/schema_test.go` records the exact JSON name and type of
+  every persisted field. Any change fails the build with an explanation
+  of which kind of change it was. Adding a field fails too — deliberately,
+  so that extending the schema is a decision rather than a side effect.
+- `internal/store/jsonstore/testdata/golden/v1/` is a data directory as
+  Argus writes it today, re-read on every run. It is what actually
+  catches a rename: the registry tells you the shape moved, the fixture
+  tells you existing data no longer reads.
+
+Build the fixture from the code, never by copying a real data directory —
+what the file backend holds is colleagues' names, Jira account ids and
+how much each of them was away.
+
+The file backend records its layout version in `schema.json`; a directory
+written by a newer Argus is refused rather than read through the wrong
+shape. Postgres uses goose migrations, and `migrations_test.go` asserts
+both the fresh install and the upgrade of a database that already holds
+data. Run those against a throwaway database:
+
+```bash
+docker run -d --rm --name argus-pg -e POSTGRES_PASSWORD=argus \
+  -e POSTGRES_USER=argus -e POSTGRES_DB=argus -p 15432:5432 postgres:16-alpine
+ARGUS_TEST_DATABASE_URL='postgres://argus:argus@127.0.0.1:15432/argus?sslmode=disable' \
+  go test ./internal/store/...
+docker stop argus-pg
+```
+
 ## Regenerating `.env.example`
 
 The per-rule section is generated from the running registry, so it cannot

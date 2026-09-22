@@ -1,0 +1,19 @@
+[
+  {
+    "sprint_jira_id": 744,
+    "account_id": "acc-a",
+    "planned_days_off": 2,
+    "unplanned_days_off": 1.5,
+    "reviewed": true,
+    "note": "Two days booked leave, then off sick from the Thursday.",
+    "updated_at": "2026-01-17T09:15:00Z"
+  },
+  {
+    "sprint_jira_id": 744,
+    "account_id": "acc-b",
+    "planned_days_off": 0,
+    "unplanned_days_off": 0,
+    "reviewed": true,
+    "updated_at": "2026-01-17T09:16:00Z"
+  }
+]
