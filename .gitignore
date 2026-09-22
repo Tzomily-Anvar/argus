@@ -28,3 +28,15 @@ node_modules/
 # TypeScript incremental build state.
 *.tsbuildinfo
 dist/
+
+# Design notes stay local. They are working documents: half-decided,
+# written to be argued with, and not the thing anyone should find when
+# they open the repository.
+/design/
+/designs/
+**/design/
+**/designs/
+DESIGN.md
+DESIGN-*.md
+*-design.md
+design-*.md

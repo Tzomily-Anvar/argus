@@ -255,6 +255,28 @@ func JiraPointsFieldName() string {
 	return String("ARGUS_JIRA_POINTS_FIELD_NAME", "Story Points")
 }
 
+// JiraEstimateFieldName is the field holding the planning estimate.
+//
+// It is a fallback, not a second opinion: a ticket that reaches a Done
+// status without its actual points ever being filled in is credited the
+// estimate rather than zero, because zero for work that demonstrably
+// happened is the further of the two from the truth. Every ticket this
+// happens to is named in the report, so the fallback is visible.
+func JiraEstimateFieldName() string {
+	return String("ARGUS_JIRA_ESTIMATE_FIELD_NAME", "Story point estimate")
+}
+
+// JiraStoryLinkTypes are the issue link types that tie a container issue
+// to the work beneath it.
+//
+// Jira's parent field points at the Epic for a team that puts Tasks under
+// a Story, so the association has nowhere to live but issue links - and
+// which link type carries it is a local habit rather than a standard. A
+// team that migrated between projects usually has two.
+func JiraStoryLinkTypes() []string {
+	return Strings("ARGUS_JIRA_STORY_LINK_TYPES", []string{"Blocks", "migration_parent", "Relates"})
+}
+
 func JiraSprintField() string { return String("ARGUS_JIRA_SPRINT_FIELD", "") }
 
 func JiraSprintFieldName() string {
@@ -291,6 +313,29 @@ func HoursPerPoint() float64 {
 // HoursPerDay is a working day, used to relate points to days.
 func HoursPerDay() float64 {
 	return Float("ARGUS_SPRINT_HOURS_PER_DAY", 6)
+}
+
+// ---- the Atlassian team, for importing the roster --------------------
+//
+// Optional, and deliberately so. Without these two the roster is typed in
+// by hand, which is all a small team ever needs; with them the people on
+// an Atlassian team can be pulled in instead of copying account ids about.
+//
+// They identify an organisation, so they have no default and none is
+// invented here. An unset value means the import is simply not offered.
+
+// AtlassianOrgID is the Atlassian organisation the team belongs to.
+func AtlassianOrgID() string { return String("ARGUS_ATLASSIAN_ORG_ID", "") }
+
+// AtlassianTeamID is the team whose members the roster can be imported
+// from.
+func AtlassianTeamID() string { return String("ARGUS_ATLASSIAN_TEAM_ID", "") }
+
+// AtlassianTeamConfigured reports whether both halves are set. One
+// without the other is not half a configuration, it is a mistake, and the
+// import stays hidden rather than failing at the moment it is pressed.
+func AtlassianTeamConfigured() bool {
+	return AtlassianOrgID() != "" && AtlassianTeamID() != ""
 }
 
 // SprintWritesAllowed gates every write the sprint tool can make.

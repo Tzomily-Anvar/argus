@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/jira"
 	"github.com/Tzomily-Anvar/argus/internal/store"
 )
@@ -29,6 +32,12 @@ type Service struct {
 	reports  map[int64]*cached
 	fieldIDs *fields
 
+	// inputs counts changes to the locally held half of a report -
+	// baselines, capacity, capacity reviews. A sweep that started before
+	// a save must not install figures computed before it, and comparing
+	// this counter either side of the computation is how that is caught.
+	inputs uint64
+
 	// Sprint number to Jira id. Resolving a sprint costs a round trip, and
 	// paying it before every cache lookup would make a cached report as
 	// slow as a fresh one - which is the whole thing the cache exists to
@@ -47,11 +56,26 @@ type Config struct {
 	// one. Future sprints are never listed: they are empty shells nobody
 	// reports on.
 	RecentSprints int
+
+	// StoryLinkTypes are the issue link types that tie a container to the
+	// work beneath it. Left empty, NewService reads the setting.
+	StoryLinkTypes []string
+
+	// HoursPerPoint is what one point is worth in logged time, which is
+	// how a sprint gets credit for work on a ticket that finished
+	// somewhere else. Left zero, NewService reads the setting.
+	HoursPerPoint float64
 }
 
 type fields struct {
-	sprint string
-	points string
+	sprint   string
+	points   string
+	estimate string
+
+	// categories maps a status id to new, indeterminate or done. It is
+	// resolved once alongside the field ids because it changes about as
+	// often - which is to say when somebody edits the workflow.
+	categories map[string]string
 }
 
 type cached struct {
@@ -59,11 +83,38 @@ type cached struct {
 	builtAt  time.Time
 	building bool
 	buildErr error
+
+	// The Jira half of the inputs, kept so that a changed baseline or
+	// capacity can be folded in without asking Jira again. A sprint's
+	// issues are a few hundred small structs and only the handful of
+	// sprints somebody has opened are held, which is a cheap price for
+	// making a saved edit appear at once instead of after a sweep.
+	sprint jira.Sprint
+	issues []jira.Issue
+	fields *fields
+
+	// The dated half: status histories, the issues linked beneath this
+	// sprint's containers, and when the previous sprint actually closed.
+	// All of it is Jira's answer rather than a local input, so it is kept
+	// beside the issues and reused when a baseline changes.
+	changes  map[string][]jira.StatusChange
+	linked   map[string]jira.Issue
+	previous time.Time
 }
 
 func NewService(client *jira.Client, st store.Store, cfg Config) *Service {
 	if cfg.RecentSprints <= 0 {
 		cfg.RecentSprints = 4
+	}
+	// Both of these have a working default and a setting, and a caller
+	// that pins neither gets the setting. Reading them here rather than
+	// demanding them from every caller means an existing wiring picks up
+	// the setting without being rebuilt around it.
+	if len(cfg.StoryLinkTypes) == 0 {
+		cfg.StoryLinkTypes = config.JiraStoryLinkTypes()
+	}
+	if cfg.HoursPerPoint <= 0 {
+		cfg.HoursPerPoint = config.HoursPerPoint()
 	}
 	return &Service{
 		client: client, store: st, cfg: cfg,
@@ -111,8 +162,20 @@ func (s *Service) resolveFields() (*fields, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolving the Story Points field: %w", err)
 	}
+	// The estimate is optional. A site without one simply has no fallback
+	// for a finished ticket whose actual was never filled in, which is
+	// worse but is not a reason to refuse to build a report.
+	estimateID, err := s.client.FieldID(config.JiraEstimateFieldName())
+	if err != nil {
+		return nil, fmt.Errorf("resolving the %s field: %w", config.JiraEstimateFieldName(), err)
+	}
 
-	f = &fields{sprint: sprintID, points: pointsID}
+	categories, err := s.client.StatusCategories()
+	if err != nil {
+		return nil, fmt.Errorf("reading the status catalogue: %w", err)
+	}
+
+	f = &fields{sprint: sprintID, points: pointsID, estimate: estimateID, categories: categories}
 	s.mu.Lock()
 	s.fieldIDs = f
 	s.mu.Unlock()
@@ -177,19 +240,139 @@ func (s *Service) Sprints(ctx context.Context, all bool) ([]Option, error) {
 	return out, nil
 }
 
-// Invalidate discards cached reports so the next read rebuilds them.
+// Recompute folds a changed baseline, capacity or capacity review into
+// every report already built, without asking Jira anything.
 //
-// Baselines and capacity are inputs to a report, not part of the sweep,
-// so changing one has to invalidate what was computed from it. Without
-// this a saved baseline lands in storage and never reaches the screen -
-// which looks exactly like the save having failed.
+// This used to throw the cache away instead, and that is what made saving
+// a number feel broken. Dropping a report means the next read pays a full
+// sweep - several seconds against Jira - so the browser refetched, got
+// nothing back yet, and redrew the field with the old value. The edit
+// then appeared some time later, when the sweep landed.
 //
-// Only the derived reports are dropped; the sprint-number-to-id mapping
-// is kept, since that never changes.
-func (s *Service) Invalidate() {
+// Nothing about Jira changes when somebody types a day off. Only the
+// locally stored half does, and Build is a pure function, so recomputing
+// from the issues already in memory costs microseconds. The figures are
+// therefore right by the time the browser asks for them.
+//
+// The sprint-number-to-id mapping is left alone, since that never changes.
+func (s *Service) Recompute(ctx context.Context) {
 	s.mu.Lock()
-	s.reports = map[int64]*cached{}
+	s.inputs++
+	type job struct {
+		sprint  jira.Sprint
+		issues  []jira.Issue
+		fetched fetched
+		builtAt time.Time
+	}
+	jobs := make([]job, 0, len(s.reports))
+	for id, c := range s.reports {
+		if c.building {
+			// A sweep is mid-flight. It reads the store itself and the
+			// version check in install stops it installing figures from
+			// before this change, so leaving it alone is correct.
+			continue
+		}
+		if len(c.issues) == 0 {
+			// Nothing to recompute from - a report built before this
+			// process learned to keep the issues, or one still building.
+			// Drop it so the next read rebuilds honestly.
+			delete(s.reports, id)
+			continue
+		}
+		jobs = append(jobs, job{
+			sprint: c.sprint, issues: c.issues, builtAt: c.builtAt,
+			fetched: fetched{
+				fields: c.fields, changes: c.changes,
+				linked: c.linked, previous: c.previous,
+			},
+		})
+	}
 	s.mu.Unlock()
+
+	for _, j := range jobs {
+		// The original build time is carried over, not refreshed. Nothing
+		// was fetched here, so claiming the Jira figures are newer than
+		// they are would be the same dishonesty the "as of" label exists
+		// to avoid - and it would postpone the next real sweep.
+		s.install(ctx, j.sprint, j.issues, j.fetched, j.builtAt)
+	}
+}
+
+// fetched is everything one sweep took from Jira, kept together so a
+// recomputation after a local edit does not have to ask again.
+type fetched struct {
+	fields   *fields
+	changes  map[string][]jira.StatusChange
+	linked   map[string]jira.Issue
+	previous time.Time
+}
+
+// derive computes a report from what was fetched plus the locally stored
+// inputs as they stand right now.
+func (s *Service) derive(ctx context.Context, sp jira.Sprint, issues []jira.Issue, got fetched) Report {
+	people, _ := s.store.ListPeople(ctx, true)
+	capacity, _ := s.store.ListCapacity(ctx, sp.ID)
+	reviewedAt, _ := s.store.CapacityReviewedAt(ctx, sp.ID)
+
+	in := Inputs{
+		Sprint: sp, Issues: issues, People: people, Capacity: capacity,
+		Rules:   s.cfg.Rules,
+		BaseURL: s.cfg.BaseURL, Project: s.cfg.Project,
+		Changes: got.changes, Linked: got.linked, PreviousClose: got.previous,
+		StoryLinkTypes: s.cfg.StoryLinkTypes, HoursPerPoint: s.cfg.HoursPerPoint,
+		EpicClasses: s.cfg.EpicClasses, SprintLengthDays: s.cfg.SprintLengthDays,
+		CapacityReviewedAt: reviewedAt,
+	}
+	if got.fields != nil {
+		in.PointsField = got.fields.points
+		in.EstimateField = got.fields.estimate
+		in.SprintField = got.fields.sprint
+		in.StatusCategories = got.fields.categories
+	}
+	return Build(in)
+}
+
+// install computes a report and caches it, retrying if somebody saved a
+// baseline or a capacity while it was computing.
+//
+// Without that check a slow sweep can finish after a save and overwrite
+// the correct figures with ones read from the store before it - the edit
+// appears, then vanishes again, for up to the cache lifetime. The loop
+// terminates because each pass is a pure recomputation over data already
+// in memory and only repeats while somebody is actively saving.
+func (s *Service) install(ctx context.Context, sp jira.Sprint, issues []jira.Issue, got fetched, builtAt time.Time) Report {
+	for {
+		s.mu.RLock()
+		version := s.inputs
+		s.mu.RUnlock()
+
+		rep := s.derive(ctx, sp, issues, got)
+
+		s.mu.Lock()
+		if s.inputs == version {
+			s.reports[sp.ID] = &cached{
+				report: rep, builtAt: builtAt,
+				sprint: sp, issues: issues, fields: got.fields,
+				changes: got.changes, linked: got.linked, previous: got.previous,
+			}
+			s.mu.Unlock()
+			return rep
+		}
+		s.mu.Unlock()
+	}
+}
+
+// User resolves an account id to the person behind it.
+//
+// It lives here because the Jira client does, and because the roster
+// import is assembled by the HTTP layer out of configuration this service
+// deliberately does not hold: an organisation id is nothing to do with
+// building a report.
+func (s *Service) User(_ context.Context, accountID string) (jira.User, error) {
+	if s.client == nil {
+		return jira.User{}, fmt.Errorf("no Jira client, so account ids cannot be resolved to names")
+	}
+	return s.client.User(accountID)
 }
 
 // ReportResult carries a report plus how fresh it is, so the UI can say
@@ -296,35 +479,191 @@ func (s *Service) build(ctx context.Context, sp jira.Sprint, f *fields) (Report,
 
 	defer func() {
 		s.mu.Lock()
-		s.reports[sp.ID].building = false
+		// The entry may have been replaced by install or dropped by a
+		// concurrent Recompute, so this cannot assume it is still there.
+		if entry := s.reports[sp.ID]; entry != nil {
+			entry.building = false
+		}
 		s.mu.Unlock()
 	}()
 
+	// Jira's sprint field is cumulative, so this returns every issue that
+	// has ever been in the sprint rather than the work that happened in
+	// it. Narrowing it in JQL is not possible - Jira has no "finished
+	// during" - so everything comes back and the dating below decides.
+	fields := []string{"summary", "issuetype", "status", "assignee", "created", "updated",
+		"resolutiondate", "parent", "labels", "issuelinks", "timespent", "worklog", f.points, f.sprint}
+	if f.estimate != "" {
+		fields = append(fields, f.estimate)
+	}
 	issues, err := s.client.Search(
-		fmt.Sprintf("project = %s AND sprint = %d", s.cfg.Project, sp.ID),
-		[]string{"summary", "issuetype", "status", "assignee", "created",
-			"resolutiondate", "parent", "labels", f.points},
-		0)
+		fmt.Sprintf("project = %s AND sprint = %d", s.cfg.Project, sp.ID), fields, 0)
 	if err != nil {
 		return Report{}, err
 	}
 
-	people, _ := s.store.ListPeople(ctx, true)
-	capacity, _ := s.store.ListCapacity(ctx, sp.ID)
+	got, err := s.enrich(sp, f, issues)
+	if err != nil {
+		return Report{}, err
+	}
 
-	rep := Build(Inputs{
-		Sprint: sp, Issues: issues, People: people, Capacity: capacity,
-		Rules: s.cfg.Rules, PointsField: f.points,
-		BaseURL: s.cfg.BaseURL, Project: s.cfg.Project,
-		EpicClasses: s.cfg.EpicClasses, SprintLengthDays: s.cfg.SprintLengthDays,
-	})
-
-	s.mu.Lock()
-	s.reports[sp.ID] = &cached{report: rep, builtAt: time.Now().UTC()}
-	s.mu.Unlock()
+	rep := s.install(ctx, sp, issues, got, time.Now().UTC())
 
 	s.persist(ctx, sp, rep)
 	return rep, nil
+}
+
+// enrich fetches what the issues alone cannot say: when work reached a
+// Done status, what sits underneath this sprint's containers, and when
+// the previous sprint really closed.
+//
+// The cost is three things beyond the search, and each is bounded:
+//
+//   - The status histories, in bulk. One request per thousand changelog
+//     entries, which is two to five for a sprint of sixty issues. Asked
+//     for the status field alone, so the response carries transitions
+//     rather than every edit anybody ever made.
+//   - The issues linked beneath the containers that are not in the sprint
+//     themselves, in one search. A Story cannot be judged finished
+//     without them.
+//   - The previous sprint, one call, for the handover gap.
+//
+// The worklog is not in that list because a search returns it inline, so
+// splitting delivery by who logged the work costs nothing at all. Only an
+// issue whose log Jira truncated needs fetching on its own, which for
+// this team has never happened.
+func (s *Service) enrich(sp jira.Sprint, f *fields, issues []jira.Issue) (fetched, error) {
+	got := fetched{fields: f}
+
+	linked, err := s.linkedIssues(f, issues)
+	if err != nil {
+		return got, err
+	}
+	got.linked = linked
+
+	ids := make([]string, 0, len(issues)+len(linked))
+	seen := make(map[string]bool, len(issues)+len(linked))
+	for _, is := range issues {
+		if is.ID != "" && !seen[is.ID] {
+			seen[is.ID] = true
+			ids = append(ids, is.ID)
+		}
+	}
+	for _, is := range linked {
+		if is.ID != "" && !seen[is.ID] {
+			seen[is.ID] = true
+			ids = append(ids, is.ID)
+		}
+	}
+	changes, err := s.client.StatusHistory(ids)
+	if err != nil {
+		return got, err
+	}
+	got.changes = changes
+	got.previous = s.previousClose(sp)
+	return got, nil
+}
+
+// linkedIssues fetches the work linked beneath this sprint's containers
+// that the sprint does not already contain.
+//
+// Keyed by key rather than id because that is what a link carries. The
+// issues already in hand are included, so the caller never has to decide
+// which map to look in.
+func (s *Service) linkedIssues(f *fields, issues []jira.Issue) (map[string]jira.Issue, error) {
+	out := make(map[string]jira.Issue, len(issues))
+	for _, is := range issues {
+		out[is.Key] = is
+	}
+
+	var missing []string
+	for _, is := range issues {
+		if !s.cfg.Rules.IsContainer(is.Fields.IssueType.Name) {
+			continue
+		}
+		for _, link := range is.Fields.Links {
+			if !hasFold(s.cfg.StoryLinkTypes, link.Type.Name) {
+				continue
+			}
+			other := link.Other()
+			if other == nil || other.Key == "" {
+				continue
+			}
+			if _, have := out[other.Key]; have {
+				continue
+			}
+			if !s.cfg.Rules.IsWork(other.Fields.IssueType.Name) {
+				continue
+			}
+			out[other.Key] = jira.Issue{}
+			missing = append(missing, other.Key)
+		}
+	}
+	for _, key := range missing {
+		delete(out, key)
+	}
+	if len(missing) == 0 {
+		return out, nil
+	}
+
+	sort.Strings(missing)
+	fields := []string{"summary", "issuetype", "status", "assignee", "created", "updated",
+		"resolutiondate", "parent", f.points}
+	if f.estimate != "" {
+		fields = append(fields, f.estimate)
+	}
+	// One search however many keys there are, because the work beneath a
+	// sprint's Stories runs to a few dozen and asking for them one at a
+	// time would be a few dozen round trips.
+	found, err := s.client.Search(fmt.Sprintf("key in (%s)", strings.Join(missing, ", ")), fields, 0)
+	if err != nil {
+		return nil, err
+	}
+	for _, is := range found {
+		out[is.Key] = is
+	}
+	return out, nil
+}
+
+// previousClose is when the sprint before this one was completed, zero
+// when it cannot be worked out.
+//
+// Jira leaves a gap of a few minutes between one sprint being completed
+// and the next being started, and work does finish in it - one ticket
+// worth five points did, in the sprints this was measured on. Without
+// this the gap is a hole that work falls into and no sprint claims.
+func (s *Service) previousClose(sp jira.Sprint) time.Time {
+	if sp.OriginBoardID == 0 || sp.Number <= 0 {
+		return time.Time{}
+	}
+	siblings, err := s.client.BoardSprints(sp.OriginBoardID, "closed")
+	if err != nil {
+		return time.Time{}
+	}
+	var best jira.Sprint
+	for _, sib := range siblings {
+		if sib.ID == sp.ID || sib.CompleteDate.IsZero() {
+			continue
+		}
+		if !sib.CompleteDate.Before(sp.StartDate.Time) {
+			continue
+		}
+		if best.CompleteDate.IsZero() || sib.CompleteDate.After(best.CompleteDate.Time) {
+			best = sib
+		}
+	}
+	return best.CompleteDate.Time
+}
+
+// hasFold reports whether name appears in list, ignoring case and
+// surrounding space.
+func hasFold(list []string, name string) bool {
+	for _, s := range list {
+		if strings.EqualFold(strings.TrimSpace(s), strings.TrimSpace(name)) {
+			return true
+		}
+	}
+	return false
 }
 
 // persist records the sprint and its aggregate. Per-person rows are not

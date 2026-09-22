@@ -36,6 +36,21 @@ func (c *Client) FieldID(name string) (string, error) {
 	return "", nil
 }
 
+// User resolves an account id to the person behind it.
+//
+// The Atlassian team API answers with account ids and nothing else, so
+// this is what turns an import into a list of names somebody can read and
+// tick. It also says whether the account is still active, which is worth
+// knowing before adding it to a roster.
+func (c *Client) User(accountID string) (User, error) {
+	var u User
+	if accountID == "" {
+		return u, errf("no account id to look up")
+	}
+	err := c.Get("/rest/api/3/user", url.Values{"accountId": {accountID}}, &u)
+	return u, err
+}
+
 // Search runs a JQL query and follows pagination.
 //
 // Jira's newer search endpoint pages with an opaque token rather than an
@@ -177,6 +192,10 @@ func sprintEntry(issue Issue, sprintField string, number int) (int64, bool) {
 	}
 	return entries[len(entries)-1].ID, true
 }
+
+// trailingDigits is the sprint number people use, which Jira keeps only
+// as the tail of the name.
+func trailingDigits(name string) int { return numberFromName(name) }
 
 func numberFromName(name string) int {
 	m := trailingNumber.FindStringSubmatch(name)

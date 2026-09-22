@@ -6,6 +6,8 @@ import { SprintPicker } from "./components/SprintPicker";
 import { SprintReportView } from "./components/SprintReport";
 import { Icon } from "./components/Icons";
 import { CapacityPanel } from "./components/CapacityPanel";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { formatDateRange } from "./dates";
 
 function ago(iso: string): string {
   const secs = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -18,7 +20,12 @@ function ago(iso: string): string {
 
 export function SprintTool() {
   const qc = useQueryClient();
-  const [editing, setEditing] = useState(false);
+
+  // Two panels, and the split between them is the point. Capacity is
+  // about this sprint and is entered every fortnight; settings are about
+  // the team and are revisited a few times a year. Only one is ever open,
+  // because they are both sheets over the same page.
+  const [panel, setPanel] = useState<"none" | "capacity" | "settings">("none");
 
   // The sprint number is part of the address, so a report can be linked
   // to and a reload comes back to the sprint you were reading. Anything
@@ -78,7 +85,7 @@ export function SprintTool() {
           </h1>
           {res && (
             <p className="mt-0.5 text-[13px]" style={{ color: "var(--muted)" }}>
-              {res.report.sprint.starts?.slice(0, 10)} to {res.report.sprint.ends?.slice(0, 10)}
+              {formatDateRange(res.report.sprint.starts, res.report.sprint.ends, true)}
               {res.report.sprint.provisional && " · still open, so delivery is measured against today"}
             </p>
           )}
@@ -92,13 +99,25 @@ export function SprintTool() {
                 : ""}
           </span>
           <button
-            onClick={() => setEditing(true)}
+            onClick={() => setPanel("capacity")}
             disabled={!res}
             className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
             style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
           >
             <Icon.sliders />
-            Baselines
+            Capacity
+          </button>
+          {/* The roster and the baselines. Not disabled with no report:
+              they are about the team rather than about a sprint, so there
+              is nothing to wait for. */}
+          <button
+            onClick={() => setPanel("settings")}
+            aria-label="Settings"
+            title="The team, their baselines, and importing the roster"
+            className="flex items-center rounded-lg px-2.5 py-2 text-sm font-medium"
+            style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
+          >
+            <Icon.gear />
           </button>
           <button
             onClick={() => refresh.mutate()}
@@ -146,7 +165,16 @@ export function SprintTool() {
 
       {res && !report.isLoading && <SprintReportView report={res.report} />}
 
-      {editing && res && <CapacityPanel report={res.report} onClose={() => setEditing(false)} />}
+      {panel === "capacity" && res && (
+        <CapacityPanel
+          report={res.report}
+          onClose={() => setPanel("none")}
+          onOpenSettings={() => setPanel("settings")}
+        />
+      )}
+      {panel === "settings" && (
+        <SettingsPanel report={res?.report} onClose={() => setPanel("none")} />
+      )}
     </div>
   );
 }

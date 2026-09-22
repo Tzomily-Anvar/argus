@@ -70,10 +70,28 @@ type User struct {
 	AccountID   string `json:"accountId"`
 	DisplayName string `json:"displayName"`
 	Active      bool   `json:"active"`
+
+	// AccountType is atlassian for a person, app for an integration and
+	// customer for a service desk account. It is absent from the user an
+	// issue embeds and present when a user is fetched directly, which is
+	// where it matters: an app that files tickets should not be proposed
+	// as a member of the team.
+	AccountType string `json:"accountType,omitempty"`
+}
+
+// IsPerson reports whether this account belongs to a human. An empty
+// account type is read as a person, because the abbreviated user Jira
+// embeds in an issue carries no type and inventing a robot from a missing
+// field would be worse than the occasional bot in a list.
+func (u User) IsPerson() bool {
+	return u.AccountType == "" || u.AccountType == "atlassian"
 }
 
 // Status is an issue's workflow status.
 type Status struct {
+	// ID is what resolves to a category. A workflow can be renamed
+	// without it moving, so it is the stable handle on a status.
+	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Category struct {
 		Key string `json:"key"` // new | indeterminate | done
@@ -101,7 +119,29 @@ type Issue struct {
 		Updated   Time      `json:"updated"`
 		Resolved  Time      `json:"resolutiondate"`
 		Labels    []string  `json:"labels"`
-		Parent    *struct {
+
+		// TimeSpent is seconds logged against the issue, zero when
+		// nobody has logged any. It is the cheap aggregate: answering
+		// "has any time been logged" needs no worklog fetch.
+		TimeSpent int `json:"timespent"`
+
+		// Worklog is the time logged against the issue, entry by entry.
+		// A search returns it inline, which is why splitting a sprint's
+		// delivery by who logged the work costs no extra call. Total
+		// above MaxResults means Jira truncated the list.
+		Worklog struct {
+			Total      int            `json:"total"`
+			MaxResults int            `json:"maxResults"`
+			Entries    []WorklogEntry `json:"worklogs"`
+		} `json:"worklog"`
+
+		// Links are the issue's links to other issues. Where a team's
+		// hierarchy puts Tasks under a Story but Jira's parent field is
+		// taken by the Epic, this is the only place the association
+		// between a container and its work exists.
+		Links []IssueLink `json:"issuelinks"`
+
+		Parent *struct {
 			Key    string `json:"key"`
 			Fields struct {
 				Summary   string    `json:"summary"`
@@ -148,6 +188,28 @@ func (i Issue) Number(fieldID string) (float64, bool) {
 	return n, true
 }
 
+// SprintsOn lists every sprint the issue has been on the board of, read
+// from the sprint custom field.
+//
+// The field is cumulative - Jira never removes a sprint from it - which
+// is exactly why a report cannot take membership as evidence that work
+// happened in a sprint. Each entry carries its own dates, so working out
+// which of them an issue was actually worked on in costs no further call.
+func (i Issue) SprintsOn(fieldID string) []Sprint {
+	raw, ok := i.Raw[fieldID]
+	if !ok || string(raw) == "null" {
+		return nil
+	}
+	var entries []Sprint
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil
+	}
+	for n := range entries {
+		entries[n].Number = trailingDigits(entries[n].Name)
+	}
+	return entries
+}
+
 // IsDone reports whether the issue's status is one of the configured
 // terminal names.
 //
@@ -163,6 +225,59 @@ func (i Issue) IsDone(doneStatuses []string) bool {
 		}
 	}
 	return false
+}
+
+// WorklogEntry is one person's logged time.
+//
+// Author rather than assignee is the point of holding these: a ticket
+// that spans sprints sits with whoever it was handed to last, which is
+// often not who did the work.
+type WorklogEntry struct {
+	Started Time  `json:"started"`
+	Seconds int   `json:"timeSpentSeconds"`
+	Author  *User `json:"author"`
+}
+
+// Truncated reports whether Jira cut the worklog list short, in which case
+// the entries here are not the whole story.
+func (i Issue) Truncated() bool {
+	return i.Fields.Worklog.Total > len(i.Fields.Worklog.Entries)
+}
+
+// IssueLink is one link between two issues.
+//
+// Jira puts the issue at the far end in inwardIssue or outwardIssue
+// depending on which way the link was made, and which way round it was
+// made says nothing useful about whether a Task belongs to a Story. So
+// callers ask for Other and ignore the direction.
+type IssueLink struct {
+	Type struct {
+		Name string `json:"name"`
+	} `json:"type"`
+	Inward  *LinkedIssue `json:"inwardIssue"`
+	Outward *LinkedIssue `json:"outwardIssue"`
+}
+
+// Other is the issue at the far end of the link, nil for a link that
+// carries neither side.
+func (l IssueLink) Other() *LinkedIssue {
+	if l.Outward != nil {
+		return l.Outward
+	}
+	return l.Inward
+}
+
+// LinkedIssue is the abbreviated issue Jira embeds in a link. It carries
+// a status and a type but no custom fields, so story points on a linked
+// issue still have to be fetched.
+type LinkedIssue struct {
+	ID     string `json:"id"`
+	Key    string `json:"key"`
+	Fields struct {
+		Summary   string    `json:"summary"`
+		Status    Status    `json:"status"`
+		IssueType IssueType `json:"issuetype"`
+	} `json:"fields"`
 }
 
 // SearchResult is one page of a JQL search.

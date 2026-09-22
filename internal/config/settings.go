@@ -201,6 +201,16 @@ func Core() Catalogue {
 			Desc:    "The field name to resolve story points by.",
 		},
 		{
+			Key: "ARGUS_JIRA_ESTIMATE_FIELD_NAME", Section: "Jira", Kind: KindString,
+			Default: "Story point estimate",
+			Desc:    "The field to fall back on when finished work never had its actual points filled in.",
+		},
+		{
+			Key: "ARGUS_JIRA_STORY_LINK_TYPES", Section: "Jira", Kind: KindList,
+			Default: "Blocks,migration_parent,Relates",
+			Desc:    "Issue link types that tie a container to the work beneath it, when parent points at the Epic.",
+		},
+		{
 			Key: "ARGUS_JIRA_SPRINT_FIELD", Section: "Jira", Kind: KindString,
 			Desc: "Pin the sprint custom field id. Resolved by name when left unset.",
 		},
@@ -231,6 +241,15 @@ func Core() Catalogue {
 		{
 			Key: "ARGUS_SPRINT_RETAIN_YEARS", Section: "Sprint report", Kind: KindInt, Default: "3",
 			Desc: "How long per-person records are kept. Aggregates carry no personal data and are never pruned.",
+		},
+
+		{
+			Key: "ARGUS_ATLASSIAN_ORG_ID", Section: "Atlassian team", Kind: KindString,
+			Desc: "The Atlassian organisation id, for importing the roster. Optional.",
+		},
+		{
+			Key: "ARGUS_ATLASSIAN_TEAM_ID", Section: "Atlassian team", Kind: KindString,
+			Desc: "The Atlassian team id whose members the roster can be imported from. Optional.",
 		},
 
 		{
