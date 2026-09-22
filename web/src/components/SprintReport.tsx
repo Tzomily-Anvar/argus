@@ -1,5 +1,12 @@
 import { useState } from "react";
-import type { SprintReport as Report, SprintFlag, EpicGroup, CapacityReview } from "../api";
+import type {
+  SprintReport as Report,
+  SprintFlag,
+  EpicGroup,
+  CapacityReview,
+  CalibrationTrend,
+} from "../api";
+import { CalibrationView } from "./Calibration";
 import { Badge } from "./Badge";
 import { StatTiles, type Stat } from "./StatTiles";
 import { formatDay } from "../dates";
@@ -327,7 +334,7 @@ function Flags({ flags }: { flags: SprintFlag[] }) {
   );
 }
 
-export function SprintReportView({ report }: { report: Report }) {
+export function SprintReportView({ report, trend }: { report: Report; trend?: CalibrationTrend }) {
   const s = report.summary;
   const storyPts = report.stories_concluded.reduce((a, b) => a + b.points, 0);
   const carry = report.carryover;
@@ -412,6 +419,30 @@ export function SprintReportView({ report }: { report: Report }) {
             ))}
           </ul>
         )}
+      </Section>
+
+      {/* Where this belongs, and why here.
+       *
+       * A section of the sprint report rather than a panel of its own.
+       * The conversation it feeds is a retrospective, retrospectives are
+       * held per sprint, and the run across sprints only means anything
+       * beside the sprint somebody is reading - a separate panel would be
+       * a second place to go for one conversation and would have to
+       * re-ask which sprint anyway.
+       *
+       * Placed here, after what happened and before the housekeeping: it
+       * is reflective material rather than a headline, and it is
+       * deliberately not one of the stat tiles at the top, where a lone
+       * variance percentage would be read as a score. */}
+      <Section
+        title="Estimate against actual"
+        hint="Two numbers are recorded on a ticket: what refinement agreed it would cost, and what it turned out to cost. The distance between them is a reading on how refinement is calibrating, not a score."
+      >
+        <CalibrationView
+          calibration={report.calibration}
+          trend={trend}
+          sprintNumber={report.sprint.number}
+        />
       </Section>
 
       <Section title="Needs a look" hint="Each one names a single fixable thing.">

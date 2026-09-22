@@ -134,6 +134,11 @@ func Build(in Inputs) Report {
 	epicPoints := map[string]*EpicGroup{} // epic key, or name -> group
 	var unattributed float64
 	var unlogged []Row
+	// The work this sprint finished, kept for the estimate-against-actual
+	// comparison. Only what concluded here: carryover has no actual yet,
+	// and work that finished earlier was compared by the sprint that
+	// finished it.
+	var finished []Row
 
 	for _, is := range in.Issues {
 		life := newTimeline(is, in.Changes[is.ID], in.StatusCategories, in.Rules.Done)
@@ -181,6 +186,7 @@ func Build(in Inputs) Report {
 
 		case StateConcluded:
 			r.Summary.DoneCount++
+			finished = append(finished, row)
 			if row.StartedEarlier {
 				r.Summary.FinishedFromEarlier++
 			}
@@ -244,6 +250,7 @@ func Build(in Inputs) Report {
 	r.Summary.PriorPointsDeducted = round2(r.Summary.PriorPointsDeducted)
 	r.Summary.UnattributedPoints = round2(unattributed)
 	r.Summary.CarriedOver = len(r.Carry)
+	r.Calibration = calibrate(finished, in)
 	r.People = buildPeople(people, rostered, delivered, rowsFor, capacity, in, &r)
 	r.CapacityReview = reviewState(in, r.People)
 	r.Epics = finishEpics(epicPoints, r.Summary.DeliveredTotal, in)
@@ -332,6 +339,13 @@ func toRow(is jira.Issue, in Inputs, life timeline, opens, closes time.Time) Row
 	if is.Fields.Parent != nil {
 		row.Epic = is.Fields.Parent.Fields.Summary
 		row.EpicKey = is.Fields.Parent.Key
+	}
+	// The estimate is carried whether or not anything reads it here, so
+	// the comparison against the actual can be made from rows alone. Only
+	// when the two fields are genuinely different: one field doing both
+	// jobs would have the ticket agreeing with itself.
+	if in.EstimateField != "" && in.EstimateField != in.PointsField {
+		row.Estimate, row.HasEstimate = is.Number(in.EstimateField)
 	}
 
 	row.ConcludedAt = concluded(is, in, life)

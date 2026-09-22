@@ -15,6 +15,11 @@ type Report struct {
 	Flags    []Flag      `json:"flags"`
 	Warnings []string    `json:"warnings,omitempty"`
 
+	// Calibration is what refinement expected this sprint's work to cost
+	// against what it cost. A retrospective input rather than a headline:
+	// it is reported, not totalled into anything above.
+	Calibration Calibration `json:"calibration"`
+
 	// CapacityReview says whether the availability behind these figures
 	// has been confirmed by a person, and whether they changed anything.
 	CapacityReview CapacityReview `json:"capacity_review"`
@@ -262,6 +267,14 @@ type Row struct {
 	// UsedEstimate marks a figure that came from the planning estimate
 	// because the actual was never filled in.
 	UsedEstimate bool `json:"used_estimate,omitempty"`
+
+	// Estimate is what refinement agreed the work would cost, and
+	// HasEstimate whether anybody recorded one. Kept beside Points rather
+	// than folded into it: the two answer different questions, and
+	// UsedEstimate above marks the one case where Points was read off
+	// this same field for want of an actual.
+	Estimate    float64 `json:"estimate,omitempty"`
+	HasEstimate bool    `json:"has_estimate,omitempty"`
 
 	// ConcludedAt is when it last reached a Done status, zero while it
 	// has not. This is what decides which sprint counts it.

@@ -136,6 +136,11 @@ export type SprintRow = {
   /** The figure came from the planning estimate because the actual was
    *  never filled in. */
   used_estimate?: boolean;
+  /** What refinement agreed the work would cost. Kept beside `points`
+   *  rather than folded into it: `used_estimate` above marks the one
+   *  case where `points` was read off this same field. */
+  estimate?: number;
+  has_estimate?: boolean;
   concluded_at?: string;
   /** Whether anybody picked it up during this sprint. An open ticket
    *  nobody touched is not work that happened. */
@@ -207,6 +212,78 @@ export type CapacityReview = {
   adjusted: number;
 };
 
+/** One ticket whose actual and estimate disagreed. */
+export type Divergence = {
+  key: string;
+  summary: string;
+  url: string;
+  estimated: number;
+  actual: number;
+  /** Actual less estimated, sign kept: costing more and costing less are
+   *  different situations and are never folded into one magnitude. */
+  difference: number;
+};
+
+/** What refinement expected the work to cost against what it cost.
+ *
+ *  Two fields are recorded on a ticket: an estimate agreed at refinement
+ *  and the actual filled in when the work finishes. The distance between
+ *  them is a reading on how well refinement is calibrating - a
+ *  retrospective conversation rather than a score, so nothing here is
+ *  named accuracy and nothing here is coloured as a failure.
+ *
+ *  The estimate field also stands in for a missing actual, flagged as
+ *  `estimate_used`. That is a data gap rather than a comparison, and a
+ *  ticket sized that way is excluded from every figure below: comparing
+ *  the estimate against a copy of itself would score a perfect match out
+ *  of a number nobody recorded. */
+export type Calibration = {
+  /** False when this site cannot make the comparison at all - no estimate
+   *  field, or one field doing both jobs. */
+  configured: boolean;
+  /** Totalled over the comparable tickets only, so the two are readings
+   *  of the same subset rather than totals of different things. */
+  estimated: number;
+  actual: number;
+  /** Actual less estimated. Positive means the work cost more than
+   *  refinement expected. */
+  difference: number;
+  /** The difference as a share of the estimate, so 0.3 is a third more
+   *  than expected. Absent when nothing estimable was compared. */
+  variance: number;
+  has_variance: boolean;
+  /** The coverage: how many finished tickets carried both figures, out of
+   *  how many finished at all. The totals speak for the subset. */
+  compared: number;
+  finished: number;
+  /** Most comparable tickets land on `matched`, so the variance is
+   *  usually the work of the handful in `diverged`. */
+  matched: number;
+  over: number;
+  under: number;
+  /** Too few tickets to read as anything but a hint. Never a reason to
+   *  hide the figure, only to say how much weight it carries. */
+  thin: boolean;
+  diverged?: Divergence[];
+};
+
+/** One sprint's place in the run of them. Carries no tickets: the sprint
+ *  report names its own. */
+export type CalibrationSprint = {
+  number: number;
+  name: string;
+  calibration: Calibration;
+};
+
+/** The run of sprints, oldest first. One sprint's variance is a number;
+ *  five in a row is what shows whether refinement is settling. */
+export type CalibrationTrend = {
+  sprints: CalibrationSprint[];
+  /** Some of the run has not been swept yet, so the answer is partial and
+   *  worth asking for again. */
+  building: boolean;
+};
+
 export type SprintReport = {
   sprint: {
     jira_id: number;
@@ -259,6 +336,7 @@ export type SprintReport = {
   carryover: SprintRow[];
   flags: SprintFlag[];
   capacity_review: CapacityReview;
+  calibration: Calibration;
   generated_at: string;
 };
 
@@ -276,6 +354,11 @@ export const fetchSprints = (all = false) =>
   getJSON<{ sprints: SprintOption[] }>(`/api/sprint/sprints${all ? "?all=1" : ""}`);
 export const fetchSprintReport = (n: number, refresh = false) =>
   getJSON<ReportResult>(`/api/sprint/report?sprint=${n}${refresh ? "&refresh=1" : ""}`);
+/* Its own request rather than part of the report: it costs a Jira sweep
+ * per sprint it does not already hold, and the report must not get slower
+ * for a section further down the page. */
+export const fetchCalibrationTrend = (n: number) =>
+  getJSON<CalibrationTrend>(`/api/sprint/calibration?sprint=${n}`);
 
 
 /** One person on the roster, as stored.
