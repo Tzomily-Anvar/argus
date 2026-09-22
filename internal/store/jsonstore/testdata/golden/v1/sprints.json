@@ -1,0 +1,20 @@
+[
+  {
+    "jira_id": 745,
+    "label": "Sprint 22",
+    "number": 22,
+    "starts_at": "2026-01-19T00:00:00Z",
+    "ends_at": "2026-01-30T17:00:00Z",
+    "state": "active",
+    "updated_at": "2026-01-19T06:00:00Z"
+  },
+  {
+    "jira_id": 744,
+    "label": "Sprint 21",
+    "number": 21,
+    "starts_at": "2026-01-05T00:00:00Z",
+    "ends_at": "2026-01-16T17:00:00Z",
+    "state": "closed",
+    "updated_at": "2026-01-17T06:00:00Z"
+  }
+]

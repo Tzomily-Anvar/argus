@@ -1,0 +1,20 @@
+[
+  {
+    "sprint_jira_id": 744,
+    "baseline_total": 20.5,
+    "capacity_total": 17,
+    "planned_days_off": 2,
+    "unplanned_days_off": 1.5,
+    "delivered_total": 16,
+    "promised": 9,
+    "injected": 3,
+    "completed": 8,
+    "by_epic_class": {
+      "Build": 11,
+      "Run": 5
+    },
+    "stories_done": 4,
+    "story_points_done": 13,
+    "recorded_at": "2026-01-17T10:00:00Z"
+  }
+]

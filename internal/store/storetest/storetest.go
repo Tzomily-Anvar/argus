@@ -29,10 +29,13 @@ func Run(t *testing.T, fresh func(t *testing.T) store.Store) {
 		"capacity is isolated per sprint":  testCapacityIsolation,
 		"absence splits planned/unplanned": testAbsenceSplit,
 		"capacity needs known references":  testUnknownReference,
+		"a sprint can be reviewed":         testCapacityReview,
+		"a review survives a re-sweep":     testReviewSurvivesSweep,
 		"retention keeps aggregates":       testRetention,
 		"stats round-trip":                 testStats,
 		"writes are append-only":           testWriteAudit,
 		"empty store reads as empty":       testEmptyStore,
+		"migrate is repeatable":            testMigrateIsRepeatable,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) { fn(t, fresh(t)) })
@@ -266,6 +269,82 @@ func testUnknownReference(t *testing.T, s store.Store) {
 	}
 }
 
+// The three states a sprint's capacity can be in must be distinguishable.
+// Rows and no review is a half-finished job; a review and no rows is the
+// real answer "everybody was here"; neither is a sprint nobody has opened.
+func testCapacityReview(t *testing.T, s store.Store) {
+	seed(t, s, 744, "a")
+	seed(t, s, 745, "a")
+
+	at, err := s.CapacityReviewedAt(ctx(), 744)
+	if err != nil {
+		t.Fatalf("CapacityReviewedAt: %v", err)
+	}
+	if !at.IsZero() {
+		t.Errorf("an untouched sprint should read as never reviewed, got %v", at)
+	}
+
+	before := time.Now().UTC().Add(-time.Second)
+	if err := s.SetCapacityReviewed(ctx(), 744, true); err != nil {
+		t.Fatalf("SetCapacityReviewed: %v", err)
+	}
+	at, err = s.CapacityReviewedAt(ctx(), 744)
+	if err != nil {
+		t.Fatalf("CapacityReviewedAt: %v", err)
+	}
+	if at.IsZero() || at.Before(before) {
+		t.Errorf("review should be stamped with the time it happened, got %v", at)
+	}
+
+	// "Everybody was available" means exactly no capacity rows, so the
+	// review must not invent any.
+	if rows, _ := s.ListCapacity(ctx(), 744); len(rows) != 0 {
+		t.Errorf("reviewing should write no capacity rows, got %d", len(rows))
+	}
+
+	// One sprint's review says nothing about another's.
+	if other, _ := s.CapacityReviewedAt(ctx(), 745); !other.IsZero() {
+		t.Errorf("sprint 745 should still be unreviewed, got %v", other)
+	}
+
+	// A review can be reopened, which must put the sprint back to
+	// unreviewed rather than to some third state.
+	if err := s.SetCapacityReviewed(ctx(), 744, false); err != nil {
+		t.Fatalf("withdrawing the review: %v", err)
+	}
+	if at, _ := s.CapacityReviewedAt(ctx(), 744); !at.IsZero() {
+		t.Errorf("a withdrawn review should read as never reviewed, got %v", at)
+	}
+
+	if err := s.SetCapacityReviewed(ctx(), 999, true); !errors.Is(err, store.ErrUnknownReference) {
+		t.Errorf("reviewing an unknown sprint: want ErrUnknownReference, got %v", err)
+	}
+	if _, err := s.CapacityReviewedAt(ctx(), 999); !errors.Is(err, store.ErrUnknownReference) {
+		t.Errorf("reading an unknown sprint's review: want ErrUnknownReference, got %v", err)
+	}
+}
+
+// The sweep rewrites a sprint every time it rebuilds a report. If that
+// cleared the review, a sprint confirmed as needing no adjustments would
+// quietly go back to looking untouched a few minutes later.
+func testReviewSurvivesSweep(t *testing.T, s store.Store) {
+	seed(t, s, 744, "a")
+	if err := s.SetCapacityReviewed(ctx(), 744, true); err != nil {
+		t.Fatalf("SetCapacityReviewed: %v", err)
+	}
+
+	ends := time.Now().UTC()
+	if err := s.PutSprint(ctx(), store.Sprint{
+		JiraID: 744, Label: "Sprint X", Number: 744, State: "closed", EndsAt: &ends,
+	}); err != nil {
+		t.Fatalf("re-sweeping the sprint: %v", err)
+	}
+
+	if at, _ := s.CapacityReviewedAt(ctx(), 744); at.IsZero() {
+		t.Error("a re-sweep must not clear the capacity review")
+	}
+}
+
 // Retention is what keeps the tool from becoming a permanent archive of
 // who was away when. It must drop the per-person rows and keep the
 // aggregates the trends are drawn from.
@@ -305,5 +384,54 @@ func testRetention(t *testing.T, s store.Store) {
 	stats, _ := s.ListStats(ctx(), 0)
 	if len(stats) != 2 {
 		t.Errorf("stats carry no personal data and must survive pruning, got %d", len(stats))
+	}
+}
+
+// Both backends version their storage, and both apply that version on
+// startup: the file backend stamps a marker in the data directory, and
+// Postgres runs its migrations. Argus calls Migrate on every start, so on
+// both it has to be safe to call on an empty store, safe to call again,
+// and incapable of disturbing what is already there.
+//
+// This is asserted here rather than in each backend's own tests because
+// it is the behaviour the application depends on, and a backend free to
+// differ on it would break the one operation nobody watches.
+func testMigrateIsRepeatable(t *testing.T, s store.Store) {
+	if err := s.Migrate(ctx()); err != nil {
+		t.Fatalf("Migrate on an empty store: %v", err)
+	}
+	if err := s.Migrate(ctx()); err != nil {
+		t.Fatalf("Migrate a second time: %v", err)
+	}
+
+	seed(t, s, 744, "a")
+	if err := s.PutCapacity(ctx(), store.Capacity{
+		SprintJiraID: 744, AccountID: "a", PlannedDaysOff: 2, UnplannedDaysOff: 1, Reviewed: true,
+	}); err != nil {
+		t.Fatalf("PutCapacity: %v", err)
+	}
+	if err := s.SetCapacityReviewed(ctx(), 744, true); err != nil {
+		t.Fatalf("SetCapacityReviewed: %v", err)
+	}
+
+	// Startup migration must be a no-op over existing data, not a rewrite
+	// of it.
+	if err := s.Migrate(ctx()); err != nil {
+		t.Fatalf("Migrate over existing data: %v", err)
+	}
+
+	people, err := s.ListPeople(ctx(), true)
+	if err != nil || len(people) != 1 || people[0].AccountID != "a" {
+		t.Errorf("the roster did not survive Migrate: %+v, err %v", people, err)
+	}
+	rows, err := s.ListCapacity(ctx(), 744)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("capacity did not survive Migrate: %+v, err %v", rows, err)
+	}
+	if rows[0].PlannedDaysOff != 2 || rows[0].UnplannedDaysOff != 1 || !rows[0].Reviewed {
+		t.Errorf("capacity changed across Migrate: %+v", rows[0])
+	}
+	if at, _ := s.CapacityReviewedAt(ctx(), 744); at.IsZero() {
+		t.Error("the capacity review did not survive Migrate")
 	}
 }

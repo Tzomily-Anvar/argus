@@ -1,0 +1,16 @@
+[
+  {
+    "account_id": "acc-a",
+    "name": "Person A",
+    "baseline": 12.5,
+    "active": true,
+    "updated_at": "2026-01-05T09:00:00Z"
+  },
+  {
+    "account_id": "acc-b",
+    "name": "Person B",
+    "baseline": 8,
+    "active": false,
+    "updated_at": "2026-01-06T10:30:00Z"
+  }
+]

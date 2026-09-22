@@ -239,6 +239,50 @@ func (s *Store) ListCapacity(ctx context.Context, sprintJiraID int64) ([]store.C
 	return out, rows.Err()
 }
 
+// Capacity reviews sit on the sprint, not on capacity: "everybody was
+// available" is a statement about the sprint, and there is no per-person
+// row to hang it on. The sprint upsert above deliberately leaves the
+// column alone, so a sweep cannot clear a review.
+
+func (s *Store) SetCapacityReviewed(ctx context.Context, sprintJiraID int64, reviewed bool) error {
+	if sprintJiraID == 0 {
+		return fmt.Errorf("a capacity review needs a sprint id")
+	}
+	var at *time.Time
+	if reviewed {
+		now := time.Now().UTC()
+		at = &now
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE sprints SET capacity_reviewed_at = $2 WHERE jira_id = $1`,
+		sprintJiraID, at)
+	if err != nil {
+		return err
+	}
+	// No foreign key to violate here, so the missing sprint has to be
+	// spotted from the row count to match the file backend.
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("sprint %d: %w", sprintJiraID, store.ErrUnknownReference)
+	}
+	return nil
+}
+
+func (s *Store) CapacityReviewedAt(ctx context.Context, sprintJiraID int64) (time.Time, error) {
+	var at *time.Time
+	err := s.db.QueryRowContext(ctx,
+		`SELECT capacity_reviewed_at FROM sprints WHERE jira_id = $1`, sprintJiraID).Scan(&at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, fmt.Errorf("sprint %d: %w", sprintJiraID, store.ErrUnknownReference)
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	if at == nil {
+		return time.Time{}, nil
+	}
+	return at.UTC(), nil
+}
+
 // ---- stats -----------------------------------------------------------
 
 func (s *Store) PutStats(ctx context.Context, st store.SprintStats) error {

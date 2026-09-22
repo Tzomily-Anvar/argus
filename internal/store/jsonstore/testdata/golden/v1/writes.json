@@ -1,0 +1,21 @@
+[
+  {
+    "id": 2,
+    "at": "2026-01-16T14:05:00Z",
+    "operation": "set_points",
+    "target": "ABC-123",
+    "before": "3",
+    "after": "5",
+    "actor": "argus",
+    "note": "Re-estimated at review."
+  },
+  {
+    "id": 1,
+    "at": "2026-01-16T14:00:00Z",
+    "operation": "assign",
+    "target": "ABC-124",
+    "before": "",
+    "after": "acc-a",
+    "actor": "argus"
+  }
+]

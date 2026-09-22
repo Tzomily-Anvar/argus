@@ -34,11 +34,20 @@ type Store struct {
 }
 
 // New returns a store rooted at dir, creating it if absent.
+//
+// It refuses a directory whose recorded schema version this build does
+// not understand. Failing here is recoverable - install the right Argus -
+// whereas reading a roster through the wrong shape and writing it back is
+// not. See schema.go.
 func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("creating %s: %w", dir, err)
 	}
-	return &Store{dir: dir}, nil
+	s := &Store{dir: dir}
+	if err := s.checkSchema(); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Store) path(name string) string { return filepath.Join(s.dir, name+".json") }
@@ -287,6 +296,52 @@ func (s *Store) ListCapacity(_ context.Context, sprintJiraID int64) ([]store.Cap
 	return rows, nil
 }
 
+// Capacity reviews live in their own file, keyed by sprint id, rather
+// than as a field on a sprint: PutSprint replaces a sprint wholesale on
+// every sweep, and a flag stored there would be wiped by the next
+// rebuild.
+const reviewsFile = "capacity-reviews"
+
+func (s *Store) SetCapacityReviewed(ctx context.Context, sprintJiraID int64, reviewed bool) error {
+	if sprintJiraID == 0 {
+		return fmt.Errorf("a capacity review needs a sprint id")
+	}
+	// Postgres enforces this with a foreign key; checking it here keeps
+	// the two backends behaving identically.
+	if _, err := s.GetSprint(ctx, sprintJiraID); err != nil {
+		return fmt.Errorf("sprint %d: %w", sprintJiraID, store.ErrUnknownReference)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	reviews := map[int64]time.Time{}
+	if err := s.readInto(reviewsFile, &reviews); err != nil {
+		return err
+	}
+	if reviewed {
+		reviews[sprintJiraID] = time.Now().UTC()
+	} else {
+		delete(reviews, sprintJiraID)
+	}
+	return s.write(reviewsFile, reviews)
+}
+
+func (s *Store) CapacityReviewedAt(ctx context.Context, sprintJiraID int64) (time.Time, error) {
+	if _, err := s.GetSprint(ctx, sprintJiraID); err != nil {
+		return time.Time{}, fmt.Errorf("sprint %d: %w", sprintJiraID, store.ErrUnknownReference)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	reviews := map[int64]time.Time{}
+	if err := s.readInto(reviewsFile, &reviews); err != nil {
+		return time.Time{}, err
+	}
+	return reviews[sprintJiraID], nil
+}
+
 // ---- stats -----------------------------------------------------------
 
 func (s *Store) PutStats(_ context.Context, st store.SprintStats) error {
@@ -418,9 +473,19 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (store.PruneResult,
 	return res, nil
 }
 
-// Migrate exists to satisfy the interface. Files have no schema to
-// version; a field added to a struct simply reads as its zero value in
-// records written before it existed.
-func (s *Store) Migrate(context.Context) error { return nil }
+// Migrate brings the data directory up to the layout this build writes.
+//
+// There is nothing to convert yet - every change so far has been additive,
+// and a field added to a struct reads as its zero value in records written
+// before it existed. What it does do is record the version, so the next
+// change that is not additive has something to recognise. It is safe to
+// call on every start, and on a directory that is already stamped it
+// writes nothing.
+func (s *Store) Migrate(context.Context) error {
+	if err := s.checkSchema(); err != nil {
+		return err
+	}
+	return s.stampSchema()
+}
 
 func (s *Store) Close() error { return nil }
