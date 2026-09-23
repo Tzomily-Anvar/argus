@@ -324,6 +324,28 @@ func JiraExcludedTypes() []string {
 // is what turns days off into a share of a person's baseline.
 func JiraSprintLengthDays() int { return Int("ARGUS_JIRA_SPRINT_LENGTH_DAYS", 10) }
 
+// What a day off costs a person's capacity.
+const (
+	// AbsenceCostsPoint takes a whole point per day off, whatever the
+	// baseline: a point is a day, so a day away is a point not delivered.
+	// The default.
+	AbsenceCostsPoint = "point"
+
+	// AbsenceCostsShare takes baseline ÷ sprint length per day off. For a
+	// lead whose three points are spread thinly across ten days, a day
+	// away costs 0.3 of them, not a third of the sprint.
+	AbsenceCostsShare = "share"
+)
+
+// SprintAbsenceCost says how a day off is priced. Anything unrecognised
+// reads as point, the behaviour that existed before the setting did.
+func SprintAbsenceCost() string {
+	if strings.ToLower(String("ARGUS_SPRINT_ABSENCE_COST", AbsenceCostsPoint)) == AbsenceCostsShare {
+		return AbsenceCostsShare
+	}
+	return AbsenceCostsPoint
+}
+
 // HoursPerPoint is what one story point means in hours for this team.
 //
 // Points are not hours, and treating them as a currency is how estimation

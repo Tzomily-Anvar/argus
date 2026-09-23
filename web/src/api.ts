@@ -448,6 +448,9 @@ export type Conventions = {
   hours_per_point: number;
   hours_per_day: number;
   sprint_length_days: number;
+  /** How a day off is priced: "point" takes a whole point, "share" takes
+   *  the baseline's share of one sprint day. */
+  absence_cost: "point" | "share";
 };
 
 export const fetchConventions = () => getJSON<Conventions>("/api/sprint/conventions");

@@ -26,7 +26,11 @@ person's **baseline**, and how much of a sprint they were **away**.
 Absence is split by whether it was foreseeable — planned leave should
 already be in the plan, unplanned absence is what explains a shortfall.
 The reason is deliberately not recorded: "unplanned" carries the whole
-signal without the tool becoming a health record.
+signal without the tool becoming a health record. A day off costs one
+point by default, since a point is a day; set
+`ARGUS_SPRINT_ABSENCE_COST=share` and it costs the baseline's share of one
+sprint day instead, so a lead on 3 points over 10 days keeps 2.7 after a
+day away rather than 2.
 
 Points go to whoever the worklog says did the work, and to the final
 assignee only when nothing was logged. On carryover the assignee is often

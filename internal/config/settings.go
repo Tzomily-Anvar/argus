@@ -240,6 +240,11 @@ func Core() Catalogue {
 			Desc:    "A working day in hours, used to relate points to days.",
 		},
 		{
+			Key: "ARGUS_SPRINT_ABSENCE_COST", Section: "Sprint report", Kind: KindEnum,
+			Values: []string{AbsenceCostsPoint, AbsenceCostsShare}, Default: AbsenceCostsPoint,
+			Desc: "What a day off costs: a whole point, or the baseline's share of one sprint day.",
+		},
+		{
 			Key: "ARGUS_SPRINT_RECENT", Section: "Sprint report", Kind: KindInt, Default: "4",
 			Desc: "How many recent sprints appear as quick buttons.",
 		},

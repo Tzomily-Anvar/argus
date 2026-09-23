@@ -68,6 +68,7 @@ func (s *Server) SprintRoutes(svc *sprint.Service, st store.Store) {
 			"hours_per_day":       config.HoursPerDay(),
 			"sprint_length_days":  config.JiraSprintLengthDays(),
 			"worklog_attribution": config.JiraWorklogAttribution(),
+			"absence_cost":        config.SprintAbsenceCost(),
 		})
 	})
 

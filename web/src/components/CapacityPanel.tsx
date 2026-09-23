@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  saveCapacity, saveSprintReview,
+  fetchConventions, saveCapacity, saveSprintReview,
   type SprintPerson, type SprintReport,
 } from "../api";
 import { Badge } from "./Badge";
@@ -53,6 +53,13 @@ export function CapacityPanel({
   const qc = useQueryClient();
 
   const sprintID = report.sprint.jira_id;
+
+  // How a day off is priced. Read from the server rather than assumed,
+  // because the figure shown here has to be the one the report computes.
+  const conv = useQuery({ queryKey: ["conventions"], queryFn: fetchConventions, staleTime: Infinity });
+  const shareRule = conv.data?.absence_cost === "share";
+  const sprintDays = conv.data?.sprint_length_days || 10;
+  const dayCost = (p: SprintPerson) => (shareRule ? p.baseline / sprintDays : 1);
 
   // Drafts survive a refetch of the report and a change of sprint. They
   // are cleared only by a save that succeeded, or by discarding them.
@@ -279,13 +286,12 @@ export function CapacityPanel({
                 const d = daysOf(p);
                 // The capacity this row will have once saved, so the
                 // arithmetic on screen matches the fields above it.
-                const off = Number.isNaN(d.planned) || Number.isNaN(d.unplanned)
-                  ? NaN : d.planned + d.unplanned;
-                // One point is one working day, so a day off costs a
-                // point. This must match internal/sprint/build.go: if the
-                // two drift, the figure changes the moment you save.
-                const cap = !Number.isNaN(off)
-                  ? Math.max(0, p.baseline - off)
+                // Planned leave only: unplanned absence explains a
+                // shortfall rather than lowering the bar. This must match
+                // internal/sprint/build.go: if the two drift, the figure
+                // changes the moment you save.
+                const cap = !Number.isNaN(d.planned) && !Number.isNaN(d.unplanned)
+                  ? Math.max(0, Math.round((p.baseline - d.planned * dayCost(p)) * 100) / 100)
                   : NaN;
                 return (
                   <tr key={p.account_id} className="border-t" style={{ borderColor: "var(--line)" }}>
@@ -320,8 +326,9 @@ export function CapacityPanel({
           </table>
 
           <p className="mt-4 text-[12px]" style={{ color: "var(--faint)" }}>
-              One point is one working day, so a day off costs one point: somebody on 6
-              points losing 3 days has a capacity of 3.0. Capacity never goes below zero.
+            {shareRule
+              ? `A day off costs the baseline's share of one sprint day (baseline ÷ ${sprintDays}): somebody on 3 points losing 1 day has a capacity of ${(3 - 3 / sprintDays).toFixed(1)}. Planned leave lowers capacity; unplanned absence is shown against the shortfall instead. Capacity never goes below zero.`
+              : "One point is one working day, so a day off costs one point: somebody on 6 points losing 3 days has a capacity of 3.0. Planned leave lowers capacity; unplanned absence is shown against the shortfall instead. Capacity never goes below zero."}
           </p>
         </>
       )}

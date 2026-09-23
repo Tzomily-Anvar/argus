@@ -82,6 +82,11 @@ type Inputs struct {
 	// written in days beside a name in a worklog comment.
 	HoursPerDay float64
 
+	// AbsenceCost is how a day off is priced: config.AbsenceCostsPoint
+	// takes a whole point, config.AbsenceCostsShare takes the baseline's
+	// share of one sprint day.
+	AbsenceCost string
+
 	// EpicClasses maps a class name to a pattern matched against the epic
 	// summary, so a team can split Run from Build however they label it.
 	EpicClasses map[string]*regexp.Regexp
@@ -112,6 +117,15 @@ func (in Inputs) window() (time.Time, time.Time) {
 		opens = in.PreviousClose
 	}
 	return opens, in.Sprint.Closed()
+}
+
+// sprintDays is the nominal sprint length in working days, for pricing a
+// day off as a share of the baseline.
+func (in Inputs) sprintDays() int {
+	if in.SprintLengthDays <= 0 {
+		return 10
+	}
+	return in.SprintLengthDays
 }
 
 // secondsPerPoint is what one point is worth in logged time.
@@ -846,16 +860,23 @@ func buildPeople(
 			person.PlannedDaysOff = cap.PlannedDaysOff
 			person.UnplannedDaysOff = cap.UnplannedDaysOff
 
-			// Capacity is the baseline less a point for every day of
-			// PLANNED leave, and planned only.
+			// Capacity is the baseline less what PLANNED leave costs, and
+			// planned only.
 			//
-			// One point is one working day - that is the convention the
-			// baseline is expressed in, so a day off costs one of them
-			// whatever the baseline happens to be. Treating a day as a
-			// share of the baseline instead would make it cost less for
-			// somebody with a smaller one: a person on six losing three
-			// days would come out at 4.2 rather than 3, which reads as
-			// though being part-time makes absence cheaper.
+			// By default a day off costs one point whatever the baseline:
+			// a point is a day, that is the convention the baseline is
+			// expressed in, so a day away is a point not delivered. Pricing
+			// it as a share of the baseline instead would make absence
+			// cheaper for somebody with a smaller one - a person on six
+			// losing three days would come out at 4.2 rather than 3 - which
+			// reads as though being part-time makes a day off cost less.
+			//
+			// That argument assumes the baseline is a full-time figure. For
+			// somebody whose three points are spread thinly across the
+			// whole sprint - a lead, a part-timer on the team every day - a
+			// day away really does cost 0.3 of them, and taking a whole
+			// point would say one day off cost a third of their sprint. So
+			// the share rule exists, and a team chooses it knowingly.
 			//
 			// Unplanned absence is deliberately not subtracted. Capacity
 			// is what the team committed to knowing what it knew, and it
@@ -863,15 +884,19 @@ func buildPeople(
 			// erase the miss it caused: the shortfall would vanish into a
 			// smaller capacity and the sprint would read as though it
 			// went to plan. It is reported below instead, as part of what
-			// a shortfall is made of.
-			person.Capacity = person.Baseline - cap.PlannedDaysOff
+			// a shortfall is made of, priced the same way.
+			dayCost := 1.0
+			if in.AbsenceCost == config.AbsenceCostsShare {
+				dayCost = p.Baseline / float64(in.sprintDays())
+			}
+			person.Capacity = round2(person.Baseline - cap.PlannedDaysOff*dayCost)
 			if person.Capacity < 0 {
 				person.Capacity = 0
 			}
 			person.Delta = round2(person.Delivered - person.Capacity)
 
 			if person.Delta < 0 && cap.UnplannedDaysOff > 0 {
-				person.ShortfallFromAbsence = math.Min(cap.UnplannedDaysOff, -person.Delta)
+				person.ShortfallFromAbsence = math.Min(round2(cap.UnplannedDaysOff*dayCost), -person.Delta)
 			}
 		}
 
