@@ -456,7 +456,7 @@ export type Conventions = {
 export const fetchConventions = () => getJSON<Conventions>("/api/sprint/conventions");
 
 
-// ---- writing back: preview only ----------------------------------------
+// ---- writing back --------------------------------------------------------
 
 /** The operations a change set can carry, in the vocabulary the server's
  *  permitted list uses, so one word names a change from the input where
@@ -585,3 +585,148 @@ export const fetchChangeSet = (id: string) =>
 export const fetchWritesStatus = () => getJSON<WritesStatus>("/api/sprint/writes/status");
 export const fetchWorklog = (sprint: number, key: string) =>
   getJSON<{ entries: WorklogView[] }>(`/api/sprint/worklog?sprint=${sprint}&key=${encodeURIComponent(key)}`);
+
+
+// ---- the close-out -------------------------------------------------------
+
+/** A finished Task or Bug with no points. `suggested` is the refinement
+ *  estimate where one exists, and is the value the step pre-fills. */
+export type CloseoutSizeRow = {
+  key: string;
+  summary: string;
+  type: string;
+  status: string;
+  url: string;
+  estimate: number | null;
+  suggested: number | null;
+};
+
+/** Finished with nobody assigned. The suggestion is whoever moved it to
+ *  Done, read from the changelog; empty when nobody recognisable did. */
+export type CloseoutAssignRow = {
+  key: string;
+  summary: string;
+  type: string;
+  status: string;
+  url: string;
+  suggested_account_id: string;
+  suggested_label: string;
+  candidates: { account_id: string; label: string }[];
+};
+
+/** Open at the close and worked on, with what is logged against it. The
+ *  assignee is the suggested person; the hours are always left blank,
+ *  because nobody but the person knows them. */
+export type CloseoutEffortRow = {
+  key: string;
+  summary: string;
+  status: string;
+  url: string;
+  assignee_account_id: string;
+  assignee_label: string;
+  hours_logged: number;
+  entries: WorklogView[];
+};
+
+/** A Story whose linked work is all done. `suggested` is the sum of that
+ *  work and is null when some of it is unsized, in which case `sum_known`
+ *  is false and there is nothing to write. */
+export type CloseoutStoryRow = {
+  key: string;
+  summary: string;
+  url: string;
+  own_points: number | null;
+  linked_count: number;
+  linked_points: number;
+  sum_known: boolean;
+  suggested: number | null;
+};
+
+export type CloseoutPerson = {
+  account_id: string;
+  name: string;
+  note: string;
+};
+
+/** Every table the close-out walks, built from the sprint's report. The
+ *  server answers 409 until that report has been opened once. */
+export type CloseoutModel = {
+  sprint_jira_id: number;
+  sprint: number;
+  size: CloseoutSizeRow[];
+  assign: CloseoutAssignRow[];
+  effort: CloseoutEffortRow[];
+  stories: CloseoutStoryRow[];
+  people: CloseoutPerson[];
+};
+
+/** The queued requests for one sprint, as the store holds them. */
+export type Draft = {
+  sprint_jira_id: number;
+  requests: ChangeRequest[];
+  updated_at?: string;
+};
+
+/** One attempted write, in preview order. `skipped` is the guard
+ *  refusing because Jira had moved on; `failed` is Jira refusing. */
+export type RowResult = {
+  key: string;
+  op: ChangeOp;
+  outcome: "applied" | "skipped" | "failed";
+  reason: string;
+  person_label: string;
+  after_label: string;
+};
+
+export type ApplyResult = {
+  rows: RowResult[];
+  applied: number;
+  skipped: number;
+  failed: number;
+  /** Why the run stopped before the end, if it did. Empty otherwise. */
+  stopped: string;
+};
+
+/** One row of the audit log: an attempt to write, whatever came of it. */
+export type WriteRecord = {
+  id: number | string;
+  at: string;
+  operation: string;
+  target: string;
+  before: unknown;
+  after: unknown;
+  actor: string;
+  note: string;
+  change_set: string;
+  outcome: string;
+};
+
+async function deleteJSON(path: string): Promise<void> {
+  const res = await fetch(path, { method: "DELETE", headers: { Accept: "application/json" } });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(detail.error ?? res.statusText);
+  }
+}
+
+/* The closeout is asked for by sprint number, like the report it is
+ * built from; the draft by Jira id, like the capacity rows it sits
+ * beside in the store. */
+export const fetchCloseout = (sprint: number) =>
+  getJSON<CloseoutModel>(`/api/sprint/closeout?sprint=${sprint}`);
+export const fetchDraft = (sprintJiraID: number) =>
+  getJSON<Draft>(`/api/sprint/draft?sprint=${sprintJiraID}`);
+export const saveDraft = (d: Draft) => putJSON("/api/sprint/draft", d);
+export const deleteDraft = (sprintJiraID: number) =>
+  deleteJSON(`/api/sprint/draft?sprint=${sprintJiraID}`);
+
+/** The digest travels with the apply so a change set edited under the
+ *  viewer's feet is refused rather than written as it now reads. */
+export const applyChanges = (id: string, digest: string) =>
+  postJSON<ApplyResult>(`/api/sprint/changes/${encodeURIComponent(id)}/apply`, { digest });
+/** A new preview that undoes what a batch wrote, built from its audit
+ *  rows. Applied like any other. */
+export const reverseChanges = (changeSet: string) =>
+  postJSON<ChangeSet>("/api/sprint/changes/reverse", { change_set: changeSet });
+export const fetchWrites = (limit = 100) =>
+  getJSON<{ writes: WriteRecord[] }>(`/api/sprint/writes?limit=${limit}`);

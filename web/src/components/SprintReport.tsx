@@ -350,10 +350,12 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
   const storyPts = report.stories_concluded.reduce((a, b) => a + b.points, 0);
   const carry = report.carryover;
 
-  // What a person has asked to write back, held here until Preview.
-  // The roster feeds the person pickers; the conventions turn typed
-  // hours into the points shown beside them.
-  const draft = useChangeDraft(report.sprint.number);
+  // What a person has asked to write back, kept in the store per sprint
+  // and shared with the close-out panel, so a gap fixed here mid-sprint
+  // is already queued when the sprint is closed. The roster feeds the
+  // person pickers; the conventions turn typed hours into the points
+  // shown beside them.
+  const draft = useChangeDraft(report.sprint.number, report.sprint.jira_id);
   const roster = useQuery({ queryKey: ["people"], queryFn: fetchPeople });
   const conv = useQuery({ queryKey: ["conventions"], queryFn: fetchConventions, staleTime: Infinity });
   const people = roster.data?.people ?? [];

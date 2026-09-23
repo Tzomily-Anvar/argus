@@ -7,6 +7,7 @@ import { SprintReportView } from "./components/SprintReport";
 import { Icon } from "./components/Icons";
 import { CapacityPanel } from "./components/CapacityPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { CloseoutGlyph, CloseoutPanel } from "./components/CloseoutPanel";
 import { formatDateRange } from "./dates";
 
 function ago(iso: string): string {
@@ -21,11 +22,13 @@ function ago(iso: string): string {
 export function SprintTool() {
   const qc = useQueryClient();
 
-  // Two panels, and the split between them is the point. Capacity is
+  // Three panels, and the split between them is the point. Capacity is
   // about this sprint and is entered every fortnight; settings are about
-  // the team and are revisited a few times a year. Only one is ever open,
-  // because they are both sheets over the same page.
-  const [panel, setPanel] = useState<"none" | "capacity" | "settings">("none");
+  // the team and are revisited a few times a year; the close-out is the
+  // sitting at the end of a sprint that walks the corrections and writes
+  // them back. Only one is ever open, because they are all sheets over
+  // the same page.
+  const [panel, setPanel] = useState<"none" | "capacity" | "settings" | "closeout">("none");
 
   // The sprint number is part of the address, so a report can be linked
   // to and a reload comes back to the sprint you were reading. Anything
@@ -121,6 +124,18 @@ export function SprintTool() {
             <Icon.sliders />
             Capacity
           </button>
+          {/* The close-out is built from the report, so it waits for one
+              the same way Capacity does. */}
+          <button
+            onClick={() => setPanel("closeout")}
+            disabled={!res}
+            title="Walk the sprint's close: size, assign, log effort, roll up stories, then write it back"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+            style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
+          >
+            <CloseoutGlyph />
+            Close out
+          </button>
           {/* The roster and the baselines. Not disabled with no report:
               they are about the team rather than about a sprint, so there
               is nothing to wait for. */}
@@ -188,6 +203,13 @@ export function SprintTool() {
       )}
       {panel === "settings" && (
         <SettingsPanel report={res?.report} onClose={() => setPanel("none")} />
+      )}
+      {panel === "closeout" && res && (
+        <CloseoutPanel
+          report={res.report}
+          onClose={() => setPanel("none")}
+          onOpenCapacity={() => setPanel("capacity")}
+        />
       )}
     </div>
   );
