@@ -13,11 +13,18 @@ import (
 )
 
 // workedBy appends one worklog entry, dated inside the test sprint, whose
-// comment @mentions the given accounts.
-func workedBy(is *jira.Issue, author string, hours float64, mentions ...string) {
-	nodes := make([]string, 0, len(mentions))
-	for _, m := range mentions {
-		nodes = append(nodes, `{"type":"mention","attrs":{"id":"`+m+`","text":"@Person"}}`)
+// comment names people. Each name is a mention node followed by whatever
+// text was given for it, so "acc-a", " 3h" reads as "@Person A 3h".
+func workedBy(is *jira.Issue, author string, hours float64, named ...string) {
+	if len(named)%2 != 0 {
+		panic("workedBy wants pairs of account id and trailing text")
+	}
+	nodes := make([]string, 0, len(named))
+	for i := 0; i < len(named); i += 2 {
+		nodes = append(nodes, `{"type":"mention","attrs":{"id":"`+named[i]+`","text":"@Person"}}`)
+		if named[i+1] != "" {
+			nodes = append(nodes, `{"type":"text","text":"`+named[i+1]+`"}`)
+		}
 	}
 	var comment json.RawMessage
 	if len(nodes) > 0 {
@@ -48,6 +55,8 @@ func attributed(t *testing.T, mode string, log func(*jira.Issue)) sprint.Report 
 		{AccountID: "acc-b", Name: "Person B", Baseline: 10, Active: true},
 	}
 	in.WorklogAttribution = mode
+	in.HoursPerPoint = 6
+	in.HoursPerDay = 6
 	return sprint.Build(in)
 }
 
@@ -60,28 +69,30 @@ func deliveredBy(r sprint.Report, accountID string) float64 {
 	return 0
 }
 
+func expectDelivered(t *testing.T, r sprint.Report, want map[string]float64) {
+	t.Helper()
+	for id, pts := range want {
+		if got := deliveredBy(r, id); got != pts {
+			t.Errorf("%s delivered %.2f, want %.2f", id, got, pts)
+		}
+	}
+}
+
 // Under author attribution nothing changes: the lead logged it, the lead
 // is credited, whoever the comment names.
 func TestAuthorAttributionCreditsWhoeverLogged(t *testing.T) {
-	r := attributed(t, config.AttributeToAuthor, func(is *jira.Issue) { workedBy(is, "acc-lead", 6, "acc-a") })
-	if got := deliveredBy(r, "acc-lead"); got != 6 {
-		t.Errorf("lead delivered %.2f, want 6", got)
-	}
-	if got := deliveredBy(r, "acc-a"); got != 0 {
-		t.Errorf("person A delivered %.2f, want 0", got)
+	r := attributed(t, config.AttributeToAuthor, func(is *jira.Issue) { workedBy(is, "acc-lead", 6, "acc-a", " 3h", "acc-b", " 3h") })
+	expectDelivered(t, r, map[string]float64{"acc-lead": 6, "acc-a": 0, "acc-b": 0})
+	if n := flagCount(r, sprint.FlagWorklogSplitEqually); n != 0 {
+		t.Errorf("%d split flags under author attribution, want 0: mentions carry no meaning there", n)
 	}
 }
 
 // Under mention attribution the one person named is credited, and the
 // author - who only recorded it - is not.
 func TestMentionAttributionCreditsTheOnePersonNamed(t *testing.T) {
-	r := attributed(t, config.AttributeToMention, func(is *jira.Issue) { workedBy(is, "acc-lead", 6, "acc-a") })
-	if got := deliveredBy(r, "acc-a"); got != 6 {
-		t.Errorf("person A delivered %.2f, want 6", got)
-	}
-	if got := deliveredBy(r, "acc-lead"); got != 0 {
-		t.Errorf("lead delivered %.2f, want 0: they recorded the work, they did not do it", got)
-	}
+	r := attributed(t, config.AttributeToMention, func(is *jira.Issue) { workedBy(is, "acc-lead", 6, "acc-a", "") })
+	expectDelivered(t, r, map[string]float64{"acc-a": 6, "acc-lead": 0})
 	if r.Summary.UnattributedPoints != 0 {
 		t.Errorf("unattributed = %.2f, want 0", r.Summary.UnattributedPoints)
 	}
@@ -90,7 +101,7 @@ func TestMentionAttributionCreditsTheOnePersonNamed(t *testing.T) {
 // Naming yourself, or naming nobody, is the author's own time.
 func TestMentionAttributionFallsBackToTheAuthor(t *testing.T) {
 	cases := map[string]func(*jira.Issue){
-		"self":       func(is *jira.Issue) { workedBy(is, "acc-lead", 6, "acc-lead") },
+		"self":       func(is *jira.Issue) { workedBy(is, "acc-lead", 6, "acc-lead", "") },
 		"no comment": func(is *jira.Issue) { workedBy(is, "acc-lead", 6) },
 	}
 	for name, log := range cases {
@@ -101,63 +112,61 @@ func TestMentionAttributionFallsBackToTheAuthor(t *testing.T) {
 	}
 }
 
-// One Time Spent against two names cannot be split honestly. Under mention
-// attribution it is credited to nobody, reported as unattributed so the
-// totals still reconcile, and flagged - and not as "unassigned", which is
-// a different gap.
-func TestAmbiguousEntryIsWithheldAndFlagged(t *testing.T) {
-	r := attributed(t, config.AttributeToMention, func(is *jira.Issue) { workedBy(is, "acc-lead", 35, "acc-a", "acc-b") })
-	for _, id := range []string{"acc-lead", "acc-a", "acc-b"} {
-		if got := deliveredBy(r, id); got != 0 {
-			t.Errorf("%s delivered %.2f, want 0", id, got)
+// Several names with a figure beside each divide the entry by those
+// figures. The unit does not matter while it is the same for everyone,
+// and is converted when it is not.
+func TestSeveralNamesDivideByTheFiguresBesideThem(t *testing.T) {
+	cases := map[string]struct {
+		named []string
+		want  map[string]float64
+	}{
+		"hours":            {[]string{"acc-a", ": 3h ", "acc-b", " 1h"}, map[string]float64{"acc-a": 4.5, "acc-b": 1.5}},
+		"no unit, comma":   {[]string{"acc-a", " 3,5 ", "acc-b", " 1,5"}, map[string]float64{"acc-a": 4.2, "acc-b": 1.8}},
+		"days and hours":   {[]string{"acc-a", " 0.5d ", "acc-b", " 1h"}, map[string]float64{"acc-a": 4.5, "acc-b": 1.5}},
+		"points and hours": {[]string{"acc-a", " 0.5sp ", "acc-b", " 1h"}, map[string]float64{"acc-a": 4.5, "acc-b": 1.5}},
+	}
+	for name, c := range cases {
+		r := attributed(t, config.AttributeToMention, func(is *jira.Issue) { workedBy(is, "acc-lead", 12, c.named...) })
+		expectDelivered(t, r, c.want)
+		if n := flagCount(r, sprint.FlagWorklogSplitEqually); n != 0 {
+			t.Errorf("%s: %d split flags, want 0: the breakdown was complete", name, n)
 		}
 	}
-	if r.Summary.UnattributedPoints != 6 {
-		t.Errorf("unattributed = %.2f, want 6", r.Summary.UnattributedPoints)
+}
+
+// Several names and no figures divide equally, and say so.
+func TestSeveralNamesWithoutFiguresDivideEquallyAndFlag(t *testing.T) {
+	r := attributed(t, config.AttributeToMention, func(is *jira.Issue) { workedBy(is, "acc-lead", 35, "acc-a", " and ", "acc-b", "") })
+	expectDelivered(t, r, map[string]float64{"acc-a": 3, "acc-b": 3, "acc-lead": 0})
+	if r.Summary.UnattributedPoints != 0 {
+		t.Errorf("unattributed = %.2f, want 0: an equal split still credits people", r.Summary.UnattributedPoints)
 	}
-	if n := flagCount(r, sprint.FlagWorklogAmbiguous); n != 1 {
-		t.Fatalf("%d %s flags, want 1", n, sprint.FlagWorklogAmbiguous)
-	}
-	if n := flagCount(r, sprint.FlagDoneUnassigned); n != 0 {
-		t.Errorf("%d %s flags, want 0: the ticket has an assignee and logged time", n, sprint.FlagDoneUnassigned)
-	}
-	f := flag(t, r, sprint.FlagWorklogAmbiguous)
-	for _, want := range []string{"35h", "2 people", "6.00 points", "one entry per person"} {
+	f := flag(t, r, sprint.FlagWorklogSplitEqually)
+	for _, want := range []string{"35h", "2 people", "no breakdown", "divided equally", "@Person 3h"} {
 		if !strings.Contains(f.Message, want) {
 			t.Errorf("flag message %q should mention %q", f.Message, want)
 		}
 	}
 }
 
-// Under author attribution the same entry stays with the author, but is
-// still worth a look.
-func TestAmbiguousEntryUnderAuthorAttributionIsFlaggedOnly(t *testing.T) {
-	r := attributed(t, config.AttributeToAuthor, func(is *jira.Issue) { workedBy(is, "acc-lead", 35, "acc-a", "acc-b") })
-	if got := deliveredBy(r, "acc-lead"); got != 6 {
-		t.Errorf("lead delivered %.2f, want 6", got)
-	}
-	if r.Summary.UnattributedPoints != 0 {
-		t.Errorf("unattributed = %.2f, want 0", r.Summary.UnattributedPoints)
-	}
-	if n := flagCount(r, sprint.FlagWorklogAmbiguous); n != 1 {
-		t.Errorf("%d %s flags, want 1", n, sprint.FlagWorklogAmbiguous)
+// A figure beside some names but not all is not a breakdown. Equal, and
+// the flag says which kind of gap it was.
+func TestPartialBreakdownDividesEquallyAndSaysSo(t *testing.T) {
+	r := attributed(t, config.AttributeToMention, func(is *jira.Issue) { workedBy(is, "acc-lead", 6, "acc-a", " 4h ", "acc-b", "") })
+	expectDelivered(t, r, map[string]float64{"acc-a": 3, "acc-b": 3})
+	if f := flag(t, r, sprint.FlagWorklogSplitEqually); !strings.Contains(f.Message, "only some of the names") {
+		t.Errorf("flag should say the breakdown was partial, got %q", f.Message)
 	}
 }
 
-// A ticket with one clean entry and one ambiguous one splits by hours:
-// the clean share is credited, the ambiguous share withheld.
-func TestMixedEntriesSplitByHours(t *testing.T) {
+// A ticket with one clean entry and one shared entry: shares add up.
+func TestMixedEntriesAddUp(t *testing.T) {
 	r := attributed(t, config.AttributeToMention, func(is *jira.Issue) {
-		workedBy(is, "acc-lead", 6, "acc-a")
-		workedBy(is, "acc-lead", 6, "acc-a", "acc-b")
+		workedBy(is, "acc-lead", 6, "acc-a", "")
+		workedBy(is, "acc-lead", 6, "acc-a", "", "acc-b", "")
 	})
-	if got := deliveredBy(r, "acc-a"); got != 3 {
-		t.Errorf("person A delivered %.2f, want 3", got)
-	}
-	if r.Summary.UnattributedPoints != 3 {
-		t.Errorf("unattributed = %.2f, want 3", r.Summary.UnattributedPoints)
-	}
-	if f := flag(t, r, sprint.FlagWorklogAmbiguous); !strings.Contains(f.Message, "3.00 points") {
-		t.Errorf("flag should say what was withheld, got %q", f.Message)
+	expectDelivered(t, r, map[string]float64{"acc-a": 4.5, "acc-b": 1.5})
+	if got := deliveredBy(r, "acc-a") + deliveredBy(r, "acc-b"); got != 6 {
+		t.Errorf("shares sum to %.2f, want the ticket's 6", got)
 	}
 }

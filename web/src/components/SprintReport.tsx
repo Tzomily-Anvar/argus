@@ -16,7 +16,6 @@ function flagTone(kind: string): "critical" | "warning" | "info" {
     case "done_unassigned":
       return "critical";
     case "done_no_estimate":
-    case "worklog_ambiguous":
     case "no_baseline":
     case "story_work_unsized":
     case "story_points_mismatch":
