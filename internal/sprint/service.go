@@ -70,6 +70,14 @@ type Config struct {
 	// how a sprint gets credit for work on a ticket that finished
 	// somewhere else. Left zero, NewService reads the setting.
 	HoursPerPoint float64
+
+	// WorklogAttribution is who a logged entry is credited to, author or
+	// mention. Left empty, NewService reads the setting.
+	WorklogAttribution string
+
+	// HoursPerDay is a working day in hours, for a breakdown written in
+	// days beside a name. Left zero, NewService reads the setting.
+	HoursPerDay float64
 }
 
 type fields struct {
@@ -120,6 +128,12 @@ func NewService(client *jira.Client, st store.Store, cfg Config) *Service {
 	}
 	if cfg.HoursPerPoint <= 0 {
 		cfg.HoursPerPoint = config.HoursPerPoint()
+	}
+	if cfg.WorklogAttribution == "" {
+		cfg.WorklogAttribution = config.JiraWorklogAttribution()
+	}
+	if cfg.HoursPerDay <= 0 {
+		cfg.HoursPerDay = config.HoursPerDay()
 	}
 	return &Service{
 		client: client, store: st, cfg: cfg,
@@ -429,6 +443,7 @@ func (s *Service) derive(ctx context.Context, sp jira.Sprint, issues []jira.Issu
 		BaseURL: s.cfg.BaseURL, Project: s.cfg.Project,
 		Changes: got.changes, Linked: got.linked, PreviousClose: got.previous,
 		StoryLinkTypes: s.cfg.StoryLinkTypes, HoursPerPoint: s.cfg.HoursPerPoint,
+		WorklogAttribution: s.cfg.WorklogAttribution, HoursPerDay: s.cfg.HoursPerDay,
 		EpicClasses: s.cfg.EpicClasses, SprintLengthDays: s.cfg.SprintLengthDays,
 		CapacityReviewedAt: reviewedAt,
 	}

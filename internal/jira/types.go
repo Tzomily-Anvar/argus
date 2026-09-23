@@ -227,15 +227,24 @@ func (i Issue) IsDone(doneStatuses []string) bool {
 	return false
 }
 
-// WorklogEntry is one person's logged time.
+// WorklogEntry is one entry of logged time.
 //
 // Author rather than assignee is the point of holding these: a ticket
 // that spans sprints sits with whoever it was handed to last, which is
 // often not who did the work.
+//
+// Author is not always who did the work either. Jira sets it to whoever
+// made the request and offers no way to log time on somebody's behalf,
+// so a lead closing out a sprint on the team's behalf authors every
+// entry and names the real person with an @mention in the comment. The
+// comment is kept, decoded no further than it has to be, so that
+// convention can be read.
 type WorklogEntry struct {
-	Started Time  `json:"started"`
-	Seconds int   `json:"timeSpentSeconds"`
-	Author  *User `json:"author"`
+	ID      string          `json:"id"`
+	Started Time            `json:"started"`
+	Seconds int             `json:"timeSpentSeconds"`
+	Author  *User           `json:"author"`
+	Comment json.RawMessage `json:"comment,omitempty"`
 }
 
 // Truncated reports whether Jira cut the worklog list short, in which case

@@ -211,6 +211,11 @@ func Core() Catalogue {
 			Desc:    "Issue link types that tie a container to the work beneath it, when parent points at the Epic.",
 		},
 		{
+			Key: "ARGUS_JIRA_WORKLOG_ATTRIBUTION", Section: "Jira", Kind: KindEnum,
+			Values: []string{AttributeToAuthor, AttributeToMention}, Default: AttributeToAuthor,
+			Desc: "Who logged time is credited to: the entry's author, or the one person its comment @mentions.",
+		},
+		{
 			Key: "ARGUS_JIRA_SPRINT_FIELD", Section: "Jira", Kind: KindString,
 			Desc: "Pin the sprint custom field id. Resolved by name when left unset.",
 		},

@@ -64,9 +64,10 @@ func (s *Server) SprintRoutes(svc *sprint.Service, st store.Store) {
 	// actually means rather than leaving it a bare number.
 	s.mux.HandleFunc("GET /api/sprint/conventions", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"hours_per_point":    config.HoursPerPoint(),
-			"hours_per_day":      config.HoursPerDay(),
-			"sprint_length_days": config.JiraSprintLengthDays(),
+			"hours_per_point":     config.HoursPerPoint(),
+			"hours_per_day":       config.HoursPerDay(),
+			"sprint_length_days":  config.JiraSprintLengthDays(),
+			"worklog_attribution": config.JiraWorklogAttribution(),
 		})
 	})
 

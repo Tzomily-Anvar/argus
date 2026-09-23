@@ -329,6 +329,12 @@ const (
 	FlagCapacityUnreviewed = "capacity_unreviewed"
 	FlagCarriedNoWorklog   = "carried_no_worklog"
 
+	// FlagWorklogSplitEqually marks a logged entry whose comment names two
+	// or more people with no figure beside each, so its time was divided
+	// equally between them. Equal is a guess, and a guess is shown. The
+	// fix is a figure beside each name, or one entry per person.
+	FlagWorklogSplitEqually = "worklog_split_equally"
+
 	// The container flags. These replaced one that fired on every Story
 	// carrying points, which is normal data for a team that rolls up, and
 	// so named nothing anybody could act on.

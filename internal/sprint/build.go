@@ -5,9 +5,11 @@ import (
 	"math"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/jira"
 	"github.com/Tzomily-Anvar/argus/internal/store"
 )
@@ -67,6 +69,18 @@ type Inputs struct {
 	// HoursPerPoint turns logged time into points, which is how a sprint
 	// gets credit for work on a ticket that finished somewhere else.
 	HoursPerPoint float64
+
+	// WorklogAttribution says who a logged entry is credited to: its
+	// author (config.AttributeToAuthor, the default) or the one person
+	// its comment @mentions (config.AttributeToMention). Jira cannot log
+	// time on somebody's behalf, so a team whose lead logs everyone's
+	// carryover at sprint close names the real person in the comment,
+	// and this is what lets the report read that.
+	WorklogAttribution string
+
+	// HoursPerDay is a working day in hours, for reading a breakdown
+	// written in days beside a name in a worklog comment.
+	HoursPerDay float64
 
 	// EpicClasses maps a class name to a pattern matched against the epic
 	// summary, so a team can split Run from Build however they label it.
@@ -212,13 +226,16 @@ func Build(in Inputs) Report {
 		r.Summary.PriorPointsDeducted += row.PriorPoints
 		addToEpic(epicPoints, row)
 
-		shares := creditByPerson(is, row, opens, closes)
-		if len(shares) == 0 {
+		credited := creditByPerson(is, row, opens, closes, in)
+		for _, s := range credited.Split {
+			r.Flags = append(r.Flags, splitFlag(row, s, in))
+		}
+		if len(credited.Shares) == 0 {
 			unattributed += row.Credited
 			r.Flags = append(r.Flags, unassignedFlag(row, in))
 			continue
 		}
-		for id, pts := range shares {
+		for id, pts := range credited.Shares {
 			delivered[id] += pts
 			rowsFor[id] = append(rowsFor[id], row)
 			if _, known := people[id]; !known {
@@ -508,6 +525,25 @@ func loggedSeconds(is jira.Issue, opens, closes time.Time) (inside, before, tota
 	return inside, before, total
 }
 
+// attribution is how one row's points divide between people.
+type attribution struct {
+	// Shares is the points each account is credited with.
+	Shares map[string]float64
+
+	// Split lists the entries that named several people without a figure
+	// beside each name, so their time was divided equally. A fallback,
+	// and flagged as one.
+	Split []equalSplit
+}
+
+// equalSplit is one logged entry divided equally between the people it
+// names, for want of a breakdown.
+type equalSplit struct {
+	Hours   float64
+	People  int
+	Partial bool // a figure beside some names but not all
+}
+
 // creditByPerson splits a row's credit across whoever logged time on it
 // during the sprint, falling back to the assignee.
 //
@@ -516,34 +552,136 @@ func loggedSeconds(is jira.Issue, opens, closes time.Time) (inside, before, tota
 // work. Where time has been logged, that is a direct record of who did
 // what and it wins. Where none has, the assignee is the right answer
 // rather than a compromise - most tickets have no log, and that is fine.
-func creditByPerson(is jira.Issue, row Row, opens, closes time.Time) map[string]float64 {
+//
+// Who an entry records as having done the work depends on the team.
+// Under author attribution it is whoever logged it. Under mention
+// attribution it is the people the comment @mentions: Jira has no way to
+// log time on another person's behalf, so a lead closing out a sprint
+// names them there instead. One name takes the whole entry. Several
+// names divide it by the figure written beside each - "@A 3h @B 1h" -
+// and, where there is no figure, equally, which is reported so it can be
+// corrected. An entry naming nobody, or only its author, is the author's.
+func creditByPerson(is jira.Issue, row Row, opens, closes time.Time, in Inputs) attribution {
 	if row.Credited == 0 {
-		return nil
+		return attribution{}
 	}
-	byPerson := map[string]int{}
-	total := 0
+	byPerson := map[string]float64{}
+	total := 0.0
+	var split []equalSplit
 	for _, w := range is.Fields.Worklog.Entries {
 		at := w.Started.Time
 		if at.Before(opens) || at.After(closes) || w.Author == nil || w.Author.AccountID == "" {
 			continue
 		}
-		byPerson[w.Author.AccountID] += w.Seconds
-		total += w.Seconds
+		secs := float64(w.Seconds)
+		total += secs
+
+		if in.WorklogAttribution != config.AttributeToMention {
+			byPerson[w.Author.AccountID] += secs
+			continue
+		}
+		named := w.MentionShares()
+		switch {
+		case len(named) == 0:
+			byPerson[w.Author.AccountID] += secs
+		case len(named) == 1:
+			byPerson[named[0].ID] += secs
+		default:
+			weights, partial := shareWeights(named, in)
+			if weights == nil {
+				split = append(split, equalSplit{Hours: secs / 3600, People: len(named), Partial: partial})
+				for _, m := range named {
+					byPerson[m.ID] += secs / float64(len(named))
+				}
+				continue
+			}
+			sum := 0.0
+			for _, wt := range weights {
+				sum += wt
+			}
+			for i, m := range named {
+				byPerson[m.ID] += secs * weights[i] / sum
+			}
+		}
 	}
 	if total == 0 {
 		if is.Fields.Assignee == nil || is.Fields.Assignee.AccountID == "" {
-			return nil
+			return attribution{}
 		}
-		return map[string]float64{is.Fields.Assignee.AccountID: row.Credited}
+		return attribution{Shares: map[string]float64{is.Fields.Assignee.AccountID: row.Credited}}
 	}
 
-	out := make(map[string]float64, len(byPerson))
+	out := attribution{Shares: make(map[string]float64, len(byPerson)), Split: split}
 	for id, secs := range byPerson {
-		if share := round2(row.Credited * float64(secs) / float64(total)); share != 0 {
-			out[id] = share
+		if share := round2(row.Credited * secs / total); share != 0 {
+			out.Shares[id] = share
 		}
 	}
 	return out
+}
+
+// shareWeights turns the figures written beside each name into
+// comparable weights, in hours. It returns nil when any name lacks a
+// figure - a partial breakdown is not one - and then says whether some
+// names did carry one, so the fallback can be described accurately.
+//
+// A unit is converted only when the figures disagree about theirs. A
+// team writing "3,5" and "1" with no unit means the same unit both
+// times, whatever it is, and the ratio is all that matters.
+func shareWeights(named []jira.Mention, in Inputs) (weights []float64, partial bool) {
+	units := map[string]bool{}
+	with := 0
+	for _, m := range named {
+		if m.HasFigure {
+			with++
+		}
+		units[m.Unit] = true
+	}
+	if with < len(named) {
+		return nil, with > 0
+	}
+	weights = make([]float64, len(named))
+	for i, m := range named {
+		weights[i] = m.Figure
+		if len(units) > 1 {
+			switch m.Unit {
+			case "d":
+				weights[i] *= in.hoursPerDay()
+			case "sp":
+				weights[i] *= in.secondsPerPoint() / 3600
+			}
+		}
+	}
+	return weights, false
+}
+
+// hoursPerDay is a working day in hours, for reading a figure written in
+// days beside a name.
+func (in Inputs) hoursPerDay() float64 {
+	if in.HoursPerDay <= 0 {
+		return 6
+	}
+	return in.HoursPerDay
+}
+
+// splitFlag names a logged entry that was divided equally between the
+// people it names, because nothing said how it should divide. Equal is a
+// guess, so it is shown; the fix is a figure beside each name, or one
+// entry per person.
+func splitFlag(row Row, s equalSplit, in Inputs) Flag {
+	hours := strconv.FormatFloat(s.Hours, 'f', -1, 64)
+	why := "with no breakdown"
+	if s.Partial {
+		why = "with a figure beside only some of the names"
+	}
+	return Flag{
+		Kind: FlagWorklogSplitEqually,
+		Key:  row.Key,
+		Message: fmt.Sprintf("%s has %sh logged in one entry naming %d people %s, so it is divided equally "+
+			"between them. Write the hours beside each name (@Person 3h) to divide it by effort, or log "+
+			"one entry per person", row.Key, hours, s.People, why),
+		URL: row.URL,
+	}
 }
 
 // nameFor finds a display name for an account id seen on this issue.
@@ -914,10 +1052,11 @@ func sortFlags(flags []Flag) {
 		FlagStoryNoWork:          4,
 		FlagStoryWorkDoneNotShut: 5,
 		FlagEstimateFallback:     6,
-		FlagNoBaseline:           7,
-		FlagDeliveredOffRoster:   8,
-		FlagCarriedNoWorklog:     9,
-		FlagCapacityUnreviewed:   10,
+		FlagWorklogSplitEqually:  7,
+		FlagNoBaseline:           8,
+		FlagDeliveredOffRoster:   9,
+		FlagCarriedNoWorklog:     10,
+		FlagCapacityUnreviewed:   11,
 	}
 	sort.SliceStable(flags, func(i, j int) bool {
 		if rank[flags[i].Kind] != rank[flags[j].Kind] {
