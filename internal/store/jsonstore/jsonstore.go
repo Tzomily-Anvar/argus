@@ -418,10 +418,76 @@ func (s *Store) ListWrites(_ context.Context, limit int) ([]store.WriteRecord, e
 	return all, nil
 }
 
+// ---- close-out drafts ------------------------------------------------
+
+// draftFile is one file per sprint, like capacity: a draft is replaced
+// whole on every save, and one sprint's close must never rewrite
+// another's queue.
+func draftFile(sprintJiraID int64) string {
+	return fmt.Sprintf("draft-%d", sprintJiraID)
+}
+
+func (s *Store) GetDraft(_ context.Context, sprintJiraID int64) (store.Draft, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// readInto treats a missing file as empty, which is right for a list
+	// and wrong here: no file is the answer "nothing queued", and the
+	// caller has to be able to tell that from an empty queue somebody
+	// saved.
+	if _, err := os.Stat(s.path(draftFile(sprintJiraID))); os.IsNotExist(err) {
+		return store.Draft{}, store.ErrNotFound
+	} else if err != nil {
+		return store.Draft{}, fmt.Errorf("reading draft for sprint %d: %w", sprintJiraID, err)
+	}
+	var d store.Draft
+	if err := s.readInto(draftFile(sprintJiraID), &d); err != nil {
+		return store.Draft{}, err
+	}
+	if d.Requests == nil {
+		d.Requests = []store.DraftRequest{}
+	}
+	return d, nil
+}
+
+func (s *Store) PutDraft(ctx context.Context, d store.Draft) error {
+	if d.SprintJiraID == 0 {
+		return fmt.Errorf("a draft needs a sprint id")
+	}
+	// Postgres enforces this with a foreign key; checking it here keeps
+	// the two backends behaving identically.
+	if _, err := s.GetSprint(ctx, d.SprintJiraID); err != nil {
+		return fmt.Errorf("sprint %d: %w", d.SprintJiraID, store.ErrUnknownReference)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if d.Requests == nil {
+		// An array on disk, not null: the file is read straight back to
+		// a browser that was promised a list.
+		d.Requests = []store.DraftRequest{}
+	}
+	d.UpdatedAt = time.Now().UTC()
+	return s.write(draftFile(d.SprintJiraID), d)
+}
+
+func (s *Store) DeleteDraft(_ context.Context, sprintJiraID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	err := os.Remove(s.path(draftFile(sprintJiraID)))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("discarding draft for sprint %d: %w", sprintJiraID, err)
+	}
+	return nil
+}
+
 // ---- lifecycle -------------------------------------------------------
 
-// Prune drops per-person rows for sprints that ended before the cutoff,
-// keeping the aggregate stats the trends are drawn from.
+// Prune drops per-person rows and close-out drafts for sprints that ended
+// before the cutoff, keeping the aggregate stats the trends are drawn
+// from.
 func (s *Store) Prune(ctx context.Context, before time.Time) (store.PruneResult, error) {
 	var res store.PruneResult
 
@@ -433,6 +499,12 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (store.PruneResult,
 		// A sprint with no end date cannot be judged stale, so it is kept.
 		if sp.EndsAt == nil || !sp.EndsAt.Before(before) {
 			continue
+		}
+		if _, err := s.GetDraft(ctx, sp.JiraID); err == nil {
+			if err := s.DeleteDraft(ctx, sp.JiraID); err != nil {
+				return res, err
+			}
+			res.Drafts++
 		}
 		rows, err := s.ListCapacity(ctx, sp.JiraID)
 		if err != nil {

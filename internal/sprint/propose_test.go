@@ -49,7 +49,7 @@ func wired(t *testing.T, key, id, issueType, status, assignee string, points *fl
 // end is the close because it has no completion date.
 func proposal(t *testing.T, reqs ...sprint.ChangeRequest) sprint.ChangeSet {
 	t.Helper()
-	five := 5.0
+	five, eight := 5.0, 8.0
 	carried := wired(t, "ABC-2", "10002", "Task", "In Progress", "acc-a", nil)
 	carried.Fields.Worklog.Entries = []jira.WorklogEntry{{
 		ID:      "500",
@@ -66,8 +66,9 @@ func proposal(t *testing.T, reqs ...sprint.ChangeRequest) sprint.ChangeSet {
 		wired(t, "ABC-1", "10001", "Task", "Done", "", nil), // finished, unassigned, unsized
 		carried, // open at close, time logged
 		wired(t, "ABC-3", "10003", "Task", "To Do", "", nil),       // open at close, nothing logged
-		wired(t, "ABC-4", "10004", "Story", "Done", "", nil),       // a container
+		wired(t, "ABC-4", "10004", "Story", "Done", "", nil),       // a container, unsized
 		wired(t, "ABC-5", "10005", "Task", "Done", "acc-a", &five), // finished, complete
+		wired(t, "ABC-6", "10006", "Story", "Done", "", &eight),    // a container with a figure already
 	}
 	in := inputs(t)
 	in.Issues = issues
@@ -96,7 +97,9 @@ func TestProposeRules(t *testing.T) {
 		{"points on a finished unsized task", sprint.ChangeRequest{Key: "ABC-1", Op: sprint.OpPointsSet, Points: num(3)}, "", "finished with no estimate"},
 		{"points on an open unsized task", sprint.ChangeRequest{Key: "ABC-3", Op: sprint.OpPointsSet, Points: num(2)}, "", "open with no estimate"},
 		{"points where there already are some", sprint.ChangeRequest{Key: "ABC-5", Op: sprint.OpPointsSet, Points: num(3)}, "already has 5 points", ""},
-		{"points on a container", sprint.ChangeRequest{Key: "ABC-4", Op: sprint.OpPointsSet, Points: num(3)}, "rollup", ""},
+		{"points on a container with none", sprint.ChangeRequest{Key: "ABC-4", Op: sprint.OpPointsSet, Points: num(3)}, "", "story wrapped up; points set to the sum of its work"},
+		{"points on a container that has some", sprint.ChangeRequest{Key: "ABC-6", Op: sprint.OpPointsSet, Points: num(3)}, "", "story wrapped up; points corrected to the sum of its work"},
+		{"points of zero on a container", sprint.ChangeRequest{Key: "ABC-6", Op: sprint.OpPointsSet, Points: num(0)}, "above zero", ""},
 		{"points of zero", sprint.ChangeRequest{Key: "ABC-1", Op: sprint.OpPointsSet, Points: num(0)}, "above zero", ""},
 		{"points left untyped", sprint.ChangeRequest{Key: "ABC-1", Op: sprint.OpPointsSet}, "above zero", ""},
 		{"a key the report does not know", sprint.ChangeRequest{Key: "ABC-9", Op: sprint.OpPointsSet, Points: num(3)}, "not in this sprint's report", ""},
@@ -160,6 +163,76 @@ func TestProposeCarriesTheGuardFromTheIssue(t *testing.T) {
 	}
 	if !cs.ExpiresAt.Equal(cs.BuiltAt.Add(sprint.ChangeSetLifetime)) {
 		t.Errorf("expires %v, built %v: want fifteen minutes apart", cs.ExpiresAt, cs.BuiltAt)
+	}
+}
+
+// The one relaxation of write-to-blank: a container's rollup may be set
+// over a figure already there. What makes that safe is the guard, which
+// has to carry the figure so the apply writes only where Jira still
+// holds it; and a Task keeps the empty-only rule whatever it holds.
+func TestProposeStoryRollupCarriesTheCurrentValue(t *testing.T) {
+	cs := proposal(t,
+		sprint.ChangeRequest{Key: "ABC-6", Op: sprint.OpPointsSet, Points: num(11)},
+		sprint.ChangeRequest{Key: "ABC-4", Op: sprint.OpPointsSet, Points: num(3)},
+		sprint.ChangeRequest{Key: "ABC-5", Op: sprint.OpPointsSet, Points: num(3)},
+	)
+	if len(cs.Changes) != 2 || len(cs.Skipped) != 1 {
+		t.Fatalf("want two changes and one skip, got %d and %v", len(cs.Changes), cs.Skipped)
+	}
+	over := cs.Changes[0]
+	if over.Key != "ABC-6" || over.Guard.Was != 8.0 || over.After != 11.0 {
+		t.Errorf("a rollup over a figure must guard on that figure: was %v after %v", over.Guard.Was, over.After)
+	}
+	if over.Guard.IssueID != "10006" || over.Field != pointsField {
+		t.Errorf("guard = %+v field %q", over.Guard, over.Field)
+	}
+	blank := cs.Changes[1]
+	if blank.Key != "ABC-4" || blank.Guard.Was != nil {
+		t.Errorf("a rollup over nothing guards on nothing, got was %v", blank.Guard.Was)
+	}
+	if cs.Skipped[0].Key != "ABC-5" || !strings.Contains(cs.Skipped[0].Reason, "already has 5 points") {
+		t.Errorf("a Task with points is still refused, got %+v", cs.Skipped[0])
+	}
+}
+
+// A Story that concluded cleanly is in no person's rows and raises no
+// flag; it is in the report's own Stories section, and that is enough to
+// propose its rollup against.
+func TestProposeReachesAConcludedStory(t *testing.T) {
+	in := base(t)
+	in.BaseURL = "https://example.atlassian.net"
+	withStory(t, &in, "ABC-S1", 8, "Done", sprintOpens.AddDate(0, 0, 5),
+		child{key: "ABC-T1", status: "Done", points: 3, doneAt: sprintOpens.AddDate(0, 0, 3)},
+		child{key: "ABC-T2", status: "Done", points: 5, doneAt: sprintOpens.AddDate(0, 0, 5)},
+	)
+	rep := sprint.Build(in)
+	if len(rep.Stories) != 1 {
+		t.Fatalf("the fixture should conclude one Story, got %d", len(rep.Stories))
+	}
+	for _, f := range rep.Flags {
+		if f.Key == "ABC-S1" {
+			t.Fatalf("the fixture's Story agrees with its work and should raise nothing, got %+v", f)
+		}
+	}
+	cs := sprint.Propose(rep, in.Issues, sprint.ProposalInputs{
+		Requests: []sprint.ChangeRequest{{Key: "ABC-S1", Op: sprint.OpPointsSet, Points: num(9)}},
+		People:   in.People, Rules: in.Rules, PointsField: pointsID,
+		SprintOpens: sprintOpens, SprintCloses: sprintCloses, Now: sprintCloses,
+	})
+	if len(cs.Changes) != 1 {
+		t.Fatalf("want the rollup proposed, got skips %v", cs.Skipped)
+	}
+	if c := cs.Changes[0]; c.Guard.Was != 8.0 || c.After != 9.0 || c.URL == "" {
+		t.Errorf("change = %+v", c)
+	}
+	// And still no logging time against it: a container is not carryover.
+	cs = sprint.Propose(rep, in.Issues, sprint.ProposalInputs{
+		Requests: []sprint.ChangeRequest{{Key: "ABC-S1", Op: sprint.OpWorklogAdd, Person: "a", Hours: 2}},
+		People:   in.People, Rules: in.Rules, PointsField: pointsID,
+		SprintOpens: sprintOpens, SprintCloses: sprintCloses, Now: sprintCloses,
+	})
+	if len(cs.Skipped) != 1 || !strings.Contains(cs.Skipped[0].Reason, "not open when the sprint closed") {
+		t.Errorf("worklog on a Story should be refused, got %+v %+v", cs.Changes, cs.Skipped)
 	}
 }
 

@@ -395,11 +395,66 @@ func (s *Store) ListWrites(ctx context.Context, limit int) ([]store.WriteRecord,
 	return out, rows.Err()
 }
 
+// ---- close-out drafts ------------------------------------------------
+
+// The queue is stored as one JSONB value. It is only ever read and
+// written whole, by the panel that built it, so a table of its rows would
+// add joins for nothing; and the rows are the sprint package's own
+// request shape, which the registry test in internal/store holds still.
+
+func (s *Store) GetDraft(ctx context.Context, sprintJiraID int64) (store.Draft, error) {
+	d := store.Draft{SprintJiraID: sprintJiraID}
+	var body []byte
+	err := s.db.QueryRowContext(ctx,
+		`SELECT body, updated_at FROM drafts WHERE sprint_jira_id = $1`, sprintJiraID).
+		Scan(&body, &d.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.Draft{}, store.ErrNotFound
+	}
+	if err != nil {
+		return store.Draft{}, err
+	}
+	if err := json.Unmarshal(body, &d.Requests); err != nil {
+		return store.Draft{}, fmt.Errorf("decoding draft for sprint %d: %w", sprintJiraID, err)
+	}
+	if d.Requests == nil {
+		d.Requests = []store.DraftRequest{}
+	}
+	return d, nil
+}
+
+func (s *Store) PutDraft(ctx context.Context, d store.Draft) error {
+	if d.SprintJiraID == 0 {
+		return fmt.Errorf("a draft needs a sprint id")
+	}
+	if d.Requests == nil {
+		d.Requests = []store.DraftRequest{}
+	}
+	body, err := json.Marshal(d.Requests)
+	if err != nil {
+		return fmt.Errorf("encoding draft: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO drafts (sprint_jira_id, body, updated_at)
+		VALUES ($1, $2, now())
+		ON CONFLICT (sprint_jira_id) DO UPDATE SET
+			body = EXCLUDED.body,
+			updated_at = now()`,
+		d.SprintJiraID, body)
+	return refErr(err, fmt.Sprintf("sprint %d", d.SprintJiraID))
+}
+
+func (s *Store) DeleteDraft(ctx context.Context, sprintJiraID int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM drafts WHERE sprint_jira_id = $1`, sprintJiraID)
+	return err
+}
+
 // ---- retention -------------------------------------------------------
 
-// Prune drops per-person rows for sprints that ended before the cutoff and
-// write-log entries older than it. sprint_stats is deliberately untouched:
-// it holds no personal data and is what the trends are drawn from.
+// Prune drops per-person rows and close-out drafts for sprints that ended
+// before the cutoff, and write-log entries older than it. sprint_stats is
+// deliberately untouched: it holds no personal data and is what the
+// trends are drawn from.
 func (s *Store) Prune(ctx context.Context, before time.Time) (store.PruneResult, error) {
 	var res store.PruneResult
 
@@ -419,6 +474,17 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (store.PruneResult,
 	}
 	n, _ := cap.RowsAffected()
 	res.CapacityRows = int(n)
+
+	drafts, err := tx.ExecContext(ctx, `
+		DELETE FROM drafts
+		WHERE sprint_jira_id IN (
+			SELECT jira_id FROM sprints WHERE ends_at IS NOT NULL AND ends_at < $1
+		)`, before)
+	if err != nil {
+		return res, fmt.Errorf("pruning drafts: %w", err)
+	}
+	n, _ = drafts.RowsAffected()
+	res.Drafts = int(n)
 
 	wl, err := tx.ExecContext(ctx, `DELETE FROM write_log WHERE at < $1`, before)
 	if err != nil {

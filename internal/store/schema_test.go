@@ -97,6 +97,33 @@ func TestPersistedJSONShape(t *testing.T) {
 		})
 	})
 
+	// The close-out draft: per-sprint working state, written by the panel
+	// and read back by it after a reload or a restart. Its rows are the
+	// sprint package's ChangeRequest, spelled again in the store so the
+	// store does not import the package above it; TestDraftRequestMirrors
+	// ChangeRequest in internal/sprint holds the two to each other.
+	t.Run("Draft", func(t *testing.T) {
+		storetest.CheckJSONFields(t, "store.Draft", store.Draft{}, map[string]string{
+			"sprint_jira_id": "int64",
+			"requests":       "[]store.DraftRequest",
+			"updated_at":     "time.Time",
+		})
+	})
+
+	t.Run("DraftRequest", func(t *testing.T) {
+		storetest.CheckJSONFields(t, "store.DraftRequest", store.DraftRequest{}, map[string]string{
+			"key":        "string",
+			"op":         "string",
+			"points":     "*float64",
+			"assignee":   "string",
+			"person":     "string",
+			"hours":      "float64",
+			"started":    "time.Time",
+			"note":       "string",
+			"worklog_id": "string",
+		})
+	})
+
 	// PruneResult is never written to disk, but it is returned over the
 	// HTTP API, so a rename here breaks the frontend instead of the data.
 	// Cheap to hold still, so it is held still.
@@ -104,6 +131,9 @@ func TestPersistedJSONShape(t *testing.T) {
 		storetest.CheckJSONFields(t, "store.PruneResult", store.PruneResult{}, map[string]string{
 			"capacity_rows": "int",
 			"write_rows":    "int",
+			// Added with the close-out draft. Additive: an older answer
+			// simply lacks the key.
+			"drafts": "int",
 		})
 	})
 }
@@ -116,6 +146,7 @@ func TestEveryPersistedTypeIsRegistered(t *testing.T) {
 	covered := map[string]bool{
 		"Person": true, "Sprint": true, "Capacity": true,
 		"SprintStats": true, "WriteRecord": true, "PruneResult": true,
+		"Draft": true, "DraftRequest": true,
 	}
 
 	fset := token.NewFileSet()

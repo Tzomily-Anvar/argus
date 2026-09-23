@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -304,5 +305,12 @@ func checkGolden(t *testing.T, s store.Store) {
 	}
 	if writes[1].Operation != "assign" || writes[1].After != "acc-a" {
 		t.Errorf("older write record did not survive: %+v", writes[1])
+	}
+
+	// The close-out draft arrived after this fixture was written, so no
+	// install has a draft file. A directory without one has to read as
+	// "nothing queued", not as an error.
+	if _, err := s.GetDraft(ctx(), 744); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a directory with no draft file should read as ErrNotFound, got %v", err)
 	}
 }

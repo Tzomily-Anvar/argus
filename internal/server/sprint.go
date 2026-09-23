@@ -19,6 +19,8 @@ func (s *Server) SprintRoutes(svc *sprint.Service, st store.Store) {
 	s.store = st
 	s.changeRoutes(svc)
 	s.worklogRoutes(svc)
+	s.closeoutRoutes(svc, st)
+	s.applyRoutes(svc, st)
 
 	// The dropdown. Fetched live because it costs about half a second,
 	// and marked with which sprints already have a stored report.

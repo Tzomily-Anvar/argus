@@ -19,6 +19,7 @@ package pgstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -167,6 +168,18 @@ func hasColumn(t *testing.T, s *Store, table, column string) bool {
 	return n == 1
 }
 
+func hasTable(t *testing.T, s *Store, table string) bool {
+	t.Helper()
+	var n int
+	err := s.db.QueryRowContext(context.Background(), `
+		SELECT count(*) FROM information_schema.tables
+		WHERE table_schema = current_schema() AND table_name = $1`, table).Scan(&n)
+	if err != nil {
+		t.Fatalf("looking up table %s: %v", table, err)
+	}
+	return n == 1
+}
+
 func hasIndex(t *testing.T, s *Store, index string) bool {
 	t.Helper()
 	var n int
@@ -205,7 +218,7 @@ func TestMigrateFromEmpty(t *testing.T) {
 		t.Errorf("applied version %d, want %d: a migration on disk was not applied", got, want)
 	}
 
-	for _, table := range []string{"people", "sprints", "capacity", "sprint_stats", "write_log"} {
+	for _, table := range []string{"people", "sprints", "capacity", "sprint_stats", "write_log", "drafts"} {
 		var n int
 		if err := s.db.QueryRowContext(ctx, `
 			SELECT count(*) FROM information_schema.tables
@@ -370,6 +383,26 @@ func TestUpgradeFrom001PreservesData(t *testing.T) {
 	if len(writes) != 2 || writes[0].ChangeSet != "cs-1" || writes[0].Outcome != store.OutcomeApplied {
 		t.Errorf("the 003 columns did not take a write on the upgraded database: %+v", writes)
 	}
+
+	// 004's table has to take a draft against the sprint carried over,
+	// and the foreign key has to hold: a draft for a sprint the database
+	// does not know is refused the way capacity for one is.
+	if _, err := s.GetDraft(ctx, 744); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a sprint carried over from 001 should have no draft, got %v", err)
+	}
+	three := 3.0
+	if err := s.PutDraft(ctx, store.Draft{SprintJiraID: 744, Requests: []store.DraftRequest{
+		{Key: "ABC-125", Op: "points.set", Points: &three},
+	}}); err != nil {
+		t.Fatalf("PutDraft after the upgrade: %v", err)
+	}
+	d, err := s.GetDraft(ctx, 744)
+	if err != nil || len(d.Requests) != 1 || d.Requests[0].Points == nil || *d.Requests[0].Points != 3 {
+		t.Errorf("the draft did not round-trip on the upgraded database: %+v, err %v", d, err)
+	}
+	if err := s.PutDraft(ctx, store.Draft{SprintJiraID: 999}); !errors.Is(err, store.ErrUnknownReference) {
+		t.Errorf("a draft for an unknown sprint: want ErrUnknownReference, got %v", err)
+	}
 }
 
 // Rolling the newest migration back must not take the rest of the schema
@@ -395,6 +428,16 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	}
 	if got := dbVersion(t, s); got != latestMigration(t)-1 {
 		t.Errorf("after one rollback the version is %d, want %d", got, latestMigration(t)-1)
+	}
+	if hasTable(t, s, "drafts") {
+		t.Error("rolling back 004 left the drafts table behind")
+	}
+	if !hasColumn(t, s, "write_log", "change_set") || !hasColumn(t, s, "write_log", "outcome") {
+		t.Error("rolling back 004 took 003's columns with it")
+	}
+
+	if err := goose.DownContext(ctx, s.db, "migrations"); err != nil {
+		t.Fatalf("rolling back 003: %v", err)
 	}
 	for _, col := range []string{"change_set", "outcome"} {
 		if hasColumn(t, s, "write_log", col) {
@@ -433,6 +476,9 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	}
 	if !hasColumn(t, s, "write_log", "change_set") || !hasColumn(t, s, "write_log", "outcome") {
 		t.Error("re-applying did not restore 003's columns")
+	}
+	if !hasTable(t, s, "drafts") {
+		t.Error("re-applying did not restore 004's table")
 	}
 }
 

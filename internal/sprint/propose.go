@@ -69,7 +69,10 @@ type proposer struct {
 	seen map[string]bool
 }
 
-// indexRows gathers every row the report shows, by key.
+// indexRows gathers every row the report shows, by key. A concluded Story
+// is shown too, in its own section, and is here in the shape of a row so
+// its rollup can be proposed against; State is what keeps the worklog
+// operations off it.
 func indexRows(rep Report) map[string]Row {
 	rows := map[string]Row{}
 	for _, person := range rep.People {
@@ -79,6 +82,12 @@ func indexRows(rep Report) map[string]Row {
 	}
 	for _, row := range rep.Carry {
 		rows[row.Key] = row
+	}
+	for _, st := range rep.Stories {
+		rows[st.Key] = Row{
+			Key: st.Key, Summary: st.Summary, URL: st.URL, Points: st.Points,
+			Done: true, State: StateConcluded, ConcludedAt: st.ConcludedAt,
+		}
 	}
 	return rows
 }
@@ -145,9 +154,8 @@ func (p proposer) change(req ChangeRequest, is jira.Issue, was any) Change {
 }
 
 func (p proposer) points(req ChangeRequest, is jira.Issue) (Change, error) {
-	if !p.in.Rules.ExpectsPointsWhenDone(is.Fields.IssueType.Name) {
-		return Change{}, fmt.Errorf("%s is a %s, whose points are a rollup of its work rather than an estimate",
-			is.Key, is.Fields.IssueType.Name)
+	if p.in.Rules.IsContainer(is.Fields.IssueType.Name) {
+		return p.rollup(req, is)
 	}
 	if n, has := is.Number(p.in.PointsField); has {
 		return Change{}, fmt.Errorf("%s already has %s points; only an empty field is written", is.Key, figure(n))
@@ -165,6 +173,38 @@ func (p proposer) points(req ChangeRequest, is jira.Issue) (Change, error) {
 	c.Reason = "finished with no estimate"
 	if !p.in.Rules.IsDone(is.Fields.Status.Name) {
 		c.Reason = "open with no estimate"
+	}
+	return c, nil
+}
+
+// rollup is the one place the write-to-blank rule is relaxed, knowingly.
+//
+// A container's points are the sum of the work beneath it, and this team
+// fills that sum in at close, sometimes over a figure typed at planning.
+// Refusing the non-empty case would leave the Story disagreeing with its
+// own work for good. So a container takes points whether or not the field
+// is empty; the guard carries what is there now, nil when nothing, and the
+// apply writes only where Jira still holds exactly that. Everything that
+// is not a container keeps empty-only.
+func (p proposer) rollup(req ChangeRequest, is jira.Issue) (Change, error) {
+	if req.Points == nil || *req.Points <= 0 {
+		return Change{}, errors.New("story points must be a number above zero")
+	}
+	if err := p.once(is.Key+" "+req.Op, is.Key+" already has points proposed above"); err != nil {
+		return Change{}, err
+	}
+	var was any
+	current, has := is.Number(p.in.PointsField)
+	if has {
+		was = current
+	}
+	c := p.change(req, is, was)
+	c.Field = p.in.PointsField
+	c.After = *req.Points
+	c.AfterLabel = figure(*req.Points)
+	c.Reason = "story wrapped up; points set to the sum of its work"
+	if has {
+		c.Reason = "story wrapped up; points corrected to the sum of its work"
 	}
 	return c, nil
 }
