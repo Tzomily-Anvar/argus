@@ -1,15 +1,20 @@
-// Package jira is a read-only client for Jira Cloud.
+// Package jira is a client for Jira Cloud that reads anything and writes
+// a closed list of things.
 //
-// Read-only is enforced the same way the GitHub client enforces it, but
-// the rule cannot be "GET only": Jira's search and bulk-fetch endpoints
-// are POSTs that read, because the query travels in the body. So instead
-// of a verb rule there is an allowlist of endpoints known to be reads,
-// and anything else is refused before it is sent.
+// Every request passes through one function, do, whose first statement
+// is assertPermitted. Reads are decided the way they always were: GET
+// always, and POST only to the search and bulk-fetch endpoints, which
+// read despite the verb because the query travels in the body. Writes
+// are the list in permit.go - the story points field, the assignee, and
+// adding, correcting or removing one worklog entry - each pinned to an
+// exact path, an exact query and an exact body shape. Even a request on
+// that list is refused unless the Client's writePolicy allows writes;
+// New leaves it off, and nothing in this codebase yet switches it on.
 //
-// That list is short and explicit on purpose. When the sprint tool gains
-// the ability to reassign a ticket or publish a page, those writes will
-// be their own named, audited, confirmed surface rather than a quiet
-// relaxation of this one.
+// TestOnlyDoReachesTheNetwork keeps this structural: a file in this
+// package that builds its own request fails the build, so a second
+// route to the network has to be argued for in review rather than
+// slipped in.
 //
 // Authentication is Basic with an email and an API token, which is what
 // Jira Cloud expects - not a bearer token.
@@ -49,12 +54,17 @@ type WriteAttemptError struct{ msg string }
 
 func (e *WriteAttemptError) Error() string { return e.msg }
 
-// Client talks to one Jira site. Safe for concurrent use.
+// Client talks to one Jira site. Safe for concurrent use once set up;
+// AllowWrites is part of setting up.
 type Client struct {
 	http    *http.Client
 	baseURL string
 	auth    string
 	sem     chan struct{}
+
+	// policy is consulted by the gate in do and nowhere else. Its zero
+	// value refuses every write.
+	policy writePolicy
 }
 
 // New returns a client for baseURL, authenticating as email with token.
@@ -80,26 +90,26 @@ func New(baseURL, email, token string, concurrency, timeoutSeconds int) (*Client
 // BaseURL is the site this client talks to, for building browse links.
 func (c *Client) BaseURL() string { return c.baseURL }
 
-func assertReadOnly(method, path string) error {
-	if method == http.MethodGet {
-		return nil
-	}
-	if method == http.MethodPost {
-		for _, p := range readPaths {
-			if strings.HasPrefix(path, p) {
-				return nil
-			}
-		}
-	}
-	return &WriteAttemptError{
-		msg: fmt.Sprintf("%s %s is not a known read; this client is read-only", method, path),
-	}
+// AllowWrites switches on the writes permit.go lists, with pointsField as
+// the custom field id that "story points" means on this site.
+//
+// Nothing calls this yet. It exists so that when a caller arrives it has
+// one place to do this, at startup, from the one setting that governs
+// it - and so the setting is never consulted at a call site, where it
+// could also be forgotten. Call it before the client is shared; it is
+// not synchronised with requests in flight.
+func (c *Client) AllowWrites(pointsField string) {
+	c.policy = writePolicy{Allowed: true, PointsField: pointsField}
 }
 
 // do is the one place HTTP happens. Three attempts with backoff on
 // transient failures; an explicit HTTP error is final.
-func (c *Client) do(method, path string, body any) ([]byte, error) {
-	if err := assertReadOnly(method, path); err != nil {
+//
+// The path and the query arrive separately so the gate can judge each
+// on its own terms: the path against an exact pattern, the query against
+// an exact set of parameters.
+func (c *Client) do(method, path, rawQuery string, body any) ([]byte, error) {
+	if err := assertPermitted(method, path, rawQuery, body, c.policy); err != nil {
 		return nil, err
 	}
 
@@ -113,7 +123,7 @@ func (c *Client) do(method, path string, body any) ([]byte, error) {
 
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
-		raw, err, retry := c.attempt(method, path, encoded)
+		raw, err, retry := c.attempt(method, path, rawQuery, encoded)
 		if err == nil {
 			return raw, nil
 		}
@@ -126,12 +136,16 @@ func (c *Client) do(method, path string, body any) ([]byte, error) {
 	return nil, errf("network error for %s after 3 attempts: %v", path, lastErr)
 }
 
-func (c *Client) attempt(method, path string, encoded []byte) ([]byte, error, bool) {
+func (c *Client) attempt(method, path, rawQuery string, encoded []byte) ([]byte, error, bool) {
 	var reader io.Reader
 	if encoded != nil {
 		reader = bytes.NewReader(encoded)
 	}
-	req, err := http.NewRequest(method, c.baseURL+path, reader)
+	target := c.baseURL + path
+	if rawQuery != "" {
+		target += "?" + rawQuery
+	}
+	req, err := http.NewRequest(method, target, reader)
 	if err != nil {
 		return nil, errf("building request: %v", err), false
 	}
@@ -189,10 +203,7 @@ func explain(status int, path string, raw []byte) error {
 
 // Get performs a GET and decodes the response into v.
 func (c *Client) Get(path string, params url.Values, v any) error {
-	if len(params) > 0 {
-		path += "?" + params.Encode()
-	}
-	raw, err := c.do(http.MethodGet, path, nil)
+	raw, err := c.do(http.MethodGet, path, params.Encode(), nil)
 	if err != nil {
 		return err
 	}
@@ -201,7 +212,7 @@ func (c *Client) Get(path string, params url.Values, v any) error {
 
 // Post performs a POST to one of the read endpoints and decodes into v.
 func (c *Client) Post(path string, body, v any) error {
-	raw, err := c.do(http.MethodPost, path, body)
+	raw, err := c.do(http.MethodPost, path, "", body)
 	if err != nil {
 		return err
 	}
