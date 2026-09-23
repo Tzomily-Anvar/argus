@@ -43,7 +43,9 @@ way to log time on somebody's behalf, so the lead authors every entry and
 is the credit. An entry naming several people divides between them by
 the figure written beside each name — `@Person A 3h @Person B 1h`, in
 hours, days or points — and equally where no figure is written, which the
-report flags as a guess to be corrected.
+report flags as a guess to be corrected. Figures that do not add up to the
+time logged are flagged too: the entry is still divided by them, but one of
+the two numbers is wrong and Jira reports the logged one.
 
 Your team's conventions are configuration, not code — which issue types
 are containers, which are estimated only once resolved, which statuses

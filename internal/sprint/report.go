@@ -335,6 +335,12 @@ const (
 	// fix is a figure beside each name, or one entry per person.
 	FlagWorklogSplitEqually = "worklog_split_equally"
 
+	// FlagWorklogFiguresDisagree marks a logged entry whose figures beside
+	// the names do not add up to the time logged. The team's own record
+	// says the comment is usually the truer of the two; Jira reports the
+	// other. Somebody has to pick, and the report says which entry.
+	FlagWorklogFiguresDisagree = "worklog_figures_disagree"
+
 	// The container flags. These replaced one that fired on every Story
 	// carrying points, which is normal data for a team that rolls up, and
 	// so named nothing anybody could act on.
