@@ -38,6 +38,11 @@ type Service struct {
 	// this counter either side of the computation is how that is caught.
 	inputs uint64
 
+	// trendFilling guards the background sweep behind the calibration
+	// trend, so a browser polling every few seconds asks for one run of
+	// builds rather than a new one each time it asks.
+	trendFilling bool
+
 	// Sprint number to Jira id. Resolving a sprint costs a round trip, and
 	// paying it before every cache lookup would make a cached report as
 	// slow as a fresh one - which is the whole thing the cache exists to
@@ -238,6 +243,110 @@ func (s *Service) Sprints(ctx context.Context, all bool) ([]Option, error) {
 		out = append(out, o)
 	}
 	return out, nil
+}
+
+// CalibrationTrend is the estimate-against-actual figures for the run of
+// sprints up to and including one, oldest first.
+//
+// It is assembled from built reports rather than from a stored aggregate.
+// Which sprint a ticket counts in is decided by the dating rules in
+// Build, so a figure frozen at the time of a sweep would go on reporting
+// the answer an older rule gave - and the dating has already changed once.
+//
+// Only sprints already swept come back. The rest are built in the
+// background and the answer says so, because a first visit would
+// otherwise block on several Jira sweeps at once. The trend ends at the
+// sprint being read rather than at today: a report from three sprints ago
+// should show the run as it stood then.
+func (s *Service) CalibrationTrend(ctx context.Context, sprintNumber, span int) (CalibrationTrend, error) {
+	if span <= 0 {
+		span = s.cfg.RecentSprints + 2
+	}
+
+	f, err := s.resolveFields()
+	if err != nil {
+		return CalibrationTrend{}, err
+	}
+	target, err := s.client.ResolveSprint(s.cfg.Project, f.sprint, sprintNumber)
+	if err != nil {
+		return CalibrationTrend{}, err
+	}
+
+	list := []jira.Sprint{target}
+	if target.OriginBoardID > 0 {
+		if siblings, err := s.client.BoardSprints(target.OriginBoardID, "active,closed"); err == nil {
+			list = siblings
+		}
+	}
+
+	run := make([]jira.Sprint, 0, len(list))
+	for _, sp := range list {
+		if sp.Number > 0 && sp.Number <= target.Number {
+			run = append(run, sp)
+		}
+	}
+	sort.Slice(run, func(i, j int) bool { return run[i].Number < run[j].Number })
+	if len(run) > span {
+		run = run[len(run)-span:]
+	}
+
+	// Always a slice, never nil: this crosses to a browser as JSON, and a
+	// null where an array was promised is a crash in the panel rather
+	// than an empty chart.
+	out := CalibrationTrend{Sprints: make([]CalibrationSprint, 0, len(run))}
+	var missing []jira.Sprint
+	for _, sp := range run {
+		s.mu.RLock()
+		entry := s.reports[sp.ID]
+		s.mu.RUnlock()
+		if entry == nil || entry.buildErr != nil || entry.builtAt.IsZero() {
+			missing = append(missing, sp)
+			continue
+		}
+		c := entry.report.Calibration
+		// The run is the shape of the thing; the tickets behind one
+		// sprint belong to that sprint's own report.
+		c.Diverged = nil
+		out.Sprints = append(out.Sprints, CalibrationSprint{
+			Number: sp.Number, Name: sp.Name, Calibration: c,
+		})
+	}
+
+	if len(missing) > 0 {
+		out.Building = true
+		s.fillTrend(missing, f)
+	}
+	return out, nil
+}
+
+// fillTrend sweeps the sprints a trend is missing, one at a time in the
+// background.
+//
+// Sequentially on purpose. Each sweep is several requests against Jira,
+// and firing six at once to draw a chart nobody is waiting on is how a
+// dashboard gets a team rate limited.
+func (s *Service) fillTrend(missing []jira.Sprint, f *fields) {
+	s.mu.Lock()
+	if s.trendFilling {
+		s.mu.Unlock()
+		return
+	}
+	s.trendFilling = true
+	s.mu.Unlock()
+
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			s.trendFilling = false
+			s.mu.Unlock()
+		}()
+		for _, sp := range missing {
+			// Not the caller's context: it belongs to a request that has
+			// already been answered, and cancelling this on its return
+			// would mean the trend never fills in at all.
+			_, _ = s.build(context.Background(), sp, f)
+		}
+	}()
 }
 
 // Recompute folds a changed baseline, capacity or capacity review into

@@ -1,3 +1,16 @@
+# Where this file can live
+#
+# Any of these, and they are combined rather than overriding each other:
+#
+#   $ARGUS_PRIVATE_PATTERNS                    an explicit path
+#   ~/.config/argus/private-patterns           per user - survives cloning
+#   .private-patterns                          here, gitignored
+#
+# The repository copy is the obvious place and the weakest one: it lives
+# in a single directory, so a fresh clone or a second worktree has none
+# and the check quietly falls back to credentials only. Keep the per-user
+# copy as well if you work in more than one checkout.
+#
 # Strings that must never reach this public repository.
 #
 # Copy to .private-patterns, which is gitignored, and fill in your own.

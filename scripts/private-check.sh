@@ -50,12 +50,43 @@ BUILTIN=(
 builtin_pattern=$(printf '%s|' "${BUILTIN[@]}")
 builtin_pattern=${builtin_pattern%|}
 
+# Patterns come from up to three places, all of them outside version
+# control, and they are combined rather than overriding one another.
+#
+# The repository copy is gitignored, which is the point - anyone cloning
+# this gets the mechanism and none of the contents. But it is also the
+# weakness: it lives in exactly one directory, so a fresh clone, a
+# worktree, or a colleague checking out the same repository silently
+# falls back to credentials only and reports a clean run. Every guard
+# that protects something confidential should fail loudly when it is not
+# actually loaded, not quietly do less.
+#
+# So a per-user file is read as well. That one survives cloning, and on
+# a machine where somebody works in several checkouts it is the copy
+# that actually holds the line.
+sources=()
+[[ -n "${ARGUS_PRIVATE_PATTERNS:-}" ]] && sources+=("$ARGUS_PRIVATE_PATTERNS")
+sources+=("${XDG_CONFIG_HOME:-$HOME/.config}/argus/private-patterns")
+sources+=("$PATTERNS_FILE")
+
 local_pattern=""
-if [[ -f "$PATTERNS_FILE" ]]; then
-  local_pattern=$(grep -vE '^[[:space:]]*(#|$)' "$PATTERNS_FILE" | paste -sd'|' -)
-else
-  echo "${DIM}private-check: no $PATTERNS_FILE, so only credentials are checked.${OFF}"
-  echo "${DIM}  Copy .private-patterns.example to add your own strings.${OFF}"
+loaded_from=()
+for src in "${sources[@]}"; do
+  [[ -f "$src" ]] || continue
+  part=$(grep -vE '^[[:space:]]*(#|$)' "$src" | paste -sd'|' -)
+  [[ -z "$part" ]] && continue
+  loaded_from+=("$src")
+  if [[ -z "$local_pattern" ]]; then
+    local_pattern="$part"
+  else
+    local_pattern="$local_pattern|$part"
+  fi
+done
+
+if [[ ${#loaded_from[@]} -eq 0 ]]; then
+  echo "${DIM}private-check: no pattern file, so only credentials are checked.${OFF}"
+  echo "${DIM}  Looked in: ${sources[*]}${OFF}"
+  echo "${DIM}  Copy .private-patterns.example to one of those to add your own.${OFF}"
 fi
 
 if [[ -n "$local_pattern" ]]; then

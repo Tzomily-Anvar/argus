@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchSprintReport, fetchSprints } from "./api";
+import { fetchCalibrationTrend, fetchSprintReport, fetchSprints } from "./api";
 import { navigate, useRoute } from "./route";
 import { SprintPicker } from "./components/SprintPicker";
 import { SprintReportView } from "./components/SprintReport";
@@ -67,6 +67,20 @@ export function SprintTool() {
     // A report already built comes back in milliseconds; one being rebuilt
     // in the background is polled until it settles.
     refetchInterval: (q) => (q.state.data?.building ? 3_000 : false),
+  });
+
+  // The estimate-against-actual run, fetched apart from the report.
+  //
+  // It costs a Jira sweep for every sprint not already held, so asking
+  // for it inside the report would make opening a sprint slower for a
+  // section further down the page. It comes back with whatever has been
+  // swept and says when more is coming, and is polled until it settles -
+  // the same contract the report itself has.
+  const trend = useQuery({
+    queryKey: ["sprint-calibration", picked],
+    queryFn: () => fetchCalibrationTrend(picked!),
+    enabled: picked !== null,
+    refetchInterval: (q) => (q.state.data?.building ? 5_000 : false),
   });
 
   const refresh = useMutation({
@@ -163,7 +177,7 @@ export function SprintTool() {
         </div>
       )}
 
-      {res && !report.isLoading && <SprintReportView report={res.report} />}
+      {res && !report.isLoading && <SprintReportView report={res.report} trend={trend.data} />}
 
       {panel === "capacity" && res && (
         <CapacityPanel

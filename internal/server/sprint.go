@@ -42,6 +42,24 @@ func (s *Server) SprintRoutes(svc *sprint.Service, st store.Store) {
 		writeJSON(w, http.StatusOK, res)
 	})
 
+	// The estimate-against-actual run across sprints.
+	//
+	// Its own endpoint rather than part of the report, because it costs a
+	// Jira sweep per sprint it does not already hold and the report must
+	// not get slower for a section further down the page. It answers with
+	// whatever has been swept and a flag saying more is coming, which the
+	// browser polls on exactly as it polls a rebuilding report.
+	s.mux.HandleFunc("GET /api/sprint/calibration", func(w http.ResponseWriter, r *http.Request) {
+		number := sprint.ParseSprintNumber(r.URL.Query().Get("sprint"))
+		span := sprint.ParseSprintNumber(r.URL.Query().Get("span"))
+		trend, err := svc.CalibrationTrend(r.Context(), number, span)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, trend)
+	})
+
 	// The team's conventions, so the panel can say what a baseline of 10
 	// actually means rather than leaving it a bare number.
 	s.mux.HandleFunc("GET /api/sprint/conventions", func(w http.ResponseWriter, r *http.Request) {
