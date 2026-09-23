@@ -385,6 +385,6 @@ func AtlassianTeamConfigured() bool {
 }
 
 // SprintWritesAllowed gates every write the sprint tool can make.
-// Off by default: a tool that can reassign tickets and publish pages
+// Off by default: a tool that can set points and assignees and log time on tickets
 // should be something you switch on deliberately.
 func SprintWritesAllowed() bool { return Bool("ARGUS_SPRINT_ALLOW_WRITES", false) }

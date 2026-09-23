@@ -207,10 +207,19 @@ func singleField(raw []byte) (name string, value json.RawMessage, err error) {
 	return name, value, nil
 }
 
-// pointsBody accepts {"fields": {"<points field>": <number>}} and nothing
-// else. The field id comes from the policy rather than the body, because
-// the same body against another site's id would edit whatever that field
-// happens to be there.
+// Both field edits also accept JSON null as the value. Every forward
+// write turns an empty field into a value, and null is that write's
+// reversal: the audit log says Argus put a number or a person there, and
+// a reversal puts back the nothing that was there before. Nothing else
+// clears a field - null against a value a person entered is refused
+// further up, by the compare-and-set guard in the apply, which writes
+// only where Jira still holds what Argus itself wrote.
+func isNull(raw json.RawMessage) bool { return string(raw) == "null" }
+
+// pointsBody accepts {"fields": {"<points field>": <number>}}, or null in
+// place of the number, and nothing else. The field id comes from the
+// policy rather than the body, because the same body against another
+// site's id would edit whatever that field happens to be there.
 func pointsBody(raw []byte, pol writePolicy) error {
 	name, value, err := singleField(raw)
 	if err != nil {
@@ -222,15 +231,18 @@ func pointsBody(raw []byte, pol writePolicy) error {
 	if name != pol.PointsField {
 		return fmt.Errorf("%s is not the story points field", name)
 	}
+	if isNull(value) {
+		return nil
+	}
 	if _, ok := number(value); !ok {
-		return errors.New("story points must be a JSON number")
+		return errors.New("story points must be a JSON number, or null to reverse a write")
 	}
 	return nil
 }
 
-// assigneeBody accepts {"fields": {"assignee": {"accountId": "..."}}} and
-// nothing else. An account id rather than a name, because names are not
-// unique and Jira would guess.
+// assigneeBody accepts {"fields": {"assignee": {"accountId": "..."}}}, or
+// null in place of the account, and nothing else. An account id rather
+// than a name, because names are not unique and Jira would guess.
 func assigneeBody(raw []byte, _ writePolicy) error {
 	name, value, err := singleField(raw)
 	if err != nil {
@@ -238,6 +250,9 @@ func assigneeBody(raw []byte, _ writePolicy) error {
 	}
 	if name != "assignee" {
 		return fmt.Errorf("%s is not the assignee field", name)
+	}
+	if isNull(value) {
+		return nil
 	}
 	var who map[string]json.RawMessage
 	if err := json.Unmarshal(value, &who); err != nil || len(who) != 1 || who["accountId"] == nil {

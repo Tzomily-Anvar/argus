@@ -227,7 +227,7 @@ func Core() Catalogue {
 		{
 			Key: "ARGUS_SPRINT_ALLOW_WRITES", Section: "Sprint report", Kind: KindBool,
 			Default: "false",
-			Desc:    "Allow the sprint tool to write to Jira and Confluence. Off until you ask for it.",
+			Desc:    "Let the sprint report write to Jira: story points, assignee, and worklog entries, each previewed and approved first. Off until you ask for it.",
 		},
 		{
 			Key: "ARGUS_SPRINT_HOURS_PER_POINT", Section: "Sprint report", Kind: KindFloat,

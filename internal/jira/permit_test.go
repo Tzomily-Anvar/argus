@@ -126,13 +126,12 @@ func TestOnlyTheListedFieldsAreWritable(t *testing.T) {
 		{"properties": []any{}},
 		{"historyMetadata": map[string]any{}},
 		points("3"),  // a string is not a number
-		points(nil),  // clearing is not setting
 		points(true), // nor is this
 		assignee(map[string]any{"accountId": ""}),
+		assignee(map[string]any{"accountId": nil}), // the clear is null for the whole field
 		assignee(map[string]any{"accountId": "account-a", "name": "Person A"}),
 		assignee(map[string]any{"name": "Person A"}),
 		assignee("account-a"),
-		assignee(nil),
 	}
 	for _, body := range bad {
 		mustRefuse(t, assertPermitted(http.MethodPut, issue, "", body, on), "PUT issue with body")
@@ -145,6 +144,28 @@ func TestOnlyTheListedFieldsAreWritable(t *testing.T) {
 	// to a body that names a plausible id.
 	noField := writePolicy{Allowed: true}
 	mustRefuse(t, assertPermitted(http.MethodPut, issue, "", points(3.0), noField), "points with no field configured")
+}
+
+// Null is the one clear the gate accepts, on both field edits, because it
+// is the reversal of an empty-to-value write: the audit log says Argus
+// put a value there, and a reversal puts back the nothing that preceded
+// it. It goes through the same gate as the forward write - same setting,
+// same exact path and single field - and is refused with writes off like
+// everything else.
+func TestClearingIsTheReversalOfAWrite(t *testing.T) {
+	mustAllow(t, assertPermitted(http.MethodPut, issue, "", points(nil), on), "clearing points")
+	mustAllow(t, assertPermitted(http.MethodPut, issue, "", assignee(nil), on), "clearing the assignee")
+
+	off := writePolicy{Allowed: false, PointsField: "customfield_10000"}
+	for _, body := range []map[string]any{points(nil), assignee(nil)} {
+		var disabled *WritesDisabledError
+		if err := assertPermitted(http.MethodPut, issue, "", body, off); !errors.As(err, &disabled) {
+			t.Errorf("a clear with writes off: got %v, want *WritesDisabledError", err)
+		}
+	}
+	// A clear of a field not on the list is still not on the list.
+	mustRefuse(t, assertPermitted(http.MethodPut, issue, "", map[string]any{"fields": map[string]any{"summary": nil}}, on), "clearing the summary")
+	mustRefuse(t, assertPermitted(http.MethodPut, issue, "", map[string]any{"fields": map[string]any{"customfield_99999": nil}}, on), "clearing another field")
 }
 
 // The path is exact. Everything beneath an issue is a different API with

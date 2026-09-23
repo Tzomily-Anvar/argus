@@ -92,6 +92,13 @@ type Config struct {
 	// the client authenticates with. Named on every preview so the person
 	// approving it sees whose name the edits will carry.
 	Actor string
+
+	// EnableWrites is ARGUS_SPRINT_ALLOW_WRITES, read once by the caller.
+	// When true the Jira client's gate is opened as soon as the site's
+	// points field is known, and Apply is allowed to run. This is the one
+	// place the setting reaches the client; nothing consults it per
+	// request, where it could also be forgotten.
+	EnableWrites bool
 }
 
 type fields struct {
@@ -214,6 +221,13 @@ func (s *Service) resolveFields() (*fields, error) {
 
 	f = &fields{sprint: sprintID, points: pointsID, estimate: estimateID, categories: categories}
 	s.mu.Lock()
+	if s.fieldIDs == nil && s.cfg.EnableWrites {
+		// The gate opens here and nowhere else: once, under the lock so
+		// two callers resolving at the same moment do not both do it,
+		// and only now, because the gate has to know which custom field
+		// id "points" means on this site before it can judge a body.
+		s.client.AllowWrites(f.points)
+	}
 	s.fieldIDs = f
 	s.mu.Unlock()
 	return f, nil

@@ -94,7 +94,7 @@ CREATE INDEX sprint_stats_epic_class ON sprint_stats USING GIN (by_epic_class);
 
 -- Every write Argus makes to Jira or Confluence. Anything that alters
 -- someone else's data should leave a record of what it altered, so a
--- bulk edit can be explained or reversed afterwards. Nothing writes yet:
+-- bulk edit can be explained or reversed afterwards. Writes are off unless the operator switches them on:
 -- the write surface is being built behind a gate that is off by default,
 -- and this table is here so the first write has somewhere to land.
 CREATE TABLE write_log (
