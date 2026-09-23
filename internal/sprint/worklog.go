@@ -39,6 +39,12 @@ type WorklogView struct {
 	Hours       float64         `json:"hours"`
 	Started     time.Time       `json:"started"`
 	Note        string          `json:"note"`
+
+	// Window says where the entry falls against the sprint being looked
+	// at: before it opened, inside it, or after it closed. Only the inside
+	// entries credit this sprint; the others are shown so the figure above
+	// them can be understood, and marked so they are not mistaken for it.
+	Window string `json:"window,omitempty"`
 }
 
 // Worklog lists what is logged on one issue of a sprint whose report is
@@ -54,7 +60,7 @@ func (s *Service) Worklog(sprintNumber int, key string) ([]WorklogView, error) {
 	}
 	for _, is := range entry.issues {
 		if is.Key == key {
-			return worklogViews(is, labelsOf(entry.report)), nil
+			return worklogViews(is, labelsOf(entry.report), entry.report.Sprint.CountsFrom, entry.report.Sprint.CountsUntil), nil
 		}
 	}
 	return nil, fmt.Errorf("%s is %w", key, ErrUnknownKey)
@@ -85,7 +91,7 @@ func labelsOf(rep Report) map[string]string {
 
 // worklogViews reads an issue's entries into views. Pure: the issue and
 // the labels are all it looks at.
-func worklogViews(is jira.Issue, labels map[string]string) []WorklogView {
+func worklogViews(is jira.Issue, labels map[string]string, opens, closes time.Time) []WorklogView {
 	// A slice rather than nil: this crosses to a browser as JSON, and
 	// null where an array was promised is a crash in the panel.
 	out := make([]WorklogView, 0, len(is.Fields.Worklog.Entries))
@@ -96,6 +102,7 @@ func worklogViews(is jira.Issue, labels map[string]string) []WorklogView {
 			Started: w.Started.Time,
 			Note:    commentText(w.Comment),
 			People:  []WorklogPerson{},
+			Window:  windowOf(w.Started.Time, opens, closes),
 		}
 		if w.Author != nil {
 			v.Author = w.Author.AccountID
@@ -156,5 +163,20 @@ func (n textNode) collect(b *strings.Builder) {
 	}
 	for _, c := range n.Content {
 		c.collect(b)
+	}
+}
+
+// windowOf places a moment against a sprint's counting window. Empty when
+// no window was given, so the same view serves a caller with no sprint.
+func windowOf(at, opens, closes time.Time) string {
+	switch {
+	case opens.IsZero() || closes.IsZero():
+		return ""
+	case at.Before(opens):
+		return "before"
+	case at.After(closes):
+		return "after"
+	default:
+		return "inside"
 	}
 }

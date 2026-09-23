@@ -558,6 +558,9 @@ export type WorklogView = {
   hours: number;
   started: string;
   note: string;
+  /** Where the entry falls against the sprint being looked at. Only
+   *  "inside" credits this sprint. Absent when no sprint was given. */
+  window?: "before" | "inside" | "after";
 };
 
 /* A POST that reads the server's reason on failure, so a 409 ("open the
@@ -621,6 +624,9 @@ export type CloseoutEffortRow = {
   key: string;
   summary: string;
   status: string;
+  /** Where the ticket stood when the sprint closed, which is why it is
+   *  in the list; `status` is where it stands now. */
+  status_at_close: string;
   url: string;
   assignee_account_id: string;
   assignee_label: string;
@@ -640,6 +646,9 @@ export type CloseoutStoryRow = {
   linked_points: number;
   sum_known: boolean;
   suggested: number | null;
+  /** Wrapped up in this sprint. False for an earlier Story listed only
+   *  because its points still disagree with the sum beneath it. */
+  concluded_here: boolean;
 };
 
 export type CloseoutPerson = {

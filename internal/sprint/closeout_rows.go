@@ -97,11 +97,16 @@ func finisher(changes []jira.StatusChange, rules Rules) *jira.User {
 }
 
 // effort is a carried ticket with what is logged against it now.
-func (c closer) effort(row Row, is jira.Issue) EffortRow {
+func (c closer) effort(rep Report, row Row, is jira.Issue) EffortRow {
+	life := newTimeline(is, c.in.Changes[is.ID], nil, c.in.Rules.Done)
 	out := EffortRow{
 		Key: row.Key, Summary: row.Summary, Status: row.Status, URL: row.URL,
-		HoursLogged: row.HoursLogged,
-		Entries:     worklogViews(is, c.labels),
+		StatusAtClose: life.statusAt(rep.Sprint.CountsUntil),
+		HoursLogged:   row.HoursLogged,
+		Entries:       worklogViews(is, c.labels, rep.Sprint.CountsFrom, rep.Sprint.CountsUntil),
+	}
+	if out.StatusAtClose == "" {
+		out.StatusAtClose = row.Status
 	}
 	if who := is.Fields.Assignee; who != nil {
 		out.AssigneeAccountID = who.AccountID
@@ -140,7 +145,8 @@ func (c closer) stories(rep Report) []StoryRollup {
 		row := StoryRollup{
 			Key: is.Key, Summary: is.Fields.Summary, URL: browseURL(c.in.BaseURL, is.Key),
 			LinkedCount: len(items), LinkedPoints: linked,
-			SumKnown: len(items) > 0 && sized == len(items),
+			SumKnown:      len(items) > 0 && sized == len(items),
+			ConcludedHere: concluded[is.Key],
 		}
 		if own, has := is.Number(c.in.PointsField); has {
 			row.OwnPoints = &own
@@ -148,8 +154,23 @@ func (c closer) stories(rep Report) []StoryRollup {
 		if row.SumKnown {
 			row.Suggested = &linked
 		}
+		// A Story that wrapped up in an earlier sprint was that sprint's
+		// to roll up. It is listed again only while its points disagree
+		// with a known sum, as a correction; one that already matches, or
+		// whose sum nobody can know, has nothing to do here.
+		if !row.ConcludedHere {
+			matches := row.SumKnown && row.OwnPoints != nil && *row.OwnPoints == linked
+			if !row.SumKnown || matches {
+				continue
+			}
+		}
 		out = append(out, row)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ConcludedHere != out[j].ConcludedHere {
+			return out[i].ConcludedHere
+		}
+		return out[i].Key < out[j].Key
+	})
 	return out
 }

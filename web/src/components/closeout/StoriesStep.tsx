@@ -64,6 +64,11 @@ function Row({ row, draft, skips }: { row: CloseoutStoryRow; draft: ChangeDraft;
       </td>
       <td className="py-2 pr-3">
         {row.sum_known && <Source label={`sum of ${row.linked_count}`} title="The points of the linked Tasks and Bugs, added up." />}
+        {!row.concluded_here && (
+          <span className="ml-2">
+            <Badge tone="info" label="earlier sprint" title="This Story wrapped up in an earlier sprint and was that sprint's to roll up. It is listed because its points still disagree with the sum beneath it; accepting corrects it." />
+          </span>
+        )}
       </td>
       <td className="py-2 text-right">
         {!row.sum_known ? null : matches ? (

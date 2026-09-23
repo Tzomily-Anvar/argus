@@ -95,10 +95,17 @@ type AssignRow struct {
 // against it now. The assignee is the suggested person; the hours are
 // left blank, because that is the one figure only a person knows.
 type EffortRow struct {
-	Key               string        `json:"key"`
-	Summary           string        `json:"summary"`
-	Status            string        `json:"status"`
-	URL               string        `json:"url"`
+	Key     string `json:"key"`
+	Summary string `json:"summary"`
+	Status  string `json:"status"`
+	URL     string `json:"url"`
+
+	// StatusAtClose is where the ticket stood when the sprint closed,
+	// which is the fact that put it in this list. Status above is where
+	// it stands now; a ticket finished since reads Done there and still
+	// belongs here for the effort spent on it during the sprint.
+	StatusAtClose string `json:"status_at_close"`
+
 	AssigneeAccountID string        `json:"assignee_account_id"`
 	AssigneeLabel     string        `json:"assignee_label"`
 	HoursLogged       float64       `json:"hours_logged"`
@@ -118,6 +125,12 @@ type StoryRollup struct {
 	LinkedPoints float64  `json:"linked_points"`
 	SumKnown     bool     `json:"sum_known"`
 	Suggested    *float64 `json:"suggested"`
+
+	// ConcludedHere is true for a Story that wrapped up in this sprint,
+	// which is the sprint whose close should roll it up. A Story that
+	// concluded earlier appears only when its points still disagree with
+	// the sum beneath it, as a correction rather than a close-out task.
+	ConcludedHere bool `json:"concluded_here"`
 }
 
 // CloseoutPerson is one measured person, for the Reasons step: the note
@@ -172,7 +185,7 @@ func Closeout(rep Report, in CloseoutInputs) CloseoutModel {
 
 	for _, row := range rep.Carry {
 		if is, ok := c.issues[row.Key]; ok && row.Active {
-			m.Effort = append(m.Effort, c.effort(row, is))
+			m.Effort = append(m.Effort, c.effort(rep, row, is))
 		}
 	}
 

@@ -48,16 +48,31 @@ function Row({
   return (
     <tr className="border-t align-top" style={{ borderColor: "var(--line)" }}>
       <KeyCell issueKey={row.key} url={row.url} summary={row.summary} />
-      <td className="py-2 pr-3 whitespace-nowrap" style={{ color: "var(--muted)" }}>{row.status}</td>
+      <td className="py-2 pr-3 whitespace-nowrap" style={{ color: "var(--muted)" }}>
+        {/* Where it stood at the close is why it is here; where it stands
+            now is a different fact, and a ticket finished since still
+            earned this sprint whatever was spent on it here. */}
+        {row.status_at_close}
+        {row.status !== row.status_at_close && (
+          <div className="text-[11px]" style={{ color: "var(--faint)" }}>now {row.status}</div>
+        )}
+      </td>
       <td className="py-2 pr-3">
-        <div className="tnum whitespace-nowrap">{figure(row.hours_logged)}h</div>
-        {/* What is there already, so what is typed is added to a known
-            figure rather than guessed against a blank. */}
+        <div className="tnum whitespace-nowrap">
+          {figure(row.hours_logged)}h
+          <span className="ml-1 text-[11px]" style={{ color: "var(--faint)" }}>in this sprint</span>
+        </div>
+        {/* Every entry on the ticket, so what is typed is added to a known
+            figure. Only the ones inside the window count here; the rest
+            are shown greyed and said to be before or after, so a 0h above
+            a 2h line does not read as a contradiction. */}
         {row.entries.length > 0 && (
           <ul className="mt-0.5 space-y-0.5 text-[11.5px]" style={{ color: "var(--faint)" }}>
             {row.entries.map((e) => (
-              <li key={e.id} className="whitespace-nowrap">
+              <li key={e.id} className="whitespace-nowrap" style={{ opacity: e.window && e.window !== "inside" ? 0.6 : 1 }}>
                 {e.people.length > 0 ? e.people.map((p) => p.label).join(", ") : e.author_label} · {figure(e.hours)}h · {formatDay(e.started, false)}
+                {e.window === "before" && " · before the sprint"}
+                {e.window === "after" && " · after the close"}
               </li>
             ))}
           </ul>
@@ -98,6 +113,11 @@ function Row({
         )}
       </td>
       <td className="py-2 pr-3">
+        {row.hours_logged > 0 && (
+          <span className="mr-2">
+            <Badge tone="good" label="logged" title="Time is already logged inside this sprint. Add more only if somebody else worked on it." />
+          </span>
+        )}
         {onRoster ? (
           <Source label="assignee" title={`${row.assignee_label} is assigned the ticket. The hours are left to you.`} />
         ) : row.assignee_account_id ? (
@@ -139,18 +159,22 @@ export function EffortStep({
   return (
     <>
       <StepIntro title="Effort on carryover">
-        Still open at the close and worked on during the sprint. These are credited only for the
-        time logged against them here, so what is not logged is not counted. Hours in, points shown
-        beside them; the date is the sprint's close. Corrections to existing entries are made from
-        the Effort disclosure on the report's Carryover rows.
+        Still open when the sprint closed, and worked on during it. This sprint is credited only for
+        the time logged inside its window, so a ticket with nothing logged here earns it nothing,
+        whatever sprint finishes it later. For each person who worked on a ticket this sprint, type
+        their hours; the points show beside them and the entry is dated at the close. Rows with time
+        already logged sit last. Corrections to existing entries are made from the Effort disclosure
+        on the report's Carryover rows.
       </StepIntro>
       {rows.length === 0 ? (
         <Empty>Nothing was carried over with work on it.</Empty>
       ) : (
         <StepTable headers={["Key", "Status", "Logged", "Add", "From", ""]}>
-          {rows.map((r) => (
-            <Row key={r.key} row={r} roster={roster} hoursPerPoint={hoursPerPoint} draft={draft} skips={skips} />
-          ))}
+          {[...rows]
+            .sort((a, b) => Number(a.hours_logged > 0) - Number(b.hours_logged > 0) || a.key.localeCompare(b.key))
+            .map((r) => (
+              <Row key={r.key} row={r} roster={roster} hoursPerPoint={hoursPerPoint} draft={draft} skips={skips} />
+            ))}
         </StepTable>
       )}
     </>
