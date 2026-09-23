@@ -207,11 +207,22 @@ func testStats(t *testing.T, s store.Store) {
 
 // The audit exists so a bulk edit can be explained afterwards, so it
 // accumulates rather than replaces, newest first.
+//
+// The change set and outcome are what make a bulk edit readable as one
+// action, and they have to survive both backends unchanged - including
+// when absent, because every record written before they existed has
+// neither. Filtering by change set is the caller's for now; the
+// interface is not widened until something needs it.
 func testWriteAudit(t *testing.T, s store.Store) {
-	for _, op := range []string{"assign", "set_points"} {
-		if err := s.AppendWrite(ctx(), store.WriteRecord{
-			Operation: op, Target: "PROJ-1", Before: "x", After: "y", Actor: "me",
-		}); err != nil {
+	records := []store.WriteRecord{
+		{Operation: "assign", Target: "ABC-123", Before: "x", After: "y", Actor: "me"},
+		{Operation: "points.set", Target: "ABC-124", After: "3", Actor: "account-a",
+			ChangeSet: "cs-1", Outcome: store.OutcomeApplied},
+		{Operation: "points.set", Target: "ABC-125", After: "5", Actor: "account-a",
+			ChangeSet: "cs-1", Outcome: store.OutcomeSkipped, Note: "guard: field no longer empty"},
+	}
+	for _, w := range records {
+		if err := s.AppendWrite(ctx(), w); err != nil {
 			t.Fatalf("AppendWrite: %v", err)
 		}
 	}
@@ -219,14 +230,29 @@ func testWriteAudit(t *testing.T, s store.Store) {
 	if err != nil {
 		t.Fatalf("ListWrites: %v", err)
 	}
-	if len(all) != 2 {
-		t.Fatalf("expected 2 records, got %d", len(all))
+	if len(all) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(all))
 	}
-	if all[0].Operation != "set_points" {
-		t.Errorf("newest should be first, got %q", all[0].Operation)
+	if all[0].Target != "ABC-125" {
+		t.Errorf("newest should be first, got %q", all[0].Target)
 	}
 	if all[0].At.IsZero() {
 		t.Error("At should be stamped when not supplied")
+	}
+
+	// A skipped write is recorded alongside the applied one, under the
+	// same change set: that is the whole record of a half-applied batch.
+	if all[0].ChangeSet != "cs-1" || all[0].Outcome != store.OutcomeSkipped {
+		t.Errorf("skipped write lost its context: %+v", all[0])
+	}
+	if all[1].ChangeSet != "cs-1" || all[1].Outcome != store.OutcomeApplied {
+		t.Errorf("applied write lost its context: %+v", all[1])
+	}
+
+	// A record with neither reads back with neither, not with some
+	// placeholder the other backend would not produce.
+	if all[2].ChangeSet != "" || all[2].Outcome != "" {
+		t.Errorf("a write outside any change set should read as empty, got %+v", all[2])
 	}
 }
 

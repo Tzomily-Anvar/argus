@@ -89,6 +89,11 @@ func TestPersistedJSONShape(t *testing.T) {
 			"after":     "string",
 			"actor":     "string",
 			"note":      "string",
+			// Added for the sprint write-back. Both are additive: a record
+			// written before them reads as belonging to no change set,
+			// with no recorded outcome, which is the truthful reading.
+			"change_set": "string",
+			"outcome":    "string",
 		})
 	})
 

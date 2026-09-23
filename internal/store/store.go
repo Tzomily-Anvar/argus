@@ -149,12 +149,17 @@ type SprintStats struct {
 	RecordedAt       time.Time          `json:"recorded_at"`
 }
 
-// WriteRecord is one change Argus made in Jira or Confluence.
+// WriteRecord is one write Argus attempted against Jira or Confluence.
 //
-// The tool can reassign a ticket, change its points, log work and publish
-// a page. Anything that can change someone else's data should leave a
-// record of what it changed and when, so a bulk edit can be explained -
-// or reversed - afterwards.
+// Every write the tool makes to either is recorded here: what it tried
+// to change, what was there before, what it put there, and on whose
+// behalf. Anything that alters someone else's data should leave a record
+// that can be read - or reversed - afterwards, and this is that record.
+//
+// Nothing writes yet. The write surface is being built behind a gate
+// that is off by default, and until something is switched on this log
+// stays empty. The type is here first so that the first write ever made
+// has somewhere to land.
 type WriteRecord struct {
 	ID        int64     `json:"id"`
 	At        time.Time `json:"at"`
@@ -164,7 +169,33 @@ type WriteRecord struct {
 	After     string    `json:"after,omitempty"`
 	Actor     string    `json:"actor"`
 	Note      string    `json:"note,omitempty"`
+
+	// ChangeSet groups the rows of one bulk edit, so twelve rows can be
+	// read - or reversed - as the one action they were. Empty for a
+	// record that was not part of a batch, and for every record written
+	// before the field existed.
+	ChangeSet string `json:"change_set,omitempty"`
+
+	// Outcome is one of the Outcome constants: applied, skipped or
+	// failed. Failures and conflicts are recorded too: the record of a
+	// half-applied batch is exactly the thing needed afterwards, and an
+	// audit log that only holds successes cannot answer "what happened?".
+	// Empty means the record predates the field.
+	Outcome string `json:"outcome,omitempty"`
 }
+
+// The outcomes a WriteRecord can carry.
+//
+// Skipped is distinct from failed: a skipped write was withheld on
+// purpose, usually because the compare-and-set guard found the field no
+// longer held what the preview showed, whereas a failed one was sent and
+// rejected. Both are recorded, because a reversal needs to know which
+// rows actually landed.
+const (
+	OutcomeApplied = "applied"
+	OutcomeSkipped = "skipped"
+	OutcomeFailed  = "failed"
+)
 
 // Store is the whole persistence surface. Kept deliberately small: every
 // method here has to be implemented twice and tested twice.

@@ -351,21 +351,29 @@ func (s *Store) ListStats(ctx context.Context, limit int) ([]store.SprintStats, 
 
 // ---- write audit -----------------------------------------------------
 
+// change_set and outcome are nullable columns, added after the table was
+// first written. An empty string is stored as NULL and NULL is read back
+// as the empty string, so a row from before the columns existed and a row
+// that was never part of a change set look the same to the caller, and
+// the same as they would from the file backend.
 func (s *Store) AppendWrite(ctx context.Context, w store.WriteRecord) error {
 	at := w.At
 	if at.IsZero() {
 		at = time.Now().UTC()
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO write_log (at, operation, target, before, after, actor, note)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		at, w.Operation, w.Target, w.Before, w.After, w.Actor, w.Note)
+		INSERT INTO write_log
+			(at, operation, target, before, after, actor, note, change_set, outcome)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), NULLIF($9, ''))`,
+		at, w.Operation, w.Target, w.Before, w.After, w.Actor, w.Note,
+		w.ChangeSet, w.Outcome)
 	return err
 }
 
 func (s *Store) ListWrites(ctx context.Context, limit int) ([]store.WriteRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, at, operation, target, before, after, actor, note
+		SELECT id, at, operation, target, before, after, actor, note,
+		       COALESCE(change_set, ''), COALESCE(outcome, '')
 		FROM write_log
 		ORDER BY at DESC, id DESC
 		LIMIT NULLIF($1, 0)`, limit)
@@ -378,7 +386,8 @@ func (s *Store) ListWrites(ctx context.Context, limit int) ([]store.WriteRecord,
 	for rows.Next() {
 		var w store.WriteRecord
 		if err := rows.Scan(&w.ID, &w.At, &w.Operation, &w.Target,
-			&w.Before, &w.After, &w.Actor, &w.Note); err != nil {
+			&w.Before, &w.After, &w.Actor, &w.Note,
+			&w.ChangeSet, &w.Outcome); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
