@@ -71,6 +71,7 @@ func setUpSprint(ctx context.Context) (*sprint.Service, store.Store, error) {
 		SprintLengthDays: config.JiraSprintLengthDays(),
 		EpicClasses:      epicClasses(),
 		RecentSprints:    config.Int("ARGUS_SPRINT_RECENT", 4),
+		Actor:            email,
 	})
 
 	log.Printf("argus: sprint report on (project %s, %d recent sprints)",

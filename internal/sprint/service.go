@@ -48,6 +48,11 @@ type Service struct {
 	// slow as a fresh one - which is the whole thing the cache exists to
 	// avoid. The mapping does not change once a sprint exists.
 	sprintIDs map[int]int64
+
+	// changes holds the previews built and not yet applied or expired.
+	// In memory on purpose: a preview is an in-flight intention rather
+	// than a record of anything, and losing it on a restart is right.
+	changes *changeSets
 }
 
 type Config struct {
@@ -82,6 +87,11 @@ type Config struct {
 	// AbsenceCost is how a day off is priced, point or share. Left empty,
 	// NewService reads the setting.
 	AbsenceCost string
+
+	// Actor is the account any write would be made as - the Jira email
+	// the client authenticates with. Named on every preview so the person
+	// approving it sees whose name the edits will carry.
+	Actor string
 }
 
 type fields struct {
@@ -146,6 +156,7 @@ func NewService(client *jira.Client, st store.Store, cfg Config) *Service {
 		client: client, store: st, cfg: cfg,
 		reports:   map[int64]*cached{},
 		sprintIDs: map[int]int64{},
+		changes:   newChangeSets(func() time.Time { return time.Now().UTC() }),
 	}
 }
 

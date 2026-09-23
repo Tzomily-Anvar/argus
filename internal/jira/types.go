@@ -242,6 +242,7 @@ func (i Issue) IsDone(doneStatuses []string) bool {
 type WorklogEntry struct {
 	ID      string          `json:"id"`
 	Started Time            `json:"started"`
+	Updated Time            `json:"updated"`
 	Seconds int             `json:"timeSpentSeconds"`
 	Author  *User           `json:"author"`
 	Comment json.RawMessage `json:"comment,omitempty"`
