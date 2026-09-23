@@ -230,6 +230,9 @@ func Build(in Inputs) Report {
 		for _, s := range credited.Split {
 			r.Flags = append(r.Flags, splitFlag(row, s, in))
 		}
+		for _, d := range credited.Disagree {
+			r.Flags = append(r.Flags, disagreeFlag(row, d, in))
+		}
 		if len(credited.Shares) == 0 {
 			unattributed += row.Credited
 			r.Flags = append(r.Flags, unassignedFlag(row, in))
@@ -534,6 +537,18 @@ type attribution struct {
 	// beside each name, so their time was divided equally. A fallback,
 	// and flagged as one.
 	Split []equalSplit
+
+	// Disagree lists the entries whose written figures add up to
+	// something other than the time logged. The entry was divided by the
+	// figures regardless; which number is right is for a person.
+	Disagree []disagreement
+}
+
+// disagreement is one logged entry whose figures do not add up to it.
+type disagreement struct {
+	Hours float64 // Time Spent
+	Sum   float64 // the figures beside the names, added
+	Unit  string  // their unit, or empty when none was written
 }
 
 // equalSplit is one logged entry divided equally between the people it
@@ -568,6 +583,7 @@ func creditByPerson(is jira.Issue, row Row, opens, closes time.Time, in Inputs) 
 	byPerson := map[string]float64{}
 	total := 0.0
 	var split []equalSplit
+	var disagree []disagreement
 	for _, w := range is.Fields.Worklog.Entries {
 		at := w.Started.Time
 		if at.Before(opens) || at.After(closes) || w.Author == nil || w.Author.AccountID == "" {
@@ -602,6 +618,9 @@ func creditByPerson(is jira.Issue, row Row, opens, closes time.Time, in Inputs) 
 			for i, m := range named {
 				byPerson[m.ID] += secs * weights[i] / sum
 			}
+			if d, off := figuresDisagree(named, secs/3600, in); off {
+				disagree = append(disagree, d)
+			}
 		}
 	}
 	if total == 0 {
@@ -611,7 +630,7 @@ func creditByPerson(is jira.Issue, row Row, opens, closes time.Time, in Inputs) 
 		return attribution{Shares: map[string]float64{is.Fields.Assignee.AccountID: row.Credited}}
 	}
 
-	out := attribution{Shares: make(map[string]float64, len(byPerson)), Split: split}
+	out := attribution{Shares: make(map[string]float64, len(byPerson)), Split: split, Disagree: disagree}
 	for id, secs := range byPerson {
 		if share := round2(row.Credited * secs / total); share != 0 {
 			out.Shares[id] = share
@@ -653,6 +672,68 @@ func shareWeights(named []jira.Mention, in Inputs) (weights []float64, partial b
 		}
 	}
 	return weights, false
+}
+
+// figuresDisagree says whether the figures beside the names add up to the
+// time logged, within a tenth. With a unit there is one reading. Without
+// one the figures are tried as hours, as days and as points, and only an
+// entry that matches none of them is reported: "3,5" and "1" against 27
+// hours is a team writing points, and needs no remark.
+//
+// A disagreement is not resolved here. The entry was already divided by
+// the figures, because a ratio survives the confusion; which total is
+// right does not, and a person has to say.
+func figuresDisagree(named []jira.Mention, hours float64, in Inputs) (disagreement, bool) {
+	sum := 0.0
+	units := map[string]bool{}
+	for _, m := range named {
+		sum += m.Figure
+		units[m.Unit] = true
+	}
+	if len(units) != 1 || sum <= 0 || hours <= 0 {
+		return disagreement{}, false // mixed units were converted to hours already; nothing to compare
+	}
+	var unit string
+	for u := range units {
+		unit = u
+	}
+	readings := map[string]float64{"h": 1, "d": in.hoursPerDay(), "sp": in.secondsPerPoint() / 3600}
+	try := []string{unit}
+	if unit == "" {
+		try = []string{"h", "d", "sp"}
+	}
+	for _, u := range try {
+		if as := sum * readings[u]; math.Abs(as-hours) <= hours*0.1 {
+			return disagreement{}, false
+		}
+	}
+	return disagreement{Hours: hours, Sum: sum, Unit: unit}, true
+}
+
+// disagreeFlag names a logged entry whose figures do not add up to it.
+func disagreeFlag(row Row, d disagreement, in Inputs) Flag {
+	hours := strconv.FormatFloat(d.Hours, 'f', -1, 64)
+	sum := strconv.FormatFloat(d.Sum, 'f', -1, 64)
+	var written string
+	switch d.Unit {
+	case "":
+		written = fmt.Sprintf("%s with no unit, which is %sh as points or days", sum,
+			strconv.FormatFloat(d.Sum*in.secondsPerPoint()/3600, 'f', -1, 64))
+	case "h":
+		written = sum + "h"
+	case "d":
+		written = fmt.Sprintf("%s days, which is %sh", sum, strconv.FormatFloat(d.Sum*in.hoursPerDay(), 'f', -1, 64))
+	default:
+		written = fmt.Sprintf("%s points, which is %sh", sum, strconv.FormatFloat(d.Sum*in.secondsPerPoint()/3600, 'f', -1, 64))
+	}
+	return Flag{
+		Kind: FlagWorklogFiguresDisagree,
+		Key:  row.Key,
+		Message: fmt.Sprintf("%s has %sh logged, but the figures beside the names add up to %s. The entry was "+
+			"divided by the figures; one of the two numbers is wrong, and Jira reports the logged one",
+			row.Key, hours, written),
+		URL: row.URL,
+	}
 }
 
 // hoursPerDay is a working day in hours, for reading a figure written in
@@ -1045,18 +1126,19 @@ func firstOr(list []string, fallback string) string {
 // sortFlags puts the kinds that need action before the informational ones.
 func sortFlags(flags []Flag) {
 	rank := map[string]int{
-		FlagDoneUnassigned:       0,
-		FlagDoneNoEstimate:       1,
-		FlagStoryNothingSized:    2,
-		FlagStoryPointsMismatch:  3,
-		FlagStoryNoWork:          4,
-		FlagStoryWorkDoneNotShut: 5,
-		FlagEstimateFallback:     6,
-		FlagWorklogSplitEqually:  7,
-		FlagNoBaseline:           8,
-		FlagDeliveredOffRoster:   9,
-		FlagCarriedNoWorklog:     10,
-		FlagCapacityUnreviewed:   11,
+		FlagDoneUnassigned:         0,
+		FlagDoneNoEstimate:         1,
+		FlagStoryNothingSized:      2,
+		FlagStoryPointsMismatch:    3,
+		FlagStoryNoWork:            4,
+		FlagStoryWorkDoneNotShut:   5,
+		FlagEstimateFallback:       6,
+		FlagWorklogSplitEqually:    7,
+		FlagWorklogFiguresDisagree: 8,
+		FlagNoBaseline:             9,
+		FlagDeliveredOffRoster:     10,
+		FlagCarriedNoWorklog:       11,
+		FlagCapacityUnreviewed:     12,
 	}
 	sort.SliceStable(flags, func(i, j int) bool {
 		if rank[flags[i].Kind] != rank[flags[j].Kind] {
