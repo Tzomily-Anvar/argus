@@ -170,3 +170,37 @@ func TestMixedEntriesAddUp(t *testing.T) {
 		t.Errorf("shares sum to %.2f, want the ticket's 6", got)
 	}
 }
+
+// Figures that add up to the time logged, under any reading of an unwritten
+// unit, need no remark. Figures that match no reading are reported, and the
+// entry is still divided by them.
+func TestFiguresThatDoNotAddUpAreFlagged(t *testing.T) {
+	cases := map[string]struct {
+		hours float64
+		named []string
+		flag  bool
+	}{
+		"hours agree":                 {4, []string{"acc-a", " 3h ", "acc-b", " 1h"}, false},
+		"hours disagree":              {12, []string{"acc-a", " 3h ", "acc-b", " 1h"}, true},
+		"no unit, reads as points":    {27, []string{"acc-a", " 3,5 ", "acc-b", " 1"}, false},
+		"no unit, reads as hours":     {4.5, []string{"acc-a", " 3,5 ", "acc-b", " 1"}, false},
+		"no unit, reads as nothing":   {35, []string{"acc-a", " 3,5 ", "acc-b", " 1"}, true},
+		"within a tenth is agreement": {26, []string{"acc-a", " 3,5 ", "acc-b", " 1"}, false},
+	}
+	for name, c := range cases {
+		r := attributed(t, config.AttributeToMention, func(is *jira.Issue) { workedBy(is, "acc-lead", c.hours, c.named...) })
+		if got := flagCount(r, sprint.FlagWorklogFiguresDisagree) == 1; got != c.flag {
+			t.Errorf("%s: flagged = %v, want %v", name, got, c.flag)
+		}
+		if a, b := deliveredBy(r, "acc-a"), deliveredBy(r, "acc-b"); a+b != 6 || a <= b {
+			t.Errorf("%s: shares %.2f and %.2f should still divide the 6 points by the figures", name, a, b)
+		}
+	}
+	r := attributed(t, config.AttributeToMention, func(is *jira.Issue) { workedBy(is, "acc-lead", 35, "acc-a", " 3,5 ", "acc-b", " 1") })
+	f := flag(t, r, sprint.FlagWorklogFiguresDisagree)
+	for _, want := range []string{"35h logged", "add up to 4.5 with no unit", "27h as points or days", "divided by the figures"} {
+		if !strings.Contains(f.Message, want) {
+			t.Errorf("flag message %q should mention %q", f.Message, want)
+		}
+	}
+}
