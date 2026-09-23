@@ -5,9 +5,11 @@ import (
 	"math"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/jira"
 	"github.com/Tzomily-Anvar/argus/internal/store"
 )
@@ -67,6 +69,14 @@ type Inputs struct {
 	// HoursPerPoint turns logged time into points, which is how a sprint
 	// gets credit for work on a ticket that finished somewhere else.
 	HoursPerPoint float64
+
+	// WorklogAttribution says who a logged entry is credited to: its
+	// author (config.AttributeToAuthor, the default) or the one person
+	// its comment @mentions (config.AttributeToMention). Jira cannot log
+	// time on somebody's behalf, so a team whose lead logs everyone's
+	// carryover at sprint close names the real person in the comment,
+	// and this is what lets the report read that.
+	WorklogAttribution string
 
 	// EpicClasses maps a class name to a pattern matched against the epic
 	// summary, so a team can split Run from Build however they label it.
@@ -212,13 +222,22 @@ func Build(in Inputs) Report {
 		r.Summary.PriorPointsDeducted += row.PriorPoints
 		addToEpic(epicPoints, row)
 
-		shares := creditByPerson(is, row, opens, closes)
-		if len(shares) == 0 {
-			unattributed += row.Credited
-			r.Flags = append(r.Flags, unassignedFlag(row, in))
+		split := creditByPerson(is, row, opens, closes, in.WorklogAttribution)
+		unattributed += split.Withheld
+		for _, a := range split.Ambiguous {
+			r.Flags = append(r.Flags, ambiguousFlag(row, a, in))
+		}
+		if len(split.Shares) == 0 {
+			// Nothing withheld means nothing was logged and nobody is
+			// assigned, which is a different gap from an entry that
+			// could not be read, and gets its own flag.
+			if split.Withheld == 0 {
+				unattributed += row.Credited
+				r.Flags = append(r.Flags, unassignedFlag(row, in))
+			}
 			continue
 		}
-		for id, pts := range shares {
+		for id, pts := range split.Shares {
 			delivered[id] += pts
 			rowsFor[id] = append(rowsFor[id], row)
 			if _, known := people[id]; !known {
@@ -508,6 +527,27 @@ func loggedSeconds(is jira.Issue, opens, closes time.Time) (inside, before, tota
 	return inside, before, total
 }
 
+// attribution is how one row's points divide between people.
+type attribution struct {
+	// Shares is the points each account is credited with.
+	Shares map[string]float64
+
+	// Withheld is the part of the row's credit that no one gets, because
+	// the entries carrying it name more than one person. It is reported
+	// as unattributed rather than handed to whoever logged it.
+	Withheld float64
+
+	// Ambiguous lists those entries, one per flag.
+	Ambiguous []ambiguity
+}
+
+// ambiguity is one logged entry that names several people.
+type ambiguity struct {
+	Hours  float64
+	People int
+	Points float64 // the credit withheld, zero under author attribution
+}
+
 // creditByPerson splits a row's credit across whoever logged time on it
 // during the sprint, falling back to the assignee.
 //
@@ -516,34 +556,82 @@ func loggedSeconds(is jira.Issue, opens, closes time.Time) (inside, before, tota
 // work. Where time has been logged, that is a direct record of who did
 // what and it wins. Where none has, the assignee is the right answer
 // rather than a compromise - most tickets have no log, and that is fine.
-func creditByPerson(is jira.Issue, row Row, opens, closes time.Time) map[string]float64 {
+//
+// Who an entry records as having done the work depends on the team.
+// Under author attribution it is whoever logged it. Under mention
+// attribution it is the one person the comment @mentions, when that is
+// somebody other than the author: Jira has no way to log time on another
+// person's behalf, so a lead closing out a sprint names them there
+// instead. An entry naming two or more people is ambiguous either way -
+// one Time Spent, several names, and no rule that divides it honestly.
+// Under mention attribution its share is withheld and reported; under
+// author attribution it stays with the author and is still flagged.
+func creditByPerson(is jira.Issue, row Row, opens, closes time.Time, mode string) attribution {
 	if row.Credited == 0 {
-		return nil
+		return attribution{}
 	}
 	byPerson := map[string]int{}
+	ambiguousSecs := 0
 	total := 0
+	var ambiguous []ambiguity
 	for _, w := range is.Fields.Worklog.Entries {
 		at := w.Started.Time
 		if at.Before(opens) || at.After(closes) || w.Author == nil || w.Author.AccountID == "" {
 			continue
 		}
-		byPerson[w.Author.AccountID] += w.Seconds
 		total += w.Seconds
+
+		who := w.Author.AccountID
+		mentions := w.Mentions()
+		if len(mentions) > 1 {
+			ambiguous = append(ambiguous, ambiguity{Hours: float64(w.Seconds) / 3600, People: len(mentions)})
+			if mode == config.AttributeToMention {
+				ambiguousSecs += w.Seconds
+				continue
+			}
+		} else if mode == config.AttributeToMention && len(mentions) == 1 {
+			who = mentions[0]
+		}
+		byPerson[who] += w.Seconds
 	}
 	if total == 0 {
 		if is.Fields.Assignee == nil || is.Fields.Assignee.AccountID == "" {
-			return nil
+			return attribution{}
 		}
-		return map[string]float64{is.Fields.Assignee.AccountID: row.Credited}
+		return attribution{Shares: map[string]float64{is.Fields.Assignee.AccountID: row.Credited}}
 	}
 
-	out := make(map[string]float64, len(byPerson))
+	out := attribution{Shares: make(map[string]float64, len(byPerson)), Ambiguous: ambiguous}
 	for id, secs := range byPerson {
 		if share := round2(row.Credited * float64(secs) / float64(total)); share != 0 {
-			out[id] = share
+			out.Shares[id] = share
+		}
+	}
+	if ambiguousSecs > 0 {
+		out.Withheld = round2(row.Credited * float64(ambiguousSecs) / float64(total))
+		// The withheld points are spread over the ambiguous entries in
+		// proportion to their hours, so each flag can say what it cost.
+		for n := range out.Ambiguous {
+			out.Ambiguous[n].Points = round2(out.Withheld * out.Ambiguous[n].Hours * 3600 / float64(ambiguousSecs))
 		}
 	}
 	return out
+}
+
+// ambiguousFlag names a logged entry that credits nobody because it
+// names several people. The fix is always the same: one entry per
+// person, with that person's hours, so the field and the text agree.
+func ambiguousFlag(row Row, a ambiguity, in Inputs) Flag {
+	hours := strconv.FormatFloat(a.Hours, 'f', -1, 64)
+	msg := fmt.Sprintf("%s has %sh logged in one entry naming %d people", row.Key, hours, a.People)
+	if in.WorklogAttribution == config.AttributeToMention {
+		msg += fmt.Sprintf(", so its %.2f points are credited to nobody. Log one entry per person, "+
+			"with their own hours, and the credit follows", a.Points)
+	} else {
+		msg += ". It is credited to whoever logged it; if that is not who did the work, " +
+			"log one entry per person"
+	}
+	return Flag{Kind: FlagWorklogAmbiguous, Key: row.Key, Message: msg, URL: row.URL}
 }
 
 // nameFor finds a display name for an account id seen on this issue.
@@ -908,16 +996,17 @@ func firstOr(list []string, fallback string) string {
 func sortFlags(flags []Flag) {
 	rank := map[string]int{
 		FlagDoneUnassigned:       0,
-		FlagDoneNoEstimate:       1,
-		FlagStoryNothingSized:    2,
-		FlagStoryPointsMismatch:  3,
-		FlagStoryNoWork:          4,
-		FlagStoryWorkDoneNotShut: 5,
-		FlagEstimateFallback:     6,
-		FlagNoBaseline:           7,
-		FlagDeliveredOffRoster:   8,
-		FlagCarriedNoWorklog:     9,
-		FlagCapacityUnreviewed:   10,
+		FlagWorklogAmbiguous:     1,
+		FlagDoneNoEstimate:       2,
+		FlagStoryNothingSized:    3,
+		FlagStoryPointsMismatch:  4,
+		FlagStoryNoWork:          5,
+		FlagStoryWorkDoneNotShut: 6,
+		FlagEstimateFallback:     7,
+		FlagNoBaseline:           8,
+		FlagDeliveredOffRoster:   9,
+		FlagCarriedNoWorklog:     10,
+		FlagCapacityUnreviewed:   11,
 	}
 	sort.SliceStable(flags, func(i, j int) bool {
 		if rank[flags[i].Kind] != rank[flags[j].Kind] {

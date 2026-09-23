@@ -329,6 +329,12 @@ const (
 	FlagCapacityUnreviewed = "capacity_unreviewed"
 	FlagCarriedNoWorklog   = "carried_no_worklog"
 
+	// FlagWorklogAmbiguous marks a logged entry whose comment names two
+	// or more people against a single Time Spent. Nobody can be credited
+	// with it without guessing how it divides, so it is credited to
+	// nobody and said so. The fix is one entry per person.
+	FlagWorklogAmbiguous = "worklog_ambiguous"
+
 	// The container flags. These replaced one that fired on every Story
 	// carrying points, which is normal data for a team that rolls up, and
 	// so named nothing anybody could act on.

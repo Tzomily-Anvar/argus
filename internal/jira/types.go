@@ -227,15 +227,69 @@ func (i Issue) IsDone(doneStatuses []string) bool {
 	return false
 }
 
-// WorklogEntry is one person's logged time.
+// WorklogEntry is one entry of logged time.
 //
 // Author rather than assignee is the point of holding these: a ticket
 // that spans sprints sits with whoever it was handed to last, which is
 // often not who did the work.
+//
+// Author is not always who did the work either. Jira sets it to whoever
+// made the request and offers no way to log time on somebody's behalf,
+// so a lead closing out a sprint on the team's behalf authors every
+// entry and names the real person with an @mention in the comment. The
+// comment is kept, decoded no further than it has to be, so that
+// convention can be read.
 type WorklogEntry struct {
-	Started Time  `json:"started"`
-	Seconds int   `json:"timeSpentSeconds"`
-	Author  *User `json:"author"`
+	ID      string          `json:"id"`
+	Started Time            `json:"started"`
+	Seconds int             `json:"timeSpentSeconds"`
+	Author  *User           `json:"author"`
+	Comment json.RawMessage `json:"comment,omitempty"`
+}
+
+// Mentions lists the account ids the entry's comment @mentions, in the
+// order they appear, each once.
+//
+// The comment is an Atlassian Document Format tree, and a mention is a
+// node of type "mention" whose attrs carry the account id. Nothing else
+// in the document is read: the text beside a mention is somebody's note,
+// not data, and an hour figure typed there is exactly the thing this
+// tool must not parse.
+func (w WorklogEntry) Mentions() []string {
+	if len(w.Comment) == 0 || string(w.Comment) == "null" {
+		return nil
+	}
+	var root adfNode
+	if err := json.Unmarshal(w.Comment, &root); err != nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	root.walk(func(n adfNode) {
+		if n.Type != "mention" || n.Attrs.ID == "" || seen[n.Attrs.ID] {
+			return
+		}
+		seen[n.Attrs.ID] = true
+		out = append(out, n.Attrs.ID)
+	})
+	return out
+}
+
+// adfNode is the part of an Atlassian Document Format node this package
+// needs: enough to find mentions and descend.
+type adfNode struct {
+	Type    string    `json:"type"`
+	Content []adfNode `json:"content"`
+	Attrs   struct {
+		ID string `json:"id"`
+	} `json:"attrs"`
+}
+
+func (n adfNode) walk(visit func(adfNode)) {
+	visit(n)
+	for _, c := range n.Content {
+		c.walk(visit)
+	}
 }
 
 // Truncated reports whether Jira cut the worklog list short, in which case

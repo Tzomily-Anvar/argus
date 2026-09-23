@@ -277,6 +277,30 @@ func JiraStoryLinkTypes() []string {
 	return Strings("ARGUS_JIRA_STORY_LINK_TYPES", []string{"Blocks", "migration_parent", "Relates"})
 }
 
+// Worklog attribution modes: who a logged entry's time is credited to.
+const (
+	// AttributeToAuthor credits the account that logged the entry. The
+	// default, and right for a team where people log their own time.
+	AttributeToAuthor = "author"
+
+	// AttributeToMention credits the one account the entry's comment
+	// @mentions, when the author is somebody else. For a team where a
+	// lead logs everyone's time at sprint close: Jira offers no way to
+	// log on somebody's behalf, so the mention is where the real person
+	// is named.
+	AttributeToMention = "mention"
+)
+
+// JiraWorklogAttribution says who a worklog entry's time is credited to.
+// Anything unrecognised reads as author, which is the behaviour that
+// existed before the setting did.
+func JiraWorklogAttribution() string {
+	if v := strings.ToLower(String("ARGUS_JIRA_WORKLOG_ATTRIBUTION", AttributeToAuthor)); v == AttributeToMention {
+		return AttributeToMention
+	}
+	return AttributeToAuthor
+}
+
 func JiraSprintField() string { return String("ARGUS_JIRA_SPRINT_FIELD", "") }
 
 func JiraSprintFieldName() string {
