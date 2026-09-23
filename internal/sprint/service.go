@@ -78,6 +78,10 @@ type Config struct {
 	// HoursPerDay is a working day in hours, for a breakdown written in
 	// days beside a name. Left zero, NewService reads the setting.
 	HoursPerDay float64
+
+	// AbsenceCost is how a day off is priced, point or share. Left empty,
+	// NewService reads the setting.
+	AbsenceCost string
 }
 
 type fields struct {
@@ -134,6 +138,9 @@ func NewService(client *jira.Client, st store.Store, cfg Config) *Service {
 	}
 	if cfg.HoursPerDay <= 0 {
 		cfg.HoursPerDay = config.HoursPerDay()
+	}
+	if cfg.AbsenceCost == "" {
+		cfg.AbsenceCost = config.SprintAbsenceCost()
 	}
 	return &Service{
 		client: client, store: st, cfg: cfg,
@@ -444,6 +451,7 @@ func (s *Service) derive(ctx context.Context, sp jira.Sprint, issues []jira.Issu
 		Changes: got.changes, Linked: got.linked, PreviousClose: got.previous,
 		StoryLinkTypes: s.cfg.StoryLinkTypes, HoursPerPoint: s.cfg.HoursPerPoint,
 		WorklogAttribution: s.cfg.WorklogAttribution, HoursPerDay: s.cfg.HoursPerDay,
+		AbsenceCost: s.cfg.AbsenceCost,
 		EpicClasses: s.cfg.EpicClasses, SprintLengthDays: s.cfg.SprintLengthDays,
 		CapacityReviewedAt: reviewedAt,
 	}

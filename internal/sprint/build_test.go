@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/jira"
 	"github.com/Tzomily-Anvar/argus/internal/sprint"
 	"github.com/Tzomily-Anvar/argus/internal/store"
@@ -345,6 +346,45 @@ func TestADayOffCostsOnePointWhateverTheBaseline(t *testing.T) {
 			if got != c.want {
 				t.Errorf("baseline %v less %v days = %v, want %v",
 					c.baseline, c.daysOff, got, c.want)
+			}
+		})
+	}
+}
+
+// Under the share rule a day off costs the baseline's share of one sprint
+// day, so a small baseline spread across the sprint loses little to a
+// single day away. Unplanned absence is priced the same way when it
+// explains a shortfall.
+func TestADayOffCanCostAShareOfTheBaseline(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		baseline      float64
+		planned       float64
+		unplanned     float64
+		delivered     float64
+		wantCapacity  float64
+		wantShortfall float64
+	}{
+		{"a lead on three points, one day off", 3, 1, 0, 2.7, 2.7, 0},
+		{"full baseline, two days", 10, 2, 0, 8, 8, 0},
+		{"unplanned explains the shortfall at the same price", 10, 0, 2, 7, 10, 2},
+		{"unplanned never explains more than went missing", 10, 0, 5, 9, 10, 1},
+		{"away longer than the sprint is clamped at zero", 6, 12, 0, 0, 0, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			in := inputs(t)
+			in.AbsenceCost = config.AbsenceCostsShare
+			in.SprintLengthDays = 10
+			in.People = []store.Person{{AccountID: "acc-a", Name: "Person acc-a", Baseline: c.baseline, Active: true}}
+			in.Capacity = []store.Capacity{{SprintJiraID: 744, AccountID: "acc-a", PlannedDaysOff: c.planned, UnplannedDaysOff: c.unplanned}}
+			in.Issues = []jira.Issue{issue(t, "ABC-1", "Task", "Done", "acc-a", c.delivered)}
+
+			p := person(t, sprint.Build(in), "acc-a")
+			if p.Capacity != c.wantCapacity {
+				t.Errorf("capacity = %v, want %v", p.Capacity, c.wantCapacity)
+			}
+			if p.ShortfallFromAbsence != c.wantShortfall {
+				t.Errorf("shortfall from absence = %v, want %v", p.ShortfallFromAbsence, c.wantShortfall)
 			}
 		})
 	}
