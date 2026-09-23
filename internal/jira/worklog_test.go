@@ -73,6 +73,12 @@ func TestMentionSharesReadsTheFigureBesideEachName(t *testing.T) {
 			[]Mention{{ID: "a", Figure: 3, Unit: "h", HasFigure: true}, {ID: "b"}}, true},
 		{"a number that is not a figure", []string{mention("a"), text(" 2nd review "), mention("b")},
 			[]Mention{{ID: "a"}, {ID: "b"}}, false},
+		{"figure before the name", []string{text("3,5 "), mention("a"), text(" "), `{"type":"hardBreak"}`, text("1 "), mention("b"), text(" ")},
+			[]Mention{{ID: "a", Figure: 3.5, HasFigure: true}, {ID: "b", Figure: 1, HasFigure: true}}, true},
+		{"figure before, with units", []string{text("Split: 4h "), mention("a"), text(", 2h "), mention("b")},
+			[]Mention{{ID: "a", Figure: 4, Unit: "h", HasFigure: true}, {ID: "b", Figure: 2, Unit: "h", HasFigure: true}}, true},
+		{"prose before the name is not a figure", []string{text("Reviewed by "), mention("a"), text(" 3h")},
+			[]Mention{{ID: "a", Figure: 3, Unit: "h", HasFigure: true}}, true},
 	}
 	for _, c := range cases {
 		got := (WorklogEntry{Comment: adf(c.nodes...)}).MentionShares()

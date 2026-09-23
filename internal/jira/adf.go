@@ -40,8 +40,11 @@ func (w WorklogEntry) Mentions() []string {
 //
 // The comment is an Atlassian Document Format tree. A mention is a node
 // of type "mention" whose attrs carry the account id; the figure is read
-// from the text nodes that follow it, up to the next mention. Nothing
-// else in the document is read.
+// from the text on one side of it. People write both "@Person A 3h" and
+// "3,5 @Person A", so the layout is decided once per comment: if the
+// text before the first name ends in a figure, figures come before
+// names throughout, otherwise after. Nothing else in the document is
+// read.
 func (w WorklogEntry) MentionShares() []Mention {
 	if len(w.Comment) == 0 || string(w.Comment) == "null" {
 		return nil
@@ -51,51 +54,69 @@ func (w WorklogEntry) MentionShares() []Mention {
 		return nil
 	}
 
-	// Flatten to the order a reader sees: mentions and the text between.
-	var out []Mention
-	index := map[string]int{}
-	var trailing strings.Builder
-	current := -1
-	flush := func() {
-		if current >= 0 && !out[current].HasFigure {
-			if f, unit, ok := parseFigure(trailing.String()); ok {
-				out[current].Figure, out[current].Unit, out[current].HasFigure = f, unit, true
-			}
-		}
-		trailing.Reset()
-	}
+	// Flatten to the order a reader sees: the text before the first name,
+	// then each name and the text after it.
+	var ids []string
+	texts := []strings.Builder{{}}
 	root.walk(func(n adfNode) {
 		switch n.Type {
 		case "mention":
-			flush()
 			if n.Attrs.ID == "" {
-				current = -1
 				return
 			}
-			if at, seen := index[n.Attrs.ID]; seen {
-				current = at
-				return
-			}
-			index[n.Attrs.ID] = len(out)
-			out = append(out, Mention{ID: n.Attrs.ID})
-			current = len(out) - 1
+			ids = append(ids, n.Attrs.ID)
+			texts = append(texts, strings.Builder{})
 		case "text":
-			trailing.WriteString(n.Text)
+			texts[len(texts)-1].WriteString(n.Text)
 		case "hardBreak":
-			trailing.WriteString(" ")
+			texts[len(texts)-1].WriteString(" ")
 		}
 	})
-	flush()
+	if len(ids) == 0 {
+		return nil
+	}
+
+	_, _, before := trailingFigure(texts[0].String())
+	var out []Mention
+	index := map[string]int{}
+	for i, id := range ids {
+		var f float64
+		var unit string
+		var ok bool
+		if before {
+			f, unit, ok = trailingFigure(texts[i].String())
+		} else {
+			f, unit, ok = leadingFigure(texts[i+1].String())
+		}
+		if at, seen := index[id]; seen {
+			if !out[at].HasFigure && ok {
+				out[at].Figure, out[at].Unit, out[at].HasFigure = f, unit, true
+			}
+			continue
+		}
+		index[id] = len(out)
+		out = append(out, Mention{ID: id, Figure: f, Unit: unit, HasFigure: ok})
+	}
 	return out
 }
 
-// figurePattern is a number, optionally preceded by a separator and
-// followed by a unit, at the very start of the text after a name. The
-// decimal comma is accepted because half the world writes 3,5.
-var figurePattern = regexp.MustCompile(`^\s*[:\-–—]?\s*(\d+(?:[.,]\d+)?)\s*(h|hrs?|hours?|d|days?|sp|pts?|points?)?(?:[^A-Za-z0-9]|$)`)
+// A figure is a number with an optional unit. Leading: at the very start
+// of the text after a name, after an optional separator. Trailing: at the
+// very end of the text before a name. The decimal comma is accepted
+// because half the world writes 3,5.
+var (
+	leadingPattern  = regexp.MustCompile(`^\s*[:\-–—]?\s*(\d+(?:[.,]\d+)?)\s*(h|hrs?|hours?|d|days?|sp|pts?|points?)?(?:[^A-Za-z0-9]|$)`)
+	trailingPattern = regexp.MustCompile(`(?:^|[^A-Za-z0-9.,])(\d+(?:[.,]\d+)?)\s*(h|hrs?|hours?|d|days?|sp|pts?|points?)?\s*[:\-–—]?\s*$`)
+)
 
-func parseFigure(s string) (float64, string, bool) {
-	m := figurePattern.FindStringSubmatch(s)
+func leadingFigure(s string) (float64, string, bool) {
+	return figureFrom(leadingPattern.FindStringSubmatch(s))
+}
+func trailingFigure(s string) (float64, string, bool) {
+	return figureFrom(trailingPattern.FindStringSubmatch(s))
+}
+
+func figureFrom(m []string) (float64, string, bool) {
 	if m == nil {
 		return 0, "", false
 	}
