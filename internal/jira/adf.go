@@ -154,3 +154,18 @@ func (n adfNode) walk(visit func(adfNode)) {
 		c.walk(visit)
 	}
 }
+
+// mentions counts the mention nodes at or beneath n, whoever they name
+// and however often. A mention with no account id names nobody and is
+// not counted. This is the gate's view; MentionShares above is the
+// report's, which folds repeats of one person together.
+func (n adfNode) mentions() int {
+	count := 0
+	if n.Type == "mention" && n.Attrs.ID != "" {
+		count++
+	}
+	for _, c := range n.Content {
+		count += c.mentions()
+	}
+	return count
+}
