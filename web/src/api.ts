@@ -454,3 +454,134 @@ export type Conventions = {
 };
 
 export const fetchConventions = () => getJSON<Conventions>("/api/sprint/conventions");
+
+
+// ---- writing back: preview only ----------------------------------------
+
+/** The operations a change set can carry, in the vocabulary the server's
+ *  permitted list uses, so one word names a change from the input where
+ *  it was typed through to the audit row it will one day leave. */
+export type ChangeOp = "points.set" | "assignee.set" | "worklog.add" | "worklog.update" | "worklog.delete";
+
+/** One thing a person asked for: a value typed against a key. Which
+ *  fields matter depends on `op`; the rest are ignored by the server. */
+export type ChangeRequest = {
+  key: string;
+  op: ChangeOp;
+  points?: number;
+  /** An account id on the roster. */
+  assignee?: string;
+  /** The worklog operations. Hours rather than seconds, because hours is
+   *  what the person remembers; the server converts once. */
+  person?: string;
+  hours?: number;
+  started?: string;
+  note?: string;
+  worklog_id?: string;
+};
+
+/** One existing worklog entry as it stood at preview time, reduced to
+ *  what decides whether it has changed since. */
+export type WorklogGuard = {
+  id: string;
+  updated: string;
+  seconds: number;
+  mentions: string[];
+};
+
+export type Guard = {
+  issue_id: string;
+  updated: string;
+  /** What the field held at preview time; null means empty. */
+  was: unknown;
+  status: string;
+  entry?: WorklogGuard;
+};
+
+/** One operation on one issue, as the server proposes it. `after` is the
+ *  shape that will be written; `after_label` is how it reads. */
+export type Change = {
+  key: string;
+  url: string;
+  summary: string;
+  type: string;
+  status: string;
+  op: ChangeOp;
+  field: string;
+  after: unknown;
+  after_label: string;
+  reason: string;
+  person?: string;
+  person_label?: string;
+  hours?: number;
+  started?: string;
+  worklog_id?: string;
+  guard: Guard;
+};
+
+/** A request that produced no change, and why, in words the person who
+ *  typed it can act on. */
+export type Skip = {
+  key: string;
+  op: ChangeOp;
+  person?: string;
+  reason: string;
+};
+
+export type ChangeSet = {
+  id: string;
+  digest: string;
+  sprint_jira_id: number;
+  built_at: string;
+  expires_at: string;
+  report_built: string;
+  /** The configured Jira account: every edit will appear in Jira as
+   *  this person, whoever the change names. */
+  actor: string;
+  changes: Change[];
+  skipped: Skip[];
+};
+
+export type WritesStatus = {
+  allowed: boolean;
+  setting: string;
+  reason: string;
+};
+
+/** One worklog entry as it is logged now. `people` is who the comment
+ *  credits; empty means the entry is its author's own time. */
+export type WorklogView = {
+  id: string;
+  author: string;
+  author_label: string;
+  people: { id: string; label: string }[];
+  hours: number;
+  started: string;
+  note: string;
+};
+
+/* A POST that reads the server's reason on failure, so a 409 ("open the
+ * report first") reaches the screen as its sentence rather than as a
+ * status code. The preview is a POST that writes nothing to Jira: the
+ * typed values travel in the body because a dozen estimates and a note
+ * do not belong in a query string. */
+async function postJSON<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(detail.error ?? res.statusText);
+  }
+  return res.json() as Promise<T>;
+}
+
+export const proposeChanges = (sprint: number, changes: ChangeRequest[]) =>
+  postJSON<ChangeSet>("/api/sprint/changes", { sprint, changes });
+export const fetchChangeSet = (id: string) =>
+  getJSON<ChangeSet>(`/api/sprint/changes/${encodeURIComponent(id)}`);
+export const fetchWritesStatus = () => getJSON<WritesStatus>("/api/sprint/writes/status");
+export const fetchWorklog = (sprint: number, key: string) =>
+  getJSON<{ entries: WorklogView[] }>(`/api/sprint/worklog?sprint=${sprint}&key=${encodeURIComponent(key)}`);

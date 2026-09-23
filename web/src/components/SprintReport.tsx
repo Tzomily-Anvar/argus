@@ -1,14 +1,22 @@
 import { useState } from "react";
-import type {
-  SprintReport as Report,
-  SprintFlag,
-  EpicGroup,
-  CapacityReview,
-  CalibrationTrend,
+import { useQuery } from "@tanstack/react-query";
+import {
+  fetchConventions,
+  fetchPeople,
+  type SprintReport as Report,
+  type SprintFlag,
+  type EpicGroup,
+  type CapacityReview,
+  type CalibrationTrend,
+  type StoredPerson,
 } from "../api";
+import { useChangeDraft, type ChangeDraft } from "../changes";
 import { CalibrationView } from "./Calibration";
 import { Badge } from "./Badge";
 import { StatTiles, type Stat } from "./StatTiles";
+import { FlagInput } from "./FlagInputs";
+import { Effort } from "./EffortPanel";
+import { ChangePreview } from "./ChangePreview";
 import { formatDay } from "../dates";
 
 function flagTone(kind: string): "critical" | "warning" | "info" {
@@ -295,7 +303,7 @@ function CapacityReviewBadge({ review }: { review: CapacityReview }) {
   }
 }
 
-function Flags({ flags }: { flags: SprintFlag[] }) {
+function Flags({ flags, draft, roster }: { flags: SprintFlag[]; draft: ChangeDraft; roster: StoredPerson[] }) {
   if (flags.length === 0) {
     return (
       <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>
@@ -309,6 +317,9 @@ function Flags({ flags }: { flags: SprintFlag[] }) {
         <li key={i} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px]">
           <Badge tone={flagTone(f.kind)} label={f.kind.replace(/_/g, " ")} />
           <span className="flex-1">{f.message}</span>
+          {/* The fix, typed on the flag. Only the two kinds Argus could
+              write grow an input; the rest name things to go and look at. */}
+          <FlagInput flag={f} draft={draft} roster={roster} />
           {f.url && (
             <a href={f.url} target="_blank" rel="noreferrer" className="lnk shrink-0 text-xs">
               open
@@ -338,6 +349,16 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
   const s = report.summary;
   const storyPts = report.stories_concluded.reduce((a, b) => a + b.points, 0);
   const carry = report.carryover;
+
+  // What a person has asked to write back, held here until Preview.
+  // The roster feeds the person pickers; the conventions turn typed
+  // hours into the points shown beside them.
+  const draft = useChangeDraft(report.sprint.number);
+  const roster = useQuery({ queryKey: ["people"], queryFn: fetchPeople });
+  const conv = useQuery({ queryKey: ["conventions"], queryFn: fetchConventions, staleTime: Infinity });
+  const people = roster.data?.people ?? [];
+  const [previewing, setPreviewing] = useState(false);
+  const queued = draft.list.length;
 
   const stats: Stat[] = [
     {
@@ -446,7 +467,7 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
       </Section>
 
       <Section title="Needs a look" hint="Each one names a single fixable thing.">
-        <Flags flags={report.flags} />
+        <Flags flags={report.flags} draft={draft} roster={people} />
       </Section>
 
       <Section
@@ -465,21 +486,72 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
         ) : (
           <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
             {carry.map((r) => (
-              <li key={r.key} className="flex items-baseline gap-2 px-4 py-2.5 text-[13px]">
-                <a href={r.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
-                  {r.key}
-                </a>
-                <span className="flex-1 truncate">{r.summary}</span>
-                {!r.active && <Badge tone="info" label="never started" />}
-                {r.active && !r.time_logged && <Badge tone="warning" label="no time logged" />}
-                <span className="shrink-0 text-xs" style={{ color: "var(--muted)" }}>
-                  {r.status}
-                </span>
+              <li key={r.key} className="px-4 py-2.5 text-[13px]">
+                {/* Each row opens onto what is logged against it, and the
+                    form for what should be. Carryover is the one place
+                    time is logged from here. */}
+                <Effort
+                  row={r}
+                  sprintNumber={report.sprint.number}
+                  roster={people}
+                  hoursPerPoint={conv.data?.hours_per_point}
+                  draft={draft}
+                >
+                  <a href={r.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
+                    {r.key}
+                  </a>
+                  <span className="flex-1 truncate">{r.summary}</span>
+                  {!r.active && <Badge tone="info" label="never started" />}
+                  {r.active && !r.time_logged && <Badge tone="warning" label="no time logged" />}
+                  <span className="shrink-0 text-xs" style={{ color: "var(--muted)" }}>
+                    {r.status}
+                  </span>
+                </Effort>
               </li>
             ))}
           </ul>
         )}
       </Section>
+
+      {/* The draft, and the one way out of it. Sticky so the count is in
+          view wherever on the page the last value was typed; Preview is
+          the first moment anything leaves the browser, and it goes to
+          the server's preview endpoint, which writes nothing. */}
+      {queued > 0 && (
+        <div
+          className="card sticky bottom-4 z-30 mt-4 flex flex-wrap items-center justify-between gap-2 px-4 py-2.5"
+          style={{ background: "var(--surface)" }}
+        >
+          <span className="text-[13px]">
+            <Badge tone="info" label={`${queued} ${queued === 1 ? "change" : "changes"} queued`} />
+            <span className="ml-2" style={{ color: "var(--muted)" }}>Nothing is sent until you preview.</span>
+          </span>
+          <span className="flex items-center gap-2">
+            <button
+              onClick={() => draft.clear()}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium"
+              style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
+            >
+              Discard
+            </button>
+            <button
+              onClick={() => setPreviewing(true)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium"
+              style={{ background: "var(--accent)", color: "#fff" }}
+            >
+              Preview
+            </button>
+          </span>
+        </div>
+      )}
+
+      {previewing && (
+        <ChangePreview
+          sprintNumber={report.sprint.number}
+          requests={draft.list.map((q) => q.request)}
+          onClose={() => setPreviewing(false)}
+        />
+      )}
     </>
   );
 }

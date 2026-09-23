@@ -112,18 +112,7 @@ func (s *Service) held() *changeSets {
 // a preview against a report the person has not seen would be a preview
 // of nothing they recognise.
 func (s *Service) Propose(ctx context.Context, sprintNumber int, reqs []ChangeRequest) (ChangeSet, error) {
-	s.mu.RLock()
-	var entry cached
-	found := false
-	for _, c := range s.reports {
-		// By the sprint's own number rather than through sprintIDs, which
-		// is only filled by a resolve; the cached entry knows which
-		// sprint it is.
-		if sprintNumber > 0 && c.sprint.Number == sprintNumber && c.buildErr == nil && len(c.issues) > 0 {
-			entry, found = *c, true
-		}
-	}
-	s.mu.RUnlock()
+	entry, found := s.cachedSprint(sprintNumber)
 	if !found {
 		return ChangeSet{}, fmt.Errorf("%w: sprint %d; open its report first", ErrNoReport, sprintNumber)
 	}
