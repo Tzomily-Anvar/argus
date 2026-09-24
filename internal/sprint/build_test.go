@@ -390,6 +390,38 @@ func TestADayOffCanCostAShareOfTheBaseline(t *testing.T) {
 	}
 }
 
+// A sprint with nothing in it yet - the one just opened - still has to
+// answer with lists, not nulls. The browser maps over every one of them
+// before it draws anything, and the first empty sprint blanked the page.
+func TestAnEmptySprintReportHasNoNullLists(t *testing.T) {
+	in := inputs(t)
+	in.Issues = nil
+	b, err := json.Marshal(sprint.Build(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"stories_concluded", "flags", "carryover", "epics", "people"} {
+		if string(got[key]) == "null" {
+			t.Errorf("%s is null; the browser expects a list", key)
+		}
+	}
+	var people []struct {
+		Rows json.RawMessage `json:"rows"`
+	}
+	if err := json.Unmarshal(got["people"], &people); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range people {
+		if string(p.Rows) == "null" {
+			t.Errorf("a person's rows are null; the browser expects a list")
+		}
+	}
+}
+
 // A flag's JQL link has to open in the issue navigator.
 //
 // The REST API accepts customfield_10033, and so does the REST search,

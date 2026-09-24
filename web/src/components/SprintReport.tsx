@@ -230,13 +230,13 @@ function PeopleTable({ report }: { report: Report }) {
               {open === p.account_id && (
                 <tr key={p.account_id + "-rows"}>
                   <td colSpan={6} className="px-4 py-3" style={{ background: "var(--surface-2)" }}>
-                    {p.rows.length === 0 ? (
+                    {(p.rows ?? []).length === 0 ? (
                       <span className="text-[13px]" style={{ color: "var(--muted)" }}>
                         Nothing delivered this sprint.
                       </span>
                     ) : (
                       <ul className="space-y-1">
-                        {p.rows.map((r) => (
+                        {(p.rows ?? []).map((r) => (
                           <li key={r.key} className="flex items-baseline gap-2 text-[13px]">
                             <a href={r.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
                               {r.key}
@@ -347,7 +347,10 @@ function Flags({ flags, draft, roster }: { flags: SprintFlag[]; draft: ChangeDra
 
 export function SprintReportView({ report, trend }: { report: Report; trend?: CalibrationTrend }) {
   const s = report.summary;
-  const storyPts = report.stories_concluded.reduce((a, b) => a + b.points, 0);
+  // An older server can still answer null where a list was promised, and
+  // a null here once blanked the whole page. Read them as empty.
+  const stories = report.stories_concluded ?? [];
+  const storyPts = stories.reduce((a, b) => a + b.points, 0);
   const carry = report.carryover;
 
   // What a person has asked to write back, kept in the store per sprint
@@ -379,7 +382,7 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
         : "baseline less planned leave",
     },
     { label: "Say / do", value: s.completed, hint: `of ${s.promised + s.injected} (${s.injected} injected)` },
-    { label: "Stories done", value: report.stories_concluded.length, hint: `${storyPts.toFixed(1)} pts, never in delivered` },
+    { label: "Stories done", value: stories.length, hint: `${storyPts.toFixed(1)} pts, never in delivered` },
     { label: "Needs a look", value: report.flags.length, hint: "flags raised", tone: report.flags.length > 0 ? "warning" : "neutral" },
   ];
 
@@ -415,13 +418,13 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
         title="Stories concluded"
         hint="Finished here, meaning the Story is done and so is everything linked beneath it. Their points are a rollup of that work, so they are reported here and never counted as delivery."
       >
-        {report.stories_concluded.length === 0 ? (
+        {stories.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>
             None finished this sprint.
           </p>
         ) : (
           <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
-            {report.stories_concluded.map((st) => (
+            {stories.map((st) => (
               <li key={st.key} className="flex items-baseline gap-2 px-4 py-2.5 text-[13px]">
                 <a href={st.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
                   {st.key}
