@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -45,6 +46,11 @@ type permittedWrite struct {
 	Path   *regexp.Regexp
 	Query  string                                  // the exact query the request must carry; "" for none
 	Body   func(raw []byte, pol writePolicy) error // raw is nil when the request has no body
+
+	// QueryPattern, when set, is what the query must match instead of
+	// equalling Query: for the one write whose query names a board, and
+	// boards differ per site.
+	QueryPattern *regexp.Regexp
 }
 
 // issuePath matches /rest/api/3/issue/ABC-123 and nothing beneath it, so
@@ -55,6 +61,13 @@ var (
 	issuePath        = regexp.MustCompile(`^/rest/api/3/issue/[A-Z][A-Z0-9_]+-[0-9]+$`)
 	worklogPath      = regexp.MustCompile(`^/rest/api/3/issue/[A-Z][A-Z0-9_]+-[0-9]+/worklog$`)
 	worklogEntryPath = regexp.MustCompile(`^/rest/api/3/issue/[A-Z][A-Z0-9_]+-[0-9]+/worklog/[0-9]+$`)
+
+	// estimationPath is the board's own way of setting the field it
+	// estimates in. The backlog view uses it, and it works whether or not
+	// the field is on the issue's edit screen - which on some sites it is
+	// not, while the team sets points from the backlog every day.
+	estimationPath = regexp.MustCompile(`^/rest/agile/1.0/issue/[A-Z][A-Z0-9_]+-[0-9]+/estimation$`)
+	boardQuery     = regexp.MustCompile(`^boardId=[0-9]+$`)
 )
 
 // worklogQuery is the query every worklog write must carry. notifyUsers
@@ -73,6 +86,7 @@ const worklogQuery = "notifyUsers=false&adjustEstimate=leave"
 // is, and it has to be exactly one of them.
 var permitted = []permittedWrite{
 	{Op: "points.set", Method: http.MethodPut, Path: issuePath, Body: pointsBody},
+	{Op: "points.estimate", Method: http.MethodPut, Path: estimationPath, QueryPattern: boardQuery, Body: estimationBody},
 	{Op: "assignee.set", Method: http.MethodPut, Path: issuePath, Body: assigneeBody},
 	{Op: "worklog.add", Method: http.MethodPost, Path: worklogPath, Query: worklogQuery, Body: worklogAddBody},
 	{Op: "worklog.update", Method: http.MethodPut, Path: worklogEntryPath, Query: worklogQuery, Body: worklogUpdateBody},
@@ -131,8 +145,8 @@ func assertPermitted(method, path, rawQuery string, body any, pol writePolicy) e
 	var reasons []string
 	for _, w := range candidates {
 		err := w.Body(raw, pol)
-		if !sameQuery(rawQuery, w.Query) {
-			err = fmt.Errorf("the query must be exactly %q, not %q", w.Query, rawQuery)
+		if !queryAllowed(rawQuery, w) {
+			err = fmt.Errorf("the query %q is not the one this write carries", rawQuery)
 		}
 		if err == nil {
 			return nil
@@ -147,6 +161,15 @@ func assertPermitted(method, path, rawQuery string, body any, pol writePolicy) e
 // because url.Values encodes in sorted order and a caller building the
 // query that way is doing nothing wrong. Nothing else is forgiven: a
 // parameter the list does not name is a parameter nobody reviewed.
+// queryAllowed applies the entry's query rule: an exact query, or for the
+// one entry that names a board, a pattern.
+func queryAllowed(raw string, w permittedWrite) bool {
+	if w.QueryPattern != nil {
+		return w.QueryPattern.MatchString(raw)
+	}
+	return sameQuery(raw, w.Query)
+}
+
 func sameQuery(raw, want string) bool {
 	got, err := url.ParseQuery(raw)
 	if err != nil {
@@ -286,6 +309,32 @@ func nonEmptyString(raw json.RawMessage) error {
 	var s *string
 	if err := json.Unmarshal(raw, &s); err != nil || s == nil || *s == "" {
 		return errors.New("must be a non-empty string")
+	}
+	return nil
+}
+
+// estimationBody accepts {"value": "<number>"}, the shape the board's
+// estimation endpoint takes - a string, because that is how Jira defines
+// it - or {"value": null} to clear, which is the reversal of a write.
+// One key and nothing else.
+func estimationBody(raw []byte, _ writePolicy) error {
+	obj, err := object(raw)
+	if err != nil {
+		return err
+	}
+	value, ok := obj["value"]
+	if !ok || len(obj) != 1 {
+		return errors.New("an estimation body carries exactly one key, value")
+	}
+	if isNull(value) {
+		return nil
+	}
+	var str string
+	if err := json.Unmarshal(value, &str); err != nil {
+		return errors.New("an estimate is sent as a string, the way the board sends it")
+	}
+	if f, err := strconv.ParseFloat(str, 64); err != nil || f < 0 {
+		return errors.New("an estimate must read as a number no less than zero")
 	}
 	return nil
 }

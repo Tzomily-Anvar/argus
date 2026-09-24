@@ -28,9 +28,10 @@ the guarantee breaks the build.
 **What it can write, and only to Jira.** Every Jira request passes
 through one function too, `assertPermitted` in
 `internal/jira/permit.go`. Reads are an allowlist, as before. A write
-must be one of five operations - set story points, set the assignee, add
-a worklog entry, correct one, remove one - on an exact path with an
-exact body, and even then it is refused unless `ARGUS_SPRINT_ALLOW_WRITES`
+must be one of five operations - set story points (through the issue, or
+through the board's own estimation endpoint where the field is not on the
+edit screen), set the assignee, add a worklog entry, correct one, remove
+one - on an exact path with an exact body, and even then it is refused unless `ARGUS_SPRINT_ALLOW_WRITES`
 is set, which by default it is not. Nothing else is writable: no status
 transition, no comment, no summary, no sprint field, nothing in
 Confluence. `internal/jira/client_test.go` and `permit_test.go` assert

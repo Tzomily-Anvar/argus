@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Tzomily-Anvar/argus/internal/jira"
@@ -91,8 +92,10 @@ func (s *Service) Apply(ctx context.Context, id, digest string) (Result, error) 
 
 	a := &applier{
 		s: s, cs: *cs, points: f.points,
-		screens: map[string]map[string]string{},
-		touched: map[string]bool{}, added: map[string][]string{},
+		screens:  map[string]map[string]string{},
+		board:    s.boardOf(cs.SprintJiraID),
+		viaBoard: map[string]bool{},
+		touched:  map[string]bool{}, added: map[string][]string{},
 	}
 	a.preflight()
 	res := a.run(ctx)
@@ -113,6 +116,13 @@ type applier struct {
 	// the loop, because "3 of 10 failed" after the fact is worse than
 	// "the Bug edit screen does not carry Story Points" before it.
 	screens map[string]map[string]string
+
+	// board is the board the sprint belongs to, and viaBoard the issue
+	// types whose points go through the board's estimation endpoint
+	// because the field is not on their edit screen. That is how the
+	// backlog view sets them, and it works where a plain edit would not.
+	board    int64
+	viaBoard map[string]bool
 
 	// touched is the issues this run has written to, by id. A second
 	// change on the same issue would otherwise fail its updated check
@@ -145,7 +155,15 @@ func (a *applier) preflight() {
 			continue
 		}
 		if meta[a.points] == nil {
-			cannot[OpPointsSet] = fmt.Sprintf("the %s edit screen does not carry the story points field; fix it in Jira or deselect these rows", typeLabel(c.Type))
+			// Not on the edit screen. The board's estimation endpoint sets
+			// the same field without needing it there, which is how the
+			// backlog view manages; that route is taken when the board is
+			// known, and only then is the row refused.
+			if a.board > 0 {
+				a.viaBoard[c.Type] = true
+			} else {
+				cannot[OpPointsSet] = fmt.Sprintf("the %s edit screen does not carry the story points field and no board is known to set it through; fix the screen in Jira or deselect these rows", typeLabel(c.Type))
+			}
 		}
 		if meta["assignee"] == nil {
 			cannot[OpAssigneeSet] = fmt.Sprintf("this account cannot assign a %s; the edit screen does not offer the assignee", typeLabel(c.Type))
@@ -213,7 +231,7 @@ func (a *applier) one(c Change) (outcome, reason, created string) {
 		return store.OutcomeSkipped, why, ""
 	}
 
-	method, path, query, body := request(c, a.points)
+	method, path, query, body := a.request(c)
 	var answer struct {
 		ID string `json:"id"`
 	}
@@ -246,6 +264,33 @@ func (a *applier) failed(err error) {
 	default:
 		a.auth = 0
 	}
+}
+
+// request is the request one change becomes, choosing the board's
+// estimation endpoint for points on a type whose edit screen lacks the
+// field. The value goes as a string, the way the board sends it; nil
+// clears, which is the reversal of a write.
+func (a *applier) request(c Change) (method, path, query string, body any) {
+	if c.Op == OpPointsSet && a.viaBoard[c.Type] {
+		var value any
+		if f, ok := c.After.(float64); ok {
+			value = strconv.FormatFloat(f, 'f', -1, 64)
+		}
+		return http.MethodPut, "/rest/agile/1.0/issue/" + c.Key + "/estimation",
+			"boardId=" + strconv.FormatInt(a.board, 10), map[string]any{"value": value}
+	}
+	return request(c, a.points)
+}
+
+// boardOf is the board the sprint's cached report names, zero when the
+// report is not held.
+func (s *Service) boardOf(sprintID int64) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if entry := s.reports[sprintID]; entry != nil {
+		return entry.report.Sprint.BoardID
+	}
+	return 0
 }
 
 // request is the exact request an operation becomes, in the shape the

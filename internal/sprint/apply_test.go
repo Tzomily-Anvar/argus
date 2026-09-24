@@ -157,6 +157,30 @@ func TestRequestIsTheShapeTheGateAccepts(t *testing.T) {
 	}
 }
 
+// Where the edit screen lacks the points field, the apply goes the way
+// the backlog view does: the board's estimation endpoint, value as a
+// string, nil to clear. Types whose screen carries the field keep the
+// plain edit.
+func TestPointsGoThroughTheBoardWhenTheScreenLacksTheField(t *testing.T) {
+	a := &applier{points: testPointsField, board: 374, viaBoard: map[string]bool{"Story": true}}
+	body := func(v any) string {
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
+	method, path, query, got := a.request(Change{Op: OpPointsSet, Key: "ABC-1", Type: "Story", After: 6.2})
+	if method != http.MethodPut || path != "/rest/agile/1.0/issue/ABC-1/estimation" || query != "boardId=374" || body(got) != `{"value":"6.2"}` {
+		t.Errorf("story points via the board: %s %s ?%s %s", method, path, query, body(got))
+	}
+	_, _, _, got = a.request(Change{Op: OpPointsSet, Key: "ABC-1", Type: "Story", After: nil})
+	if body(got) != `{"value":null}` {
+		t.Errorf("a clear via the board should send null, got %s", body(got))
+	}
+	method, path, query, got = a.request(Change{Op: OpPointsSet, Key: "ABC-2", Type: "Task", After: 3.0})
+	if method != http.MethodPut || path != "/rest/api/3/issue/ABC-2" || query != "" || body(got) != `{"fields":{"customfield_10016":3}}` {
+		t.Errorf("task points stay a plain edit: %s %s ?%s %s", method, path, query, body(got))
+	}
+}
+
 // The reversal is the audit log read backwards: each applied row becomes
 // the change that undoes it, guarded on what the row says was written.
 func TestReversalInvertsTheLog(t *testing.T) {
