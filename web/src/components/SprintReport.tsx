@@ -381,7 +381,13 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
         ? `baseline less planned leave · ${s.shortfall_from_absence.toFixed(1)} lost to unplanned`
         : "baseline less planned leave",
     },
-    { label: "Say / do", value: s.completed, hint: `of ${s.promised + s.injected} (${s.injected} injected)` },
+    {
+      // A ratio reads as a ratio. The counts it is made of go underneath,
+      // so the percentage can be checked rather than believed.
+      label: "Say / do",
+      value: s.promised + s.injected > 0 ? `${Math.round((100 * s.completed) / (s.promised + s.injected))}%` : "—",
+      hint: `${s.completed}/${s.promised + s.injected} (${s.injected} injected)`,
+    },
     { label: "Stories done", value: stories.length, hint: `${storyPts.toFixed(1)} pts, never in delivered` },
     { label: "Needs a look", value: report.flags.length, hint: "flags raised", tone: report.flags.length > 0 ? "warning" : "neutral" },
   ];
