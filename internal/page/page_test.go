@@ -136,8 +136,8 @@ func TestRenderAllSections(t *testing.T) {
 		// html/template writes a plus as &#43; in text, which is a valid
 		// character reference in XHTML and reads as a plus on the page.
 		"<td>&#43;0.25</td>",                   // two decimals kept when they carry
-		"<td>-0.5 <em>0.5 unplanned</em></td>", // one otherwise, with the absence beneath
-		"<td>2.0 / 1.0</td>",                   // away as planned / unplanned
+		"<td>-0.5</td>", // one otherwise, with the absence beneath
+		"<em>2.0 planned off · 1.0 unplanned, not deducted</em>",                   // away as planned / unplanned
 		"<td><strong>18.0</strong></td>",       // the baseline total from the rows
 		"<td>&#43;20.0%</td>",                  // the variance
 		"3.0 → 6.0 (&#43;3.0)",                 // estimate against actual

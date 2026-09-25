@@ -2,6 +2,7 @@ package page
 
 import (
 	"io"
+	"strings"
 
 	"github.com/Tzomily-Anvar/argus/internal/sprint"
 )
@@ -14,17 +15,22 @@ import (
 var peopleTmpl = tmpl("people", `<h2>{{.Heading}}</h2>
 {{if not .Rows}}<p>Nothing was delivered by anybody this sprint.</p>
 {{else}}<table><tbody>
-<tr><th>Person</th><th>Baseline</th><th>Capacity</th><th>Delivered</th><th>Δ</th><th>Away (planned / unplanned)</th>{{if .Reasons}}<th>Reason</th>{{end}}</tr>
-{{range .Rows}}<tr><td>{{.Name}}{{if .Tag}} <em>({{.Tag}})</em>{{end}}</td><td>{{.Baseline}}</td><td>{{.Capacity}}</td><td>{{.Delivered}}</td><td>{{.Delta}}{{if .Unplanned}} <em>{{.Unplanned}}</em>{{end}}</td><td>{{.Away}}</td>{{if $.Reasons}}<td>{{.Reason}}</td>{{end}}</tr>
-{{end}}<tr><td><strong>Total</strong></td><td><strong>{{.Total.Baseline}}</strong></td><td><strong>{{.Total.Capacity}}</strong></td><td><strong>{{.Total.Delivered}}</strong></td><td><strong>{{.Total.Delta}}</strong>{{if .Total.Unplanned}} <em>{{.Total.Unplanned}}</em>{{end}}</td><td><strong>{{.Total.Away}}</strong></td>{{if .Reasons}}<td></td>{{end}}</tr>
+<tr><th>Person</th><th>Baseline</th><th>Capacity</th><th>Delivered</th><th>Δ</th>{{if .Reasons}}<th>Reason</th>{{end}}</tr>
+{{range .Rows}}<tr><td>{{.Name}}{{if .Tag}} <em>({{.Tag}})</em>{{end}}</td><td>{{.Baseline}}</td><td>{{.Capacity}}{{if .Leave}}<br/><em>{{.Leave}}</em>{{end}}</td><td>{{.Delivered}}</td><td>{{.Delta}}</td>{{if $.Reasons}}<td>{{.Reason}}</td>{{end}}</tr>
+{{end}}<tr><td><strong>Total</strong></td><td><strong>{{.Total.Baseline}}</strong></td><td><strong>{{.Total.Capacity}}</strong>{{if .Total.Leave}}<br/><em>{{.Total.Leave}}</em>{{end}}</td><td><strong>{{.Total.Delivered}}</strong></td><td><strong>{{.Total.Delta}}</strong></td>{{if .Reasons}}<td></td>{{end}}</tr>
 </tbody></table>
-<p><em>Container types are excluded, so this is the work itself rather than the rollups above it. A dash means the person has no baseline to measure against; their delivered points still count.</em></p>
+<p><em>Container types are excluded, so this is the work itself rather than the rollups above it. Capacity is the baseline less planned leave; unplanned absence is shown beneath it and not deducted, so a shortfall it explains stays visible. A dash means the person has no baseline to measure against; their delivered points still count.</em></p>
 {{end}}`)
 
 type personView struct {
-	Name, Tag                                  string
-	Baseline, Capacity, Delivered, Delta, Away string
-	Unplanned, Reason                          string
+	Name, Tag                            string
+	Baseline, Capacity, Delivered, Delta string
+
+	// Leave sits beneath the capacity: what planned leave took off the
+	// baseline, and what unplanned absence there was that was not taken
+	// off. One place, so the delta stays a plain number.
+	Leave  string
+	Reason string
 }
 
 type peopleView struct {
@@ -59,7 +65,6 @@ func renderPeople(w io.Writer, rep sprint.Report, in Inputs, on map[string]bool)
 			Baseline:  "—",
 			Capacity:  "—",
 			Delta:     "—",
-			Away:      "—",
 			Reason:    in.Notes[p.AccountID],
 		}
 		// Two different things, and conflating them is what made this
@@ -76,16 +81,11 @@ func renderPeople(w io.Writer, rep sprint.Report, in Inputs, on map[string]bool)
 			row.Baseline = num(p.Baseline)
 			row.Capacity = num(p.Capacity)
 			row.Delta = signed(p.Delta)
-			if p.ShortfallFromAbsence > 0 {
-				row.Unplanned = num(p.ShortfallFromAbsence) + " unplanned"
-			}
+			row.Leave = leave(p.PlannedDaysOff, p.UnplannedDaysOff)
 			t.baseline += p.Baseline
 			t.capacity += p.Capacity
 			t.delta += p.Delta
 			t.shortfall += p.ShortfallFromAbsence
-		}
-		if p.PlannedDaysOff+p.UnplannedDaysOff > 0 {
-			row.Away = num(p.PlannedDaysOff) + " / " + num(p.UnplannedDaysOff)
 		}
 		t.delivered += p.Delivered
 		t.planned += p.PlannedDaysOff
@@ -101,13 +101,20 @@ func renderPeople(w io.Writer, rep sprint.Report, in Inputs, on map[string]bool)
 		Capacity:  num(t.capacity),
 		Delivered: num(t.delivered),
 		Delta:     signed(t.delta),
-		Away:      "—",
-	}
-	if t.shortfall > 0 {
-		v.Total.Unplanned = num(t.shortfall) + " unplanned"
-	}
-	if t.planned+t.unplanned > 0 {
-		v.Total.Away = num(t.planned) + " / " + num(t.unplanned)
+		Leave:     leave(t.planned, t.unplanned),
 	}
 	return peopleTmpl.Execute(w, v)
+}
+
+// leave is the line beneath a capacity figure: the planned days that
+// were taken off, and the unplanned days that were not.
+func leave(planned, unplanned float64) string {
+	var parts []string
+	if planned > 0 {
+		parts = append(parts, num(planned)+" planned off")
+	}
+	if unplanned > 0 {
+		parts = append(parts, num(unplanned)+" unplanned, not deducted")
+	}
+	return strings.Join(parts, " · ")
 }

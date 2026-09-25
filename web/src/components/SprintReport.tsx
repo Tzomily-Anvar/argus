@@ -151,7 +151,7 @@ function PeopleTable({ report }: { report: Report }) {
       <table className="w-full border-collapse text-sm">
         <thead style={{ background: "var(--surface-2)" }}>
           <tr>
-            {["Person", "Baseline", "Capacity", "Delivered", "Delta", "Away"].map((h, i) => (
+            {["Person", "Baseline", "Capacity", "Delivered", "Delta"].map((h, i) => (
               <th
                 key={h}
                 className={`px-4 py-2.5 text-[11px] font-semibold tracking-wide uppercase ${i === 0 ? "text-left" : "text-right"}`}
@@ -202,6 +202,18 @@ function PeopleTable({ report }: { report: Report }) {
                 </td>
                 <td className="tnum px-4 py-2.5 text-right" style={{ color: "var(--muted)" }}>
                   {p.measured ? p.capacity.toFixed(1) : "—"}
+                  {/* The leave sits under the figure it changed, or did
+                      not: planned days came off the baseline, unplanned
+                      days did not and are said so, so the delta beside
+                      it can stay a plain number. */}
+                  {p.measured && p.planned_days_off + p.unplanned_days_off > 0 && (
+                    <div className="text-[11px] font-normal" style={{ color: "var(--faint)" }}>
+                      {[
+                        p.planned_days_off > 0 ? `${p.planned_days_off}d planned off` : "",
+                        p.unplanned_days_off > 0 ? `${p.unplanned_days_off}d unplanned` : "",
+                      ].filter(Boolean).join(" · ")}
+                    </div>
+                  )}
                 </td>
                 <td className="tnum px-4 py-2.5 text-right font-semibold">{p.delivered.toFixed(1)}</td>
                 <td
@@ -209,27 +221,11 @@ function PeopleTable({ report }: { report: Report }) {
                   style={{ color: !p.measured ? "var(--faint)" : p.delta < 0 ? "var(--warn)" : "var(--good)" }}
                 >
                   {p.measured ? (p.delta > 0 ? "+" : "") + p.delta.toFixed(1) : "—"}
-                  {/* Unplanned absence no longer shrinks capacity, so a
-                      shortfall stays visible as a shortfall. Saying how
-                      much of it was absence nobody could plan around is
-                      the explanation that used to be hidden inside the
-                      capacity figure - it accounts for part of the gap,
-                      it does not excuse it. */}
-                  {p.measured && p.shortfall_from_absence > 0 && (
-                    <div className="text-[11px] font-normal" style={{ color: "var(--faint)" }}>
-                      {p.shortfall_from_absence.toFixed(1)} unplanned
-                    </div>
-                  )}
-                </td>
-                <td className="tnum px-4 py-2.5 text-right text-[12.5px]" style={{ color: "var(--muted)" }}>
-                  {p.planned_days_off + p.unplanned_days_off > 0
-                    ? `${p.planned_days_off}p / ${p.unplanned_days_off}u`
-                    : "—"}
                 </td>
               </tr>
               {open === p.account_id && (
                 <tr key={p.account_id + "-rows"}>
-                  <td colSpan={6} className="px-4 py-3" style={{ background: "var(--surface-2)" }}>
+                  <td colSpan={5} className="px-4 py-3" style={{ background: "var(--surface-2)" }}>
                     {(p.rows ?? []).length === 0 ? (
                       <span className="text-[13px]" style={{ color: "var(--muted)" }}>
                         Nothing delivered this sprint.
