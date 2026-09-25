@@ -227,7 +227,7 @@ func Core() Catalogue {
 		{
 			Key: "ARGUS_SPRINT_ALLOW_WRITES", Section: "Sprint report", Kind: KindBool,
 			Default: "false",
-			Desc:    "Allow the sprint tool to write to Jira and Confluence. Off until you ask for it.",
+			Desc:    "Let the sprint report write: story points, assignee and worklog entries in Jira, and the report page in Confluence, each previewed and approved first. Off until you ask for it.",
 		},
 		{
 			Key: "ARGUS_SPRINT_HOURS_PER_POINT", Section: "Sprint report", Kind: KindFloat,
@@ -260,6 +260,30 @@ func Core() Catalogue {
 		{
 			Key: "ARGUS_ATLASSIAN_TEAM_ID", Section: "Atlassian team", Kind: KindString,
 			Desc: "The Atlassian team id whose members the roster can be imported from. Optional.",
+		},
+
+		{
+			Key: "ARGUS_CONFLUENCE_SPACE_ID", Section: "Confluence", Kind: KindString,
+			Desc: "The Confluence space the sprint report pages live in. Optional; unset, publishing is not offered.",
+		},
+		{
+			Key: "ARGUS_CONFLUENCE_PARENT_PAGE_ID", Section: "Confluence", Kind: KindString,
+			Desc: "The page the sprint report pages sit under. Optional; unset, publishing is not offered.",
+		},
+		{
+			Key: "ARGUS_CONFLUENCE_TITLE", Section: "Confluence", Kind: KindString,
+			Default: "Sprint {{.Number}} Report",
+			Desc:    "The page title, as a template over the sprint's Number, Name and Project.",
+		},
+		{
+			Key: "ARGUS_CONFLUENCE_LIVE_SUFFIX", Section: "Confluence", Kind: KindString,
+			Default: " (live)",
+			Desc:    "Added to the title while the sprint is open, and dropped at close.",
+		},
+		{
+			Key: "ARGUS_CONFLUENCE_SECTIONS", Section: "Confluence", Kind: KindList,
+			Default: "summary,saydo,people,reasons,calibration,stories,flags,carryover,counted",
+			Desc:    "The sections a published page carries, in its fixed order. The Publish panel can untick any for one publish. Publishing shares ARGUS_SPRINT_ALLOW_WRITES.",
 		},
 
 		{

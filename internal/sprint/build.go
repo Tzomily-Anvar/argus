@@ -141,6 +141,12 @@ func Build(in Inputs) Report {
 	r := Report{
 		Sprint:      sprintInfo(in),
 		GeneratedAt: time.Now().UTC(),
+		// Empty slices rather than nil. This crosses to a browser as JSON,
+		// and null where an array was promised took the whole page down
+		// the first time a sprint had nothing concluded in it.
+		Stories: []Story{},
+		Flags:   []Flag{},
+		Carry:   []Row{},
 	}
 
 	people := indexPeople(in.People)
@@ -847,6 +853,9 @@ func buildPeople(
 			OnRoster:  onRoster,
 			Measured:  optedIn && p.Baseline > 0,
 			Rows:      rowsFor[id],
+		}
+		if person.Rows == nil {
+			person.Rows = []Row{}
 		}
 
 		// Somebody opted out who delivered nothing this sprint is not part

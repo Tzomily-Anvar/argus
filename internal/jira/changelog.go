@@ -24,6 +24,13 @@ type StatusChange struct {
 	// created in, which no later change mentions again.
 	FromID string
 	ToID   string
+
+	// Author is who made the move. Nothing about dating needs it; it is
+	// kept because the person who moved a ticket to Done is the best
+	// available guess at who finished it, which is what the close-out
+	// offers when a finished ticket has nobody assigned. Nil when the
+	// changelog names nobody, which happens for automation.
+	Author *User
 }
 
 // changeTime is the timestamp on a changelog entry.
@@ -56,6 +63,7 @@ type changelogPage struct {
 		IssueID         string `json:"issueId"`
 		ChangeHistories []struct {
 			Created changeTime `json:"created"`
+			Author  *User      `json:"author"`
 			Items   []struct {
 				Field      string `json:"field"`
 				From       string `json:"from"`
@@ -136,6 +144,7 @@ func (c *Client) statusHistoryBatch(ids []string, out map[string][]StatusChange)
 						To:     item.ToString,
 						FromID: item.From,
 						ToID:   item.To,
+						Author: history.Author,
 					})
 				}
 			}

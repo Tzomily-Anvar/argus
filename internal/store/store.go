@@ -15,10 +15,12 @@
 // The same test suite runs against both, so they cannot drift apart.
 //
 // WHAT IS HELD HERE IS PERSONAL DATA. Names, Jira account ids, how much
-// someone was away, and free text about why their delivery differed from
-// their baseline. It stays on the machine running Argus, it is excluded
-// from version control, and SECURITY.md says so plainly. Anything added
-// to these types inherits that responsibility.
+// someone was away, free text about why their delivery differed from
+// their baseline, and the close-out draft: which tickets the operator
+// means to size, assign or log hours against, and for whom. It stays on
+// the machine running Argus, it is excluded from version control, and
+// SECURITY.md says so plainly. Anything added to these types inherits
+// that responsibility.
 package store
 
 import (
@@ -69,6 +71,14 @@ type Sprint struct {
 	EndsAt    *time.Time `json:"ends_at,omitempty"`
 	State     string     `json:"state"`
 	UpdatedAt time.Time  `json:"updated_at"`
+
+	// ConfluencePageID is the page this sprint's report was published
+	// to, once it has been. Kept so a renamed page is still found and a
+	// second page is never created by accident. Empty means never
+	// published, and an empty value in a PutSprint leaves a stored one
+	// alone, because the sweep rewrites a Sprint whenever it rebuilds a
+	// report and must not wipe it.
+	ConfluencePageID string `json:"confluence_page_id,omitempty"`
 }
 
 // Capacity is one person's availability for one sprint.
@@ -149,12 +159,53 @@ type SprintStats struct {
 	RecordedAt       time.Time          `json:"recorded_at"`
 }
 
-// WriteRecord is one change Argus made in Jira or Confluence.
+// Draft is a sprint close-out in progress: the changes a person has
+// queued against one sprint and not yet applied.
 //
-// The tool can reassign a ticket, change its points, log work and publish
-// a page. Anything that can change someone else's data should leave a
-// record of what it changed and when, so a bulk edit can be explained -
-// or reversed - afterwards.
+// A close is one sitting with several steps in it, and it gets
+// interrupted. Keeping the queue in the browser meant a reload or a
+// restart lost it, so it lives here instead, one per sprint, until the
+// person discards it or applies it. It is working state rather than a
+// record: nothing reads it back except the panel that wrote it, and a
+// successful apply clears the rows it applied.
+//
+// It holds ticket keys and account ids, so it is personal data like the
+// rest of this package, and retention drops it with the capacity rows.
+type Draft struct {
+	SprintJiraID int64          `json:"sprint_jira_id"`
+	Requests     []DraftRequest `json:"requests"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+}
+
+// DraftRequest is one queued change, field for field the shape the
+// sprint package proposes from. It is spelled out again here rather than
+// imported because the store is beneath the sprint package, not beside
+// it, and the two shapes are held to each other by a test.
+type DraftRequest struct {
+	Key string `json:"key"`
+	Op  string `json:"op"`
+
+	Points   *float64 `json:"points,omitempty"`
+	Assignee string   `json:"assignee,omitempty"`
+
+	Person    string    `json:"person,omitempty"`
+	Hours     float64   `json:"hours,omitempty"`
+	Started   time.Time `json:"started,omitzero"`
+	Note      string    `json:"note,omitempty"`
+	WorklogID string    `json:"worklog_id,omitempty"`
+}
+
+// WriteRecord is one write Argus attempted against Jira or Confluence.
+//
+// Every write the tool makes to either is recorded here: what it tried
+// to change, what was there before, what it put there, and on whose
+// behalf. Anything that alters someone else's data should leave a record
+// that can be read - or reversed - afterwards, and this is that record.
+//
+// Writes are a short, named list - points, assignee, worklog entries -
+// behind a gate that is off by default, each previewed and approved
+// before it is sent. Until the operator switches writes on this log
+// stays empty.
 type WriteRecord struct {
 	ID        int64     `json:"id"`
 	At        time.Time `json:"at"`
@@ -164,7 +215,33 @@ type WriteRecord struct {
 	After     string    `json:"after,omitempty"`
 	Actor     string    `json:"actor"`
 	Note      string    `json:"note,omitempty"`
+
+	// ChangeSet groups the rows of one bulk edit, so twelve rows can be
+	// read - or reversed - as the one action they were. Empty for a
+	// record that was not part of a batch, and for every record written
+	// before the field existed.
+	ChangeSet string `json:"change_set,omitempty"`
+
+	// Outcome is one of the Outcome constants: applied, skipped or
+	// failed. Failures and conflicts are recorded too: the record of a
+	// half-applied batch is exactly the thing needed afterwards, and an
+	// audit log that only holds successes cannot answer "what happened?".
+	// Empty means the record predates the field.
+	Outcome string `json:"outcome,omitempty"`
 }
+
+// The outcomes a WriteRecord can carry.
+//
+// Skipped is distinct from failed: a skipped write was withheld on
+// purpose, usually because the compare-and-set guard found the field no
+// longer held what the preview showed, whereas a failed one was sent and
+// rejected. Both are recorded, because a reversal needs to know which
+// rows actually landed.
+const (
+	OutcomeApplied = "applied"
+	OutcomeSkipped = "skipped"
+	OutcomeFailed  = "failed"
+)
 
 // Store is the whole persistence surface. Kept deliberately small: every
 // method here has to be implemented twice and tested twice.
@@ -202,12 +279,23 @@ type Store interface {
 	AppendWrite(ctx context.Context, w WriteRecord) error
 	ListWrites(ctx context.Context, limit int) ([]WriteRecord, error)
 
+	// Close-out drafts, one per sprint. GetDraft is ErrNotFound when
+	// nothing has been queued; PutDraft replaces the whole draft, since
+	// the panel holds all of it; DeleteDraft is what Discard does, and
+	// deleting a draft that is not there is not an error. A draft for a
+	// sprint the store does not know is ErrUnknownReference, as it is
+	// for capacity.
+	GetDraft(ctx context.Context, sprintJiraID int64) (Draft, error)
+	PutDraft(ctx context.Context, d Draft) error
+	DeleteDraft(ctx context.Context, sprintJiraID int64) error
+
 	// Retention
 	//
 	// Trends need years of aggregates, but per-person absence records do
 	// not need to accumulate indefinitely - including for people who have
-	// left. Prune drops capacity rows and write-log entries for sprints
-	// that ended before the cutoff, and deliberately keeps SprintStats,
+	// left. Prune drops capacity rows, close-out drafts and write-log
+	// entries for sprints that ended before the cutoff, and deliberately
+	// keeps SprintStats,
 	// which carries no personal data and is what the trends are drawn
 	// from. Anything older than the retention window lives on in the
 	// published Confluence pages, which is the right archive for it.
@@ -222,4 +310,9 @@ type Store interface {
 type PruneResult struct {
 	CapacityRows int `json:"capacity_rows"`
 	WriteRows    int `json:"write_rows"`
+
+	// Drafts is how many sprints had a close-out draft dropped. A draft
+	// left behind for a sprint that closed years ago is a queue nobody
+	// will ever run, holding names and ticket keys for nothing.
+	Drafts int `json:"drafts"`
 }

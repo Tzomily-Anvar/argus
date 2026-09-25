@@ -150,23 +150,28 @@ func (s *Store) PutSprint(ctx context.Context, sp store.Sprint) error {
 	if sp.JiraID == 0 {
 		return fmt.Errorf("sprint needs a Jira id")
 	}
+	// The page id is only ever set, never cleared, by this path: the
+	// sweep rewrites the sprint without knowing about its page, so an
+	// empty id means "unchanged" and the stored one is kept.
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO sprints (jira_id, label, number, starts_at, ends_at, state, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, now())
+		INSERT INTO sprints (jira_id, label, number, starts_at, ends_at, state, confluence_page_id, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), now())
 		ON CONFLICT (jira_id) DO UPDATE SET
 			label = EXCLUDED.label, number = EXCLUDED.number,
 			starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at,
-			state = EXCLUDED.state, updated_at = now()`,
-		sp.JiraID, sp.Label, sp.Number, sp.StartsAt, sp.EndsAt, sp.State)
+			state = EXCLUDED.state,
+			confluence_page_id = COALESCE(EXCLUDED.confluence_page_id, sprints.confluence_page_id),
+			updated_at = now()`,
+		sp.JiraID, sp.Label, sp.Number, sp.StartsAt, sp.EndsAt, sp.State, sp.ConfluencePageID)
 	return err
 }
 
 func (s *Store) GetSprint(ctx context.Context, jiraID int64) (store.Sprint, error) {
 	var sp store.Sprint
 	err := s.db.QueryRowContext(ctx, `
-		SELECT jira_id, label, number, starts_at, ends_at, state, updated_at
+		SELECT jira_id, label, number, starts_at, ends_at, state, COALESCE(confluence_page_id, ''), updated_at
 		FROM sprints WHERE jira_id = $1`, jiraID).
-		Scan(&sp.JiraID, &sp.Label, &sp.Number, &sp.StartsAt, &sp.EndsAt, &sp.State, &sp.UpdatedAt)
+		Scan(&sp.JiraID, &sp.Label, &sp.Number, &sp.StartsAt, &sp.EndsAt, &sp.State, &sp.ConfluencePageID, &sp.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Sprint{}, store.ErrNotFound
 	}
@@ -175,7 +180,7 @@ func (s *Store) GetSprint(ctx context.Context, jiraID int64) (store.Sprint, erro
 
 func (s *Store) ListSprints(ctx context.Context, limit int) ([]store.Sprint, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT jira_id, label, number, starts_at, ends_at, state, updated_at
+		SELECT jira_id, label, number, starts_at, ends_at, state, COALESCE(confluence_page_id, ''), updated_at
 		FROM sprints
 		ORDER BY number DESC
 		LIMIT NULLIF($1, 0)`, limit)
@@ -187,7 +192,7 @@ func (s *Store) ListSprints(ctx context.Context, limit int) ([]store.Sprint, err
 	out := []store.Sprint{}
 	for rows.Next() {
 		var sp store.Sprint
-		if err := rows.Scan(&sp.JiraID, &sp.Label, &sp.Number, &sp.StartsAt, &sp.EndsAt, &sp.State, &sp.UpdatedAt); err != nil {
+		if err := rows.Scan(&sp.JiraID, &sp.Label, &sp.Number, &sp.StartsAt, &sp.EndsAt, &sp.State, &sp.ConfluencePageID, &sp.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, sp)
@@ -351,21 +356,29 @@ func (s *Store) ListStats(ctx context.Context, limit int) ([]store.SprintStats, 
 
 // ---- write audit -----------------------------------------------------
 
+// change_set and outcome are nullable columns, added after the table was
+// first written. An empty string is stored as NULL and NULL is read back
+// as the empty string, so a row from before the columns existed and a row
+// that was never part of a change set look the same to the caller, and
+// the same as they would from the file backend.
 func (s *Store) AppendWrite(ctx context.Context, w store.WriteRecord) error {
 	at := w.At
 	if at.IsZero() {
 		at = time.Now().UTC()
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO write_log (at, operation, target, before, after, actor, note)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		at, w.Operation, w.Target, w.Before, w.After, w.Actor, w.Note)
+		INSERT INTO write_log
+			(at, operation, target, before, after, actor, note, change_set, outcome)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), NULLIF($9, ''))`,
+		at, w.Operation, w.Target, w.Before, w.After, w.Actor, w.Note,
+		w.ChangeSet, w.Outcome)
 	return err
 }
 
 func (s *Store) ListWrites(ctx context.Context, limit int) ([]store.WriteRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, at, operation, target, before, after, actor, note
+		SELECT id, at, operation, target, before, after, actor, note,
+		       COALESCE(change_set, ''), COALESCE(outcome, '')
 		FROM write_log
 		ORDER BY at DESC, id DESC
 		LIMIT NULLIF($1, 0)`, limit)
@@ -378,7 +391,8 @@ func (s *Store) ListWrites(ctx context.Context, limit int) ([]store.WriteRecord,
 	for rows.Next() {
 		var w store.WriteRecord
 		if err := rows.Scan(&w.ID, &w.At, &w.Operation, &w.Target,
-			&w.Before, &w.After, &w.Actor, &w.Note); err != nil {
+			&w.Before, &w.After, &w.Actor, &w.Note,
+			&w.ChangeSet, &w.Outcome); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -386,11 +400,66 @@ func (s *Store) ListWrites(ctx context.Context, limit int) ([]store.WriteRecord,
 	return out, rows.Err()
 }
 
+// ---- close-out drafts ------------------------------------------------
+
+// The queue is stored as one JSONB value. It is only ever read and
+// written whole, by the panel that built it, so a table of its rows would
+// add joins for nothing; and the rows are the sprint package's own
+// request shape, which the registry test in internal/store holds still.
+
+func (s *Store) GetDraft(ctx context.Context, sprintJiraID int64) (store.Draft, error) {
+	d := store.Draft{SprintJiraID: sprintJiraID}
+	var body []byte
+	err := s.db.QueryRowContext(ctx,
+		`SELECT body, updated_at FROM drafts WHERE sprint_jira_id = $1`, sprintJiraID).
+		Scan(&body, &d.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.Draft{}, store.ErrNotFound
+	}
+	if err != nil {
+		return store.Draft{}, err
+	}
+	if err := json.Unmarshal(body, &d.Requests); err != nil {
+		return store.Draft{}, fmt.Errorf("decoding draft for sprint %d: %w", sprintJiraID, err)
+	}
+	if d.Requests == nil {
+		d.Requests = []store.DraftRequest{}
+	}
+	return d, nil
+}
+
+func (s *Store) PutDraft(ctx context.Context, d store.Draft) error {
+	if d.SprintJiraID == 0 {
+		return fmt.Errorf("a draft needs a sprint id")
+	}
+	if d.Requests == nil {
+		d.Requests = []store.DraftRequest{}
+	}
+	body, err := json.Marshal(d.Requests)
+	if err != nil {
+		return fmt.Errorf("encoding draft: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO drafts (sprint_jira_id, body, updated_at)
+		VALUES ($1, $2, now())
+		ON CONFLICT (sprint_jira_id) DO UPDATE SET
+			body = EXCLUDED.body,
+			updated_at = now()`,
+		d.SprintJiraID, body)
+	return refErr(err, fmt.Sprintf("sprint %d", d.SprintJiraID))
+}
+
+func (s *Store) DeleteDraft(ctx context.Context, sprintJiraID int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM drafts WHERE sprint_jira_id = $1`, sprintJiraID)
+	return err
+}
+
 // ---- retention -------------------------------------------------------
 
-// Prune drops per-person rows for sprints that ended before the cutoff and
-// write-log entries older than it. sprint_stats is deliberately untouched:
-// it holds no personal data and is what the trends are drawn from.
+// Prune drops per-person rows and close-out drafts for sprints that ended
+// before the cutoff, and write-log entries older than it. sprint_stats is
+// deliberately untouched: it holds no personal data and is what the
+// trends are drawn from.
 func (s *Store) Prune(ctx context.Context, before time.Time) (store.PruneResult, error) {
 	var res store.PruneResult
 
@@ -410,6 +479,17 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (store.PruneResult,
 	}
 	n, _ := cap.RowsAffected()
 	res.CapacityRows = int(n)
+
+	drafts, err := tx.ExecContext(ctx, `
+		DELETE FROM drafts
+		WHERE sprint_jira_id IN (
+			SELECT jira_id FROM sprints WHERE ends_at IS NOT NULL AND ends_at < $1
+		)`, before)
+	if err != nil {
+		return res, fmt.Errorf("pruning drafts: %w", err)
+	}
+	n, _ = drafts.RowsAffected()
+	res.Drafts = int(n)
 
 	wl, err := tx.ExecContext(ctx, `DELETE FROM write_log WHERE at < $1`, before)
 	if err != nil {

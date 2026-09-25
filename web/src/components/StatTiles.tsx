@@ -9,7 +9,7 @@ export type Tone = "critical" | "warning" | "good" | "neutral";
 
 export type Stat = {
   label: string;
-  value: number;
+  value: number | string;
   hint: string;
   tone?: Tone;
   onClick?: () => void;

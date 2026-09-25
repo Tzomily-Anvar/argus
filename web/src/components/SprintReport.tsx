@@ -1,14 +1,22 @@
 import { useState } from "react";
-import type {
-  SprintReport as Report,
-  SprintFlag,
-  EpicGroup,
-  CapacityReview,
-  CalibrationTrend,
+import { useQuery } from "@tanstack/react-query";
+import {
+  fetchConventions,
+  fetchPeople,
+  type SprintReport as Report,
+  type SprintFlag,
+  type EpicGroup,
+  type CapacityReview,
+  type CalibrationTrend,
+  type StoredPerson,
 } from "../api";
+import { useChangeDraft, type ChangeDraft } from "../changes";
 import { CalibrationView } from "./Calibration";
 import { Badge } from "./Badge";
 import { StatTiles, type Stat } from "./StatTiles";
+import { FlagInput } from "./FlagInputs";
+import { Effort } from "./EffortPanel";
+import { ChangePreview } from "./ChangePreview";
 import { formatDay } from "../dates";
 
 function flagTone(kind: string): "critical" | "warning" | "info" {
@@ -143,7 +151,7 @@ function PeopleTable({ report }: { report: Report }) {
       <table className="w-full border-collapse text-sm">
         <thead style={{ background: "var(--surface-2)" }}>
           <tr>
-            {["Person", "Baseline", "Capacity", "Delivered", "Delta", "Away"].map((h, i) => (
+            {["Person", "Baseline", "Capacity", "Delivered", "Delta"].map((h, i) => (
               <th
                 key={h}
                 className={`px-4 py-2.5 text-[11px] font-semibold tracking-wide uppercase ${i === 0 ? "text-left" : "text-right"}`}
@@ -194,6 +202,18 @@ function PeopleTable({ report }: { report: Report }) {
                 </td>
                 <td className="tnum px-4 py-2.5 text-right" style={{ color: "var(--muted)" }}>
                   {p.measured ? p.capacity.toFixed(1) : "—"}
+                  {/* The leave sits under the figure it changed, or did
+                      not: planned days came off the baseline, unplanned
+                      days did not and are said so, so the delta beside
+                      it can stay a plain number. */}
+                  {p.measured && p.planned_days_off + p.unplanned_days_off > 0 && (
+                    <div className="text-[11px] font-normal" style={{ color: "var(--faint)" }}>
+                      {[
+                        p.planned_days_off > 0 ? `${p.planned_days_off} ${p.planned_days_off === 1 ? "day" : "days"} planned off` : "",
+                        p.unplanned_days_off > 0 ? `${p.unplanned_days_off} ${p.unplanned_days_off === 1 ? "day" : "days"} unplanned, not deducted` : "",
+                      ].filter(Boolean).join(" · ")}
+                    </div>
+                  )}
                 </td>
                 <td className="tnum px-4 py-2.5 text-right font-semibold">{p.delivered.toFixed(1)}</td>
                 <td
@@ -201,34 +221,18 @@ function PeopleTable({ report }: { report: Report }) {
                   style={{ color: !p.measured ? "var(--faint)" : p.delta < 0 ? "var(--warn)" : "var(--good)" }}
                 >
                   {p.measured ? (p.delta > 0 ? "+" : "") + p.delta.toFixed(1) : "—"}
-                  {/* Unplanned absence no longer shrinks capacity, so a
-                      shortfall stays visible as a shortfall. Saying how
-                      much of it was absence nobody could plan around is
-                      the explanation that used to be hidden inside the
-                      capacity figure - it accounts for part of the gap,
-                      it does not excuse it. */}
-                  {p.measured && p.shortfall_from_absence > 0 && (
-                    <div className="text-[11px] font-normal" style={{ color: "var(--faint)" }}>
-                      {p.shortfall_from_absence.toFixed(1)} unplanned
-                    </div>
-                  )}
-                </td>
-                <td className="tnum px-4 py-2.5 text-right text-[12.5px]" style={{ color: "var(--muted)" }}>
-                  {p.planned_days_off + p.unplanned_days_off > 0
-                    ? `${p.planned_days_off}p / ${p.unplanned_days_off}u`
-                    : "—"}
                 </td>
               </tr>
               {open === p.account_id && (
                 <tr key={p.account_id + "-rows"}>
-                  <td colSpan={6} className="px-4 py-3" style={{ background: "var(--surface-2)" }}>
-                    {p.rows.length === 0 ? (
+                  <td colSpan={5} className="px-4 py-3" style={{ background: "var(--surface-2)" }}>
+                    {(p.rows ?? []).length === 0 ? (
                       <span className="text-[13px]" style={{ color: "var(--muted)" }}>
                         Nothing delivered this sprint.
                       </span>
                     ) : (
                       <ul className="space-y-1">
-                        {p.rows.map((r) => (
+                        {(p.rows ?? []).map((r) => (
                           <li key={r.key} className="flex items-baseline gap-2 text-[13px]">
                             <a href={r.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
                               {r.key}
@@ -295,7 +299,7 @@ function CapacityReviewBadge({ review }: { review: CapacityReview }) {
   }
 }
 
-function Flags({ flags }: { flags: SprintFlag[] }) {
+function Flags({ flags, draft, roster }: { flags: SprintFlag[]; draft: ChangeDraft; roster: StoredPerson[] }) {
   if (flags.length === 0) {
     return (
       <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>
@@ -309,6 +313,9 @@ function Flags({ flags }: { flags: SprintFlag[] }) {
         <li key={i} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px]">
           <Badge tone={flagTone(f.kind)} label={f.kind.replace(/_/g, " ")} />
           <span className="flex-1">{f.message}</span>
+          {/* The fix, typed on the flag. Only the two kinds Argus could
+              write grow an input; the rest name things to go and look at. */}
+          <FlagInput flag={f} draft={draft} roster={roster} />
           {f.url && (
             <a href={f.url} target="_blank" rel="noreferrer" className="lnk shrink-0 text-xs">
               open
@@ -336,8 +343,23 @@ function Flags({ flags }: { flags: SprintFlag[] }) {
 
 export function SprintReportView({ report, trend }: { report: Report; trend?: CalibrationTrend }) {
   const s = report.summary;
-  const storyPts = report.stories_concluded.reduce((a, b) => a + b.points, 0);
+  // An older server can still answer null where a list was promised, and
+  // a null here once blanked the whole page. Read them as empty.
+  const stories = report.stories_concluded ?? [];
+  const storyPts = stories.reduce((a, b) => a + b.points, 0);
   const carry = report.carryover;
+
+  // What a person has asked to write back, kept in the store per sprint
+  // and shared with the close-out panel, so a gap fixed here mid-sprint
+  // is already queued when the sprint is closed. The roster feeds the
+  // person pickers; the conventions turn typed hours into the points
+  // shown beside them.
+  const draft = useChangeDraft(report.sprint.number, report.sprint.jira_id);
+  const roster = useQuery({ queryKey: ["people"], queryFn: fetchPeople });
+  const conv = useQuery({ queryKey: ["conventions"], queryFn: fetchConventions, staleTime: Infinity });
+  const people = roster.data?.people ?? [];
+  const [previewing, setPreviewing] = useState(false);
+  const queued = draft.list.length;
 
   const stats: Stat[] = [
     {
@@ -355,8 +377,14 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
         ? `baseline less planned leave · ${s.shortfall_from_absence.toFixed(1)} lost to unplanned`
         : "baseline less planned leave",
     },
-    { label: "Say / do", value: s.completed, hint: `of ${s.promised + s.injected} (${s.injected} injected)` },
-    { label: "Stories done", value: report.stories_concluded.length, hint: `${storyPts.toFixed(1)} pts, never in delivered` },
+    {
+      // A ratio reads as a ratio. The counts it is made of go underneath,
+      // so the percentage can be checked rather than believed.
+      label: "Say / do",
+      value: s.promised + s.injected > 0 ? `${Math.round((100 * s.completed) / (s.promised + s.injected))}%` : "—",
+      hint: `${s.completed}/${s.promised + s.injected} (${s.injected} injected)`,
+    },
+    { label: "Stories done", value: stories.length, hint: `${storyPts.toFixed(1)} pts, never in delivered` },
     { label: "Needs a look", value: report.flags.length, hint: "flags raised", tone: report.flags.length > 0 ? "warning" : "neutral" },
   ];
 
@@ -392,13 +420,13 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
         title="Stories concluded"
         hint="Finished here, meaning the Story is done and so is everything linked beneath it. Their points are a rollup of that work, so they are reported here and never counted as delivery."
       >
-        {report.stories_concluded.length === 0 ? (
+        {stories.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>
             None finished this sprint.
           </p>
         ) : (
           <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
-            {report.stories_concluded.map((st) => (
+            {stories.map((st) => (
               <li key={st.key} className="flex items-baseline gap-2 px-4 py-2.5 text-[13px]">
                 <a href={st.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
                   {st.key}
@@ -446,7 +474,7 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
       </Section>
 
       <Section title="Needs a look" hint="Each one names a single fixable thing.">
-        <Flags flags={report.flags} />
+        <Flags flags={report.flags} draft={draft} roster={people} />
       </Section>
 
       <Section
@@ -465,21 +493,72 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
         ) : (
           <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
             {carry.map((r) => (
-              <li key={r.key} className="flex items-baseline gap-2 px-4 py-2.5 text-[13px]">
-                <a href={r.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
-                  {r.key}
-                </a>
-                <span className="flex-1 truncate">{r.summary}</span>
-                {!r.active && <Badge tone="info" label="never started" />}
-                {r.active && !r.time_logged && <Badge tone="warning" label="no time logged" />}
-                <span className="shrink-0 text-xs" style={{ color: "var(--muted)" }}>
-                  {r.status}
-                </span>
+              <li key={r.key} className="px-4 py-2.5 text-[13px]">
+                {/* Each row opens onto what is logged against it, and the
+                    form for what should be. Carryover is the one place
+                    time is logged from here. */}
+                <Effort
+                  row={r}
+                  sprintNumber={report.sprint.number}
+                  roster={people}
+                  hoursPerPoint={conv.data?.hours_per_point}
+                  draft={draft}
+                >
+                  <a href={r.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
+                    {r.key}
+                  </a>
+                  <span className="flex-1 truncate">{r.summary}</span>
+                  {!r.active && <Badge tone="info" label="never started" />}
+                  {r.active && !r.time_logged && <Badge tone="warning" label="no time logged" />}
+                  <span className="shrink-0 text-xs" style={{ color: "var(--muted)" }}>
+                    {r.status}
+                  </span>
+                </Effort>
               </li>
             ))}
           </ul>
         )}
       </Section>
+
+      {/* The draft, and the one way out of it. Sticky so the count is in
+          view wherever on the page the last value was typed; Preview is
+          the first moment anything leaves the browser, and it goes to
+          the server's preview endpoint, which writes nothing. */}
+      {queued > 0 && (
+        <div
+          className="card sticky bottom-4 z-30 mt-4 flex flex-wrap items-center justify-between gap-2 px-4 py-2.5"
+          style={{ background: "var(--surface)" }}
+        >
+          <span className="text-[13px]">
+            <Badge tone="info" label={`${queued} ${queued === 1 ? "change" : "changes"} queued`} />
+            <span className="ml-2" style={{ color: "var(--muted)" }}>Nothing is sent until you preview.</span>
+          </span>
+          <span className="flex items-center gap-2">
+            <button
+              onClick={() => draft.clear()}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium"
+              style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
+            >
+              Discard
+            </button>
+            <button
+              onClick={() => setPreviewing(true)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium"
+              style={{ background: "var(--accent)", color: "#fff" }}
+            >
+              Preview
+            </button>
+          </span>
+        </div>
+      )}
+
+      {previewing && (
+        <ChangePreview
+          sprintNumber={report.sprint.number}
+          requests={draft.list.map((q) => q.request)}
+          onClose={() => setPreviewing(false)}
+        />
+      )}
     </>
   );
 }

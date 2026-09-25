@@ -26,6 +26,7 @@ func Run(t *testing.T, fresh func(t *testing.T) store.Store) {
 		"inactive people are filterable":   testInactivePeople,
 		"missing person is ErrNotFound":    testMissingPerson,
 		"sprints keyed by Jira id":         testSprints,
+		"a page id survives a re-sweep":    testPageIDSurvivesSweep,
 		"capacity is isolated per sprint":  testCapacityIsolation,
 		"absence splits planned/unplanned": testAbsenceSplit,
 		"capacity needs known references":  testUnknownReference,
@@ -34,6 +35,10 @@ func Run(t *testing.T, fresh func(t *testing.T) store.Store) {
 		"retention keeps aggregates":       testRetention,
 		"stats round-trip":                 testStats,
 		"writes are append-only":           testWriteAudit,
+		"a draft round-trips":              testDraft,
+		"a draft is replaced whole":        testDraftReplaced,
+		"a draft can be discarded":         testDraftDiscarded,
+		"a draft needs a known sprint":     testDraftUnknownSprint,
 		"empty store reads as empty":       testEmptyStore,
 		"migrate is repeatable":            testMigrateIsRepeatable,
 	}
@@ -140,6 +145,39 @@ func testSprints(t *testing.T, s store.Store) {
 	if got.StartsAt == nil || !got.StartsAt.Equal(start) {
 		t.Errorf("StartsAt lost: %v", got.StartsAt)
 	}
+	if got.ConfluencePageID != "" {
+		t.Errorf("a sprint never published should have no page id, got %q", got.ConfluencePageID)
+	}
+	got.ConfluencePageID = "123"
+	if err := s.PutSprint(ctx(), got); err != nil {
+		t.Fatalf("PutSprint with a page id: %v", err)
+	}
+	if again, err := s.GetSprint(ctx(), 744); err != nil || again.ConfluencePageID != "123" {
+		t.Errorf("the page id did not round-trip: %+v, err %v", again, err)
+	}
+}
+
+// The sweep rewrites a sprint every time it rebuilds a report, and knows
+// nothing about the page. A PutSprint without an id must therefore keep
+// the stored one, or the second publish would create a second page.
+func testPageIDSurvivesSweep(t *testing.T, s store.Store) {
+	if err := s.PutSprint(ctx(), store.Sprint{JiraID: 744, Label: "Sprint 21", Number: 21, ConfluencePageID: "123"}); err != nil {
+		t.Fatalf("PutSprint: %v", err)
+	}
+	if err := s.PutSprint(ctx(), store.Sprint{JiraID: 744, Label: "Sprint 21", Number: 21, State: "closed"}); err != nil {
+		t.Fatalf("PutSprint from the sweep: %v", err)
+	}
+	got, err := s.GetSprint(ctx(), 744)
+	if err != nil {
+		t.Fatalf("GetSprint: %v", err)
+	}
+	if got.ConfluencePageID != "123" || got.State != "closed" {
+		t.Errorf("the re-sweep should update the sprint and keep its page id: %+v", got)
+	}
+	list, err := s.ListSprints(ctx(), 0)
+	if err != nil || len(list) != 1 || list[0].ConfluencePageID != "123" {
+		t.Errorf("ListSprints should carry the page id too: %+v, err %v", list, err)
+	}
 }
 
 // Editing one sprint's capacity must not disturb another's.
@@ -207,11 +245,22 @@ func testStats(t *testing.T, s store.Store) {
 
 // The audit exists so a bulk edit can be explained afterwards, so it
 // accumulates rather than replaces, newest first.
+//
+// The change set and outcome are what make a bulk edit readable as one
+// action, and they have to survive both backends unchanged - including
+// when absent, because every record written before they existed has
+// neither. Filtering by change set is the caller's for now; the
+// interface is not widened until something needs it.
 func testWriteAudit(t *testing.T, s store.Store) {
-	for _, op := range []string{"assign", "set_points"} {
-		if err := s.AppendWrite(ctx(), store.WriteRecord{
-			Operation: op, Target: "PROJ-1", Before: "x", After: "y", Actor: "me",
-		}); err != nil {
+	records := []store.WriteRecord{
+		{Operation: "assign", Target: "ABC-123", Before: "x", After: "y", Actor: "me"},
+		{Operation: "points.set", Target: "ABC-124", After: "3", Actor: "account-a",
+			ChangeSet: "cs-1", Outcome: store.OutcomeApplied},
+		{Operation: "points.set", Target: "ABC-125", After: "5", Actor: "account-a",
+			ChangeSet: "cs-1", Outcome: store.OutcomeSkipped, Note: "guard: field no longer empty"},
+	}
+	for _, w := range records {
+		if err := s.AppendWrite(ctx(), w); err != nil {
 			t.Fatalf("AppendWrite: %v", err)
 		}
 	}
@@ -219,14 +268,146 @@ func testWriteAudit(t *testing.T, s store.Store) {
 	if err != nil {
 		t.Fatalf("ListWrites: %v", err)
 	}
-	if len(all) != 2 {
-		t.Fatalf("expected 2 records, got %d", len(all))
+	if len(all) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(all))
 	}
-	if all[0].Operation != "set_points" {
-		t.Errorf("newest should be first, got %q", all[0].Operation)
+	if all[0].Target != "ABC-125" {
+		t.Errorf("newest should be first, got %q", all[0].Target)
 	}
 	if all[0].At.IsZero() {
 		t.Error("At should be stamped when not supplied")
+	}
+
+	// A skipped write is recorded alongside the applied one, under the
+	// same change set: that is the whole record of a half-applied batch.
+	if all[0].ChangeSet != "cs-1" || all[0].Outcome != store.OutcomeSkipped {
+		t.Errorf("skipped write lost its context: %+v", all[0])
+	}
+	if all[1].ChangeSet != "cs-1" || all[1].Outcome != store.OutcomeApplied {
+		t.Errorf("applied write lost its context: %+v", all[1])
+	}
+
+	// A record with neither reads back with neither, not with some
+	// placeholder the other backend would not produce.
+	if all[2].ChangeSet != "" || all[2].Outcome != "" {
+		t.Errorf("a write outside any change set should read as empty, got %+v", all[2])
+	}
+}
+
+// The draft is what lets a close-out be abandoned and resumed, so every
+// field of every queued row has to come back exactly - including a
+// points value of nil, which means "not typed" and is not zero.
+func testDraft(t *testing.T, s store.Store) {
+	seed(t, s, 744)
+	if _, err := s.GetDraft(ctx(), 744); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a sprint nobody has queued against: want ErrNotFound, got %v", err)
+	}
+
+	three := 3.0
+	started := time.Date(2026, 1, 16, 9, 0, 0, 0, time.UTC)
+	if err := s.PutDraft(ctx(), store.Draft{SprintJiraID: 744, Requests: []store.DraftRequest{
+		{Key: "ABC-1", Op: "points.set", Points: &three},
+		{Key: "ABC-2", Op: "assignee.set", Assignee: "acc-b"},
+		{Key: "ABC-3", Op: "worklog.add", Person: "acc-a", Hours: 4.5, Started: started, Note: "pairing"},
+		{Key: "ABC-3", Op: "worklog.delete", WorklogID: "500"},
+	}}); err != nil {
+		t.Fatalf("PutDraft: %v", err)
+	}
+
+	got, err := s.GetDraft(ctx(), 744)
+	if err != nil {
+		t.Fatalf("GetDraft: %v", err)
+	}
+	if got.SprintJiraID != 744 || len(got.Requests) != 4 {
+		t.Fatalf("round-trip lost rows: %+v", got)
+	}
+	if got.UpdatedAt.IsZero() {
+		t.Error("UpdatedAt should be stamped on write")
+	}
+	r := got.Requests
+	if r[0].Key != "ABC-1" || r[0].Op != "points.set" || r[0].Points == nil || *r[0].Points != 3 {
+		t.Errorf("points row did not survive: %+v", r[0])
+	}
+	if r[1].Points != nil || r[1].Assignee != "acc-b" {
+		t.Errorf("assignee row did not survive: %+v", r[1])
+	}
+	if r[2].Person != "acc-a" || r[2].Hours != 4.5 || !r[2].Started.Equal(started) || r[2].Note != "pairing" {
+		t.Errorf("worklog row did not survive: %+v", r[2])
+	}
+	if r[3].WorklogID != "500" || !r[3].Started.IsZero() {
+		t.Errorf("delete row did not survive: %+v", r[3])
+	}
+}
+
+// A save carries the whole queue, so the second save is the queue, not
+// an addition to it - otherwise a row the person removed comes back.
+func testDraftReplaced(t *testing.T, s store.Store) {
+	seed(t, s, 744)
+	_ = s.PutDraft(ctx(), store.Draft{SprintJiraID: 744, Requests: []store.DraftRequest{
+		{Key: "ABC-1", Op: "assignee.set", Assignee: "acc-a"},
+		{Key: "ABC-2", Op: "assignee.set", Assignee: "acc-a"},
+	}})
+	if err := s.PutDraft(ctx(), store.Draft{SprintJiraID: 744, Requests: []store.DraftRequest{
+		{Key: "ABC-2", Op: "assignee.set", Assignee: "acc-b"},
+	}}); err != nil {
+		t.Fatalf("second PutDraft: %v", err)
+	}
+	got, err := s.GetDraft(ctx(), 744)
+	if err != nil {
+		t.Fatalf("GetDraft: %v", err)
+	}
+	if len(got.Requests) != 1 || got.Requests[0].Assignee != "acc-b" {
+		t.Errorf("the second save should replace the first, got %+v", got.Requests)
+	}
+
+	// An emptied queue is still a draft, and reads back as an empty list
+	// rather than as nothing or as null.
+	if err := s.PutDraft(ctx(), store.Draft{SprintJiraID: 744}); err != nil {
+		t.Fatalf("saving an empty queue: %v", err)
+	}
+	got, err = s.GetDraft(ctx(), 744)
+	if err != nil {
+		t.Fatalf("GetDraft after emptying: %v", err)
+	}
+	if got.Requests == nil || len(got.Requests) != 0 {
+		t.Errorf("an emptied queue should read as an empty list, got %#v", got.Requests)
+	}
+}
+
+// Discard deletes the draft; discarding what is not there is not an
+// error, because a double-click on Discard is not a mistake worth
+// reporting.
+func testDraftDiscarded(t *testing.T, s store.Store) {
+	seed(t, s, 744)
+	seed(t, s, 745)
+	_ = s.PutDraft(ctx(), store.Draft{SprintJiraID: 744, Requests: []store.DraftRequest{{Key: "ABC-1", Op: "points.set"}}})
+	_ = s.PutDraft(ctx(), store.Draft{SprintJiraID: 745, Requests: []store.DraftRequest{{Key: "ABC-2", Op: "points.set"}}})
+
+	if err := s.DeleteDraft(ctx(), 744); err != nil {
+		t.Fatalf("DeleteDraft: %v", err)
+	}
+	if _, err := s.GetDraft(ctx(), 744); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("after discard: want ErrNotFound, got %v", err)
+	}
+	if err := s.DeleteDraft(ctx(), 744); err != nil {
+		t.Errorf("discarding twice should be quiet, got %v", err)
+	}
+	// One sprint's discard says nothing about another's.
+	if other, err := s.GetDraft(ctx(), 745); err != nil || len(other.Requests) != 1 {
+		t.Errorf("sprint 745's draft should survive, got %+v, err %v", other, err)
+	}
+}
+
+// A draft for a sprint the store has never seen is a mistake, as capacity
+// for one is: the panel only opens on a sprint whose report was built,
+// and building it records the sprint.
+func testDraftUnknownSprint(t *testing.T, s store.Store) {
+	err := s.PutDraft(ctx(), store.Draft{SprintJiraID: 999, Requests: []store.DraftRequest{{Key: "ABC-1", Op: "points.set"}}})
+	if !errors.Is(err, store.ErrUnknownReference) {
+		t.Errorf("a draft for an unknown sprint: want ErrUnknownReference, got %v", err)
+	}
+	if _, err := s.GetDraft(ctx(), 999); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("reading a draft for an unknown sprint: want ErrNotFound, got %v", err)
 	}
 }
 
@@ -363,6 +544,8 @@ func testRetention(t *testing.T, s store.Store) {
 	_ = s.PutCapacity(ctx(), store.Capacity{SprintJiraID: 2, AccountID: "a", PlannedDaysOff: 1})
 	_ = s.PutStats(ctx(), store.SprintStats{SprintJiraID: 1, DeliveredTotal: 50})
 	_ = s.PutStats(ctx(), store.SprintStats{SprintJiraID: 2, DeliveredTotal: 60})
+	_ = s.PutDraft(ctx(), store.Draft{SprintJiraID: 1, Requests: []store.DraftRequest{{Key: "ABC-1", Op: "assignee.set", Assignee: "a"}}})
+	_ = s.PutDraft(ctx(), store.Draft{SprintJiraID: 2, Requests: []store.DraftRequest{{Key: "ABC-2", Op: "assignee.set", Assignee: "a"}}})
 
 	cutoff := time.Now().UTC().Add(-3 * 365 * 24 * time.Hour)
 	res, err := s.Prune(ctx(), cutoff)
@@ -372,12 +555,22 @@ func testRetention(t *testing.T, s store.Store) {
 	if res.CapacityRows != 1 {
 		t.Errorf("expected 1 capacity row pruned, got %d", res.CapacityRows)
 	}
+	if res.Drafts != 1 {
+		t.Errorf("expected 1 draft pruned, got %d", res.Drafts)
+	}
 
 	if rows, _ := s.ListCapacity(ctx(), 1); len(rows) != 0 {
 		t.Errorf("old sprint should have no capacity rows left, got %d", len(rows))
 	}
 	if rows, _ := s.ListCapacity(ctx(), 2); len(rows) != 1 {
 		t.Errorf("recent sprint capacity must survive, got %d rows", len(rows))
+	}
+	// A draft names tickets and people for a close nobody will now run.
+	if _, err := s.GetDraft(ctx(), 1); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("old sprint's draft should be gone, got %v", err)
+	}
+	if d, err := s.GetDraft(ctx(), 2); err != nil || len(d.Requests) != 1 {
+		t.Errorf("recent sprint's draft must survive, got %+v, err %v", d, err)
 	}
 
 	// The whole point: aggregates outlive the personal data.

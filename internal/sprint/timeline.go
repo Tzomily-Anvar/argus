@@ -64,6 +64,18 @@ func newTimeline(is jira.Issue, changes []jira.StatusChange, cats map[string]str
 	return t
 }
 
+// statusAt is the status the issue was in at a moment: the spell that
+// contains it, or the last spell for a moment after the history ends.
+// Empty before the first recorded spell began.
+func (t timeline) statusAt(at time.Time) string {
+	for _, s := range t.spells {
+		if (s.From.IsZero() || !at.Before(s.From)) && (s.To.IsZero() || at.Before(s.To)) {
+			return s.Status
+		}
+	}
+	return ""
+}
+
 // concludedAt is when the issue reached the state it is still in, if that
 // state is one the team calls finished. Zero when it is not finished now.
 //

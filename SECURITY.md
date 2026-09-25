@@ -12,9 +12,11 @@ maintainer will open a private advisory and reply there.
 
 ## Design
 
-Argus is a local, read-only tool. A few properties are worth stating
-explicitly, because they are what make it safe to point at an entire
-organisation.
+Argus is a local tool. Against GitHub it only reads, and that is
+absolute. Against Jira it reads, and can also write a short, named list
+of things when the operator switches writes on. A few properties are
+worth stating explicitly, because they are what make it safe to point at
+an entire organisation.
 
 **It only reads.** Every request passes through a single function,
 `assertReadOnly` in `internal/gh/client.go`, which permits `GET`, permits
@@ -22,6 +24,34 @@ organisation.
 beginning with `query`. A `mutation` is refused before it leaves the
 process. This is asserted in `internal/gh/client_test.go`, so removing
 the guarantee breaks the build.
+
+**What it can write.** Every Jira and Confluence request passes through
+one function too, `assertPermitted` in `internal/jira/permit.go`. Reads
+are an allowlist, as before. A write must be one of five operations on
+Jira - set story points (through the issue, or through the board's own
+estimation endpoint where the field is not on the edit screen), set the
+assignee, add a worklog entry, correct one, remove one - or, in
+Confluence, one page, in a space you name, created or updated between
+markers - on an exact path with an exact body, and even then it is
+refused unless `ARGUS_SPRINT_ALLOW_WRITES` is set, which by default it
+is not. Nothing else is writable: no status transition, no comment, no
+summary, no sprint field; in Confluence no attachment, comment, label or
+second page, and no page body without Argus's two markers, so it can
+never send a page it could not update again. `internal/jira/client_test.go`,
+`permit_test.go` and `permit_page_test.go` assert the list and the
+setting, and a structural test fails the build if any file in the
+package reaches the network without the gate.
+
+Nothing is written without a person seeing each change in a preview and
+approving it. The apply re-reads every issue immediately before writing
+and skips anything that has moved since the preview; a page is updated
+at the version the preview read, and refused if it has moved. A preview
+expires after fifteen minutes and can be applied once.
+
+**Edits are attributed to you.** They are made with your own token, so
+they appear in Jira's history under your own account. There is no bot
+account and nothing is disguised - which also means colleagues will see
+your name on the tickets, and should have been told beforehand.
 
 **What it stores depends on the tools you enable.**
 
@@ -33,7 +63,10 @@ baseline capacity, how many days of a sprint they were away, and any note
 explaining a difference between the two. That is personal data about
 named colleagues, and it is treated as such:
 
-- It never leaves the machine running Argus. There is no hosted component.
+- It never leaves the machine running Argus. There is no hosted
+  component. The one exception is a publish you make: the per-person
+  table and the Reasons you include go to that Confluence page, in your
+  own wiki, and which sections go is your choice for each publish.
 - It is excluded from version control, and a pre-push hook refuses to let
   it through.
 - Absence is recorded only as **planned** or **unplanned**, never with a
@@ -44,6 +77,14 @@ named colleagues, and it is treated as such:
 - Per-person records are deleted after three years by default
   (`ARGUS_SPRINT_RETAIN_YEARS`). The aggregates that trends are drawn from
   carry no personal data and are kept.
+
+With writes switched on, the sprint report also keeps an audit log of
+every write it attempted: the issue key or page id, the operation, what
+the field held and what was written - a number, an account id, hours, a
+page version - the outcome, and the account it was done as. It is in the same store as the
+capacity records, it never leaves the machine, and it is pruned on the
+same three-year schedule. It is also how a bulk edit is reversed, so a
+reversal is only possible within that window.
 
 If you enable the sprint report, you are running a system that holds
 personal data about your colleagues. Tell them.
@@ -156,8 +197,11 @@ control over everything above, and it is granted — or not — under
 
 ## Scope
 
-Argus makes no outbound connection other than to `api.github.com`, over
-HTTPS.
+Argus makes no outbound connection other than to `api.github.com` and,
+when the sprint report is enabled, to the Jira site you configure in
+`ARGUS_JIRA_BASE_URL` - including that site's `/wiki` when publishing
+to Confluence is configured - plus `api.atlassian.com`, read-only, when
+a team import is configured. All of it over HTTPS.
 
 **It binds to loopback only.** The dashboard itself has no
 authentication - it does not need any, because anyone who can reach it is

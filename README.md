@@ -43,8 +43,21 @@ function that permits `GET`, permits `POST` only to GitHub's GraphQL
 endpoint, and only for a document beginning with `query` — a `mutation`
 is refused before it is sent. [`internal/gh/client_test.go`](internal/gh/client_test.go)
 asserts it, so a change that tried to make Argus write would fail the test
-suite. The same holds for Jira: the client permits only a named list of
-read endpoints, and refuses everything else.
+suite.
+
+**The sprint report can write to Jira, and only when you switch it on.**
+Off by default, it reads like the GitHub tool does. Set
+`ARGUS_SPRINT_ALLOW_WRITES` and it can do a named list of things at
+sprint close, and nothing else: set story points, set the assignee, and
+add, correct or remove one worklog entry. Every change is previewed
+first, approved individually by a person, checked against Jira again at
+the moment of writing, and recorded in a local audit log from which it
+can be reversed. The client's gate refuses anything not on that list
+whether writes are on or off, and
+[`internal/jira/client_test.go`](internal/jira/client_test.go) asserts
+that too. Edits appear in Jira under your own account, because they are
+made with your own token. See
+[Closing out a sprint](docs/sprint-report.md#closing-out-a-sprint).
 
 **What it stores depends on which tools you run.** The pull request tool
 stores nothing at all — its snapshot lives in memory and is gone when the

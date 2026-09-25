@@ -384,7 +384,44 @@ func AtlassianTeamConfigured() bool {
 	return AtlassianOrgID() != "" && AtlassianTeamID() != ""
 }
 
-// SprintWritesAllowed gates every write the sprint tool can make.
-// Off by default: a tool that can reassign tickets and publish pages
-// should be something you switch on deliberately.
+// ---- Confluence, for publishing the report ---------------------------
+//
+// Optional, like the Atlassian team. The space and the parent page
+// identify one organisation's wiki, so neither has a default; unset,
+// publishing is not offered at all rather than offered and failing.
+// The title and the sections are the team's standing choices and do
+// have working defaults.
+
+// ConfluenceSpaceID is the space the sprint pages live in.
+func ConfluenceSpaceID() string { return String("ARGUS_CONFLUENCE_SPACE_ID", "") }
+
+// ConfluenceParentPageID is the page the sprint pages sit under.
+func ConfluenceParentPageID() string { return String("ARGUS_CONFLUENCE_PARENT_PAGE_ID", "") }
+
+// ConfluenceConfigured reports whether both halves are set. One without
+// the other is a mistake rather than half a configuration.
+func ConfluenceConfigured() bool {
+	return ConfluenceSpaceID() != "" && ConfluenceParentPageID() != ""
+}
+
+// ConfluenceTitle is the page title as a text/template over the sprint's
+// Number, Name and Project.
+func ConfluenceTitle() string { return String("ARGUS_CONFLUENCE_TITLE", "Sprint {{.Number}} Report") }
+
+// ConfluenceLiveSuffix is what the title carries while the sprint is
+// still open. The environment cannot hold a leading space, so the
+// publisher puts one in when the suffix does not begin with one.
+func ConfluenceLiveSuffix() string { return String("ARGUS_CONFLUENCE_LIVE_SUFFIX", " (live)") }
+
+// ConfluenceSections is the team's standing choice of sections, nil when
+// unset so the publisher can fall back to the page package's full list -
+// which this package cannot name without a cycle. The catalogue's
+// default spells the same list, and a test in internal/publish holds the
+// two equal.
+func ConfluenceSections() []string { return Strings("ARGUS_CONFLUENCE_SECTIONS", nil) }
+
+// SprintWritesAllowed gates every write the sprint tool can make,
+// publishing a page included. Off by default: a tool that can set
+// points and assignees, log time on tickets and write a wiki page should
+// be something you switch on deliberately.
 func SprintWritesAllowed() bool { return Bool("ARGUS_SPRINT_ALLOW_WRITES", false) }

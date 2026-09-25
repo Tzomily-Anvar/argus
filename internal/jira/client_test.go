@@ -150,6 +150,71 @@ func TestDoSendsWhatTheGatePassed(t *testing.T) {
 	}
 }
 
+// The named entry points an apply uses are do with a decoder: Write
+// returns what Jira answered, the two reads fetch exactly the fields
+// asked for, and an HTTP failure keeps its status so the apply can tell
+// a token that cannot write from a fault on one issue.
+func TestWriteAndTheApplyReadsGoThroughDo(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.RequestURI())
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"46"}`))
+		case r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusForbidden)
+		case strings.HasSuffix(r.URL.Path, "/editmeta"):
+			_, _ = w.Write([]byte(`{"fields":{"customfield_10000":{"name":"Story Points"},"assignee":{}}}`))
+		default:
+			_, _ = w.Write([]byte(`{"id":"10001","key":"ABC-123","fields":{"updated":"2026-01-18T09:00:00.000+0000","customfield_10000":3}}`))
+		}
+	}))
+	defer srv.Close()
+	c, err := New(srv.URL, "person.a@example.com", "token", 1, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.AllowWrites("customfield_10000")
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := c.Write(http.MethodPost, worklog, worklogQuery, logged(), &created); err != nil || created.ID != "46" {
+		t.Errorf("Write: id %q, err %v", created.ID, err)
+	}
+	err = c.Write(http.MethodPut, issue, "", points(3.0), nil)
+	if StatusCode(err) != http.StatusForbidden {
+		t.Errorf("a 403 must keep its status: got %d from %v", StatusCode(err), err)
+	}
+	if StatusCode(errf("no answer")) != 0 || StatusCode(nil) != 0 {
+		t.Error("an error with no HTTP status must read as 0")
+	}
+
+	is, err := c.GetIssue("10001", []string{"updated", "customfield_10000"})
+	if err != nil || is.Key != "ABC-123" {
+		t.Fatalf("GetIssue: %+v, %v", is, err)
+	}
+	if n, ok := is.Number("customfield_10000"); !ok || n != 3 {
+		t.Errorf("the custom field did not come through: %v %v", n, ok)
+	}
+	meta, err := c.EditMeta("ABC-123")
+	if err != nil || meta["customfield_10000"] == nil || meta["assignee"] == nil {
+		t.Errorf("EditMeta: %v, %v", meta, err)
+	}
+
+	want := []string{
+		"POST /rest/api/3/issue/ABC-123/worklog?" + worklogQuery,
+		"PUT /rest/api/3/issue/ABC-123",
+		"GET /rest/api/3/issue/10001?fields=updated%2Ccustomfield_10000",
+		"GET /rest/api/3/issue/ABC-123/editmeta",
+	}
+	if strings.Join(seen, "\n") != strings.Join(want, "\n") {
+		t.Errorf("requests seen:\n%s\nwant:\n%s", strings.Join(seen, "\n"), strings.Join(want, "\n"))
+	}
+}
+
 // A structural test, in the spirit of TestEverySettingIsDocumented. The
 // guarantee that every write meets the gate is a property of the package,
 // not of one function, and it only holds while the gated files are the

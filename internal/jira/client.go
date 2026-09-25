@@ -9,7 +9,9 @@
 // adding, correcting or removing one worklog entry - each pinned to an
 // exact path, an exact query and an exact body shape. Even a request on
 // that list is refused unless the Client's writePolicy allows writes;
-// New leaves it off, and nothing in this codebase yet switches it on.
+// New leaves it off, and the one caller that switches it on is the
+// sprint service at startup, from ARGUS_SPRINT_ALLOW_WRITES, once the
+// site's story points field has been resolved.
 //
 // TestOnlyDoReachesTheNetwork keeps this structural: a file in this
 // package that builds its own request fails the build, so a second
@@ -24,11 +26,13 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -42,12 +46,28 @@ var readPaths = []string{
 }
 
 // Error wraps any failure talking to Jira, so callers never see a raw
-// net/http error.
-type Error struct{ msg string }
+// net/http error. status is what Jira answered with, or zero when the
+// failure never got an answer.
+type Error struct {
+	msg    string
+	status int
+}
 
 func (e *Error) Error() string { return e.msg }
 
 func errf(format string, a ...any) error { return &Error{msg: fmt.Sprintf(format, a...)} }
+
+// StatusCode is the HTTP status behind an error from this client, or 0
+// for a failure that never got an answer: a refused write, a network
+// error, an unreadable body. An apply uses it to tell a token that
+// cannot write at all from a fault on one issue.
+func StatusCode(err error) int {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.status
+	}
+	return 0
+}
 
 // WriteAttemptError means something tried to make this client write.
 type WriteAttemptError struct{ msg string }
@@ -62,9 +82,11 @@ type Client struct {
 	auth    string
 	sem     chan struct{}
 
-	// policy is consulted by the gate in do and nowhere else. Its zero
-	// value refuses every write.
-	policy writePolicy
+	// policy is consulted by the gate in do and nowhere else. Unset, it
+	// refuses every write. An atomic rather than a plain field because
+	// AllowWrites runs once the points field is known, which is after
+	// the first reads have gone out.
+	policy atomic.Pointer[writePolicy]
 }
 
 // New returns a client for baseURL, authenticating as email with token.
@@ -93,13 +115,21 @@ func (c *Client) BaseURL() string { return c.baseURL }
 // AllowWrites switches on the writes permit.go lists, with pointsField as
 // the custom field id that "story points" means on this site.
 //
-// Nothing calls this yet. It exists so that when a caller arrives it has
-// one place to do this, at startup, from the one setting that governs
-// it - and so the setting is never consulted at a call site, where it
-// could also be forgotten. Call it before the client is shared; it is
-// not synchronised with requests in flight.
+// The sprint service calls this once, at startup, from the one setting
+// that governs it - so the setting is never consulted at a call site,
+// where it could also be forgotten. A request already past the gate when
+// this runs was judged under the old policy, which for a read changes
+// nothing.
 func (c *Client) AllowWrites(pointsField string) {
-	c.policy = writePolicy{Allowed: true, PointsField: pointsField}
+	c.policy.Store(&writePolicy{Allowed: true, PointsField: pointsField})
+}
+
+// currentPolicy is what the gate judges against right now.
+func (c *Client) currentPolicy() writePolicy {
+	if p := c.policy.Load(); p != nil {
+		return *p
+	}
+	return writePolicy{}
 }
 
 // do is the one place HTTP happens. Three attempts with backoff on
@@ -109,7 +139,7 @@ func (c *Client) AllowWrites(pointsField string) {
 // on its own terms: the path against an exact pattern, the query against
 // an exact set of parameters.
 func (c *Client) do(method, path, rawQuery string, body any) ([]byte, error) {
-	if err := assertPermitted(method, path, rawQuery, body, c.policy); err != nil {
+	if err := assertPermitted(method, path, rawQuery, body, c.currentPolicy()); err != nil {
 		return nil, err
 	}
 
@@ -182,21 +212,24 @@ func explain(status int, path string, raw []byte) error {
 	if len(detail) > 300 {
 		detail = detail[:300]
 	}
+	var msg string
 	switch status {
 	case 401:
-		return errf("Jira rejected the credentials (401). Check ARGUS_JIRA_EMAIL is the " +
+		msg = "Jira rejected the credentials (401). Check ARGUS_JIRA_EMAIL is the " +
 			"address you log in with, and that ARGUS_JIRA_TOKEN is a current API token " +
-			"from id.atlassian.com/manage-profile/security/api-tokens.")
+			"from id.atlassian.com/manage-profile/security/api-tokens."
 	case 403:
-		return errf("Jira returned 403 for %s. The credentials are valid but this account "+
-			"cannot see that resource. Detail: %s", path, detail)
+		msg = fmt.Sprintf("Jira returned 403 for %s. The credentials are valid but this account "+
+			"cannot see or edit that resource. Detail: %s", path, detail)
 	case 404:
-		return errf("Jira returned 404 for %s. Either ARGUS_JIRA_BASE_URL points at the "+
+		msg = fmt.Sprintf("Jira returned 404 for %s. Either ARGUS_JIRA_BASE_URL points at the "+
 			"wrong site, or the project or sprint does not exist under it.", path)
 	case 429:
-		return errf("Jira is rate limiting (429). Lower ARGUS_CONCURRENCY and try again.")
+		msg = "Jira is rate limiting (429). Lower ARGUS_CONCURRENCY and try again."
+	default:
+		msg = fmt.Sprintf("%d for %s :: %s", status, path, detail)
 	}
-	return errf("%d for %s :: %s", status, path, detail)
+	return &Error{msg: msg, status: status}
 }
 
 // ---- requests --------------------------------------------------------
@@ -217,6 +250,42 @@ func (c *Client) Post(path string, body, v any) error {
 		return err
 	}
 	return decode(raw, path, v)
+}
+
+// Write performs one of the writes permit.go lists and decodes whatever
+// Jira answers into v when v is not nil. It is do with a name: the gate
+// is still the first thing that happens, so a request the list does not
+// carry never reaches the network, and none does while writes are off.
+func (c *Client) Write(method, path, rawQuery string, body, v any) error {
+	raw, err := c.do(method, path, rawQuery, body)
+	if err != nil {
+		return err
+	}
+	return decode(raw, path, v)
+}
+
+// GetIssue fetches one issue by key or id with only the named fields,
+// which is what an apply re-reads immediately before writing. The
+// worklog comes inline when asked for, as it does from a search.
+func (c *Client) GetIssue(ref string, fields []string) (Issue, error) {
+	var is Issue
+	err := c.Get("/rest/api/3/issue/"+ref, url.Values{"fields": {strings.Join(fields, ",")}}, &is)
+	return is, err
+}
+
+// EditMeta returns the fields this account may edit on an issue right
+// now, keyed by field id. A field missing from the answer is not on the
+// edit screen or not this account's to touch, and a write to it fails
+// with a message about the field rather than a permission - so an apply
+// asks here first.
+func (c *Client) EditMeta(key string) (map[string]json.RawMessage, error) {
+	var meta struct {
+		Fields map[string]json.RawMessage `json:"fields"`
+	}
+	if err := c.Get("/rest/api/3/issue/"+key+"/editmeta", nil, &meta); err != nil {
+		return nil, err
+	}
+	return meta.Fields, nil
 }
 
 func decode(raw []byte, path string, v any) error {

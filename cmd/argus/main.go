@@ -85,7 +85,7 @@ func run() error {
 	cache := sweep.New(client, interval)
 	cache.Start()
 
-	sprintSvc, st, err := setUpSprint(context.Background())
+	sprintSvc, st, pub, err := setUpSprint(context.Background())
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func run() error {
 
 	srv := server.New(cache)
 	if sprintSvc != nil {
-		srv.SprintRoutes(sprintSvc, st)
+		srv.SprintRoutes(sprintSvc, st, pub)
 	}
 	return server.Run(config.Addr(), srv)
 }
