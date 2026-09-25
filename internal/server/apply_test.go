@@ -170,7 +170,7 @@ func writableServer(t *testing.T, fake *standIn, enable bool) (*server.Server, s
 		EnableWrites: enable,
 	})
 	srv := server.New(nil)
-	srv.SprintRoutes(svc, st)
+	srv.SprintRoutes(svc, st, nil)
 	return srv, st
 }
 

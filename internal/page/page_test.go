@@ -1,0 +1,268 @@
+package page
+
+import (
+	"flag"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Tzomily-Anvar/argus/internal/sprint"
+)
+
+// -update rewrites the golden file. A rendering change is meant to show
+// up as a diff in review, so the file is only ever rewritten on purpose.
+var update = flag.Bool("update", false, "rewrite testdata/render.html from the current output")
+
+const goldenFile = "testdata/render.html"
+
+// fixture is a report built by hand, with a value in every field a
+// section reads, and markup in the places a real ticket would put it.
+func fixture() sprint.Report {
+	starts := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)
+	ends := time.Date(2026, 1, 16, 17, 0, 0, 0, time.UTC)
+	browse := "https://jira.example/browse/"
+	return sprint.Report{
+		Sprint: sprint.SprintInfo{
+			JiraID: 744, Number: 21, Name: "Sprint 21", State: "closed",
+			Starts: starts, Ends: ends,
+			CountsFrom: starts, CountsUntil: ends.Add(48 * time.Hour),
+			BrowseURL: browse,
+		},
+		Summary: sprint.Summary{
+			BaselineTotal: 18, CapacityTotal: 16, DeliveredTotal: 17.75,
+			PlannedDaysOff: 2, UnplannedDaysOff: 1, ShortfallFromAbsence: 0.5,
+			Promised: 9, Injected: 3, Completed: 8,
+			IssueCount: 14, DoneCount: 9,
+			CarriedOver: 2, CarriedActive: 1, NeverStarted: 1,
+			FinishedFromEarlier: 1, PriorPointsDeducted: 1.5,
+		},
+		People: []sprint.Person{
+			{AccountID: "u-kit", Name: "Kit", Baseline: 10, Capacity: 8, Delivered: 7.5, Delta: -0.5,
+				PlannedDaysOff: 2, UnplannedDaysOff: 1, ShortfallFromAbsence: 0.5, OnRoster: true, Measured: true},
+			// Somebody off the roster, listed first in the report so the
+			// test can see measured people pulled ahead of them.
+			{AccountID: "u-sam", Name: "Sam", Delivered: 2},
+			{AccountID: "u-noor", Name: "Noor", Baseline: 8, Capacity: 8, Delivered: 8.25, Delta: 0.25, OnRoster: true, Measured: true},
+		},
+		Stories: []sprint.Story{
+			{Key: "T-90", Summary: "Checkout <b>rewrite</b>", Points: 8, URL: browse + "T-90", LinkedPoints: 7, LinkedCount: 3},
+			{Key: "T-91", Summary: "Empty story", Points: 2, URL: browse + "T-91"},
+		},
+		Carry: []sprint.Row{
+			{Key: "T-120", Summary: "Retry on timeout", Status: "In Progress", Active: true, URL: browse + "T-120"},
+			{Key: "T-121", Summary: "Tidy the logs", Status: "To Do", URL: browse + "T-121"},
+		},
+		Flags: []sprint.Flag{
+			{Kind: sprint.FlagDoneNoEstimate, Message: "Finished without points", Key: "T-101", URL: browse + "T-101"},
+			{Kind: sprint.FlagWorklogSplitEqually, Message: "Two names, no figures beside them",
+				Keys: []string{"T-102", "T-103"}, JQL: "https://jira.example/issues/?jql=key+in+(T-102,T-103)"},
+		},
+		Calibration: sprint.Calibration{
+			Configured: true, Estimated: 20, Actual: 24, Difference: 4, Variance: 0.2, HasVariance: true,
+			Compared: 5, Finished: 9, Matched: 3, Over: 1, Under: 1, Thin: true,
+			Diverged: []sprint.Divergence{
+				{Key: "T-104", Summary: "Migrate <script> tags", URL: browse + "T-104", Estimated: 3, Actual: 6, Difference: 3},
+				{Key: "T-105", Summary: "Rename a column", URL: browse + "T-105", Estimated: 2, Actual: 1, Difference: -1},
+			},
+		},
+		CapacityReview: sprint.CapacityReview{State: sprint.ReviewAdjusted, Adjusted: 1},
+		GeneratedAt:    time.Date(2026, 1, 17, 9, 0, 0, 0, time.UTC),
+	}
+}
+
+func inputs(sections ...string) Inputs {
+	return Inputs{
+		Sections: sections,
+		Notes:    map[string]string{"u-kit": "Out sick <two> days"},
+		Conventions: Conventions{
+			DoneStatuses: []string{"Done", "Closed"}, DoneSource: DoneSourceSetting,
+			Containers: []string{"Epic", "Story"}, AbsenceCost: "point", WorklogAttribution: "mention",
+			HoursPerPoint: 6, SprintLengthDays: 10, PointsField: "Story Points",
+		},
+		GeneratedAt: time.Date(2026, 1, 17, 10, 0, 0, 0, time.UTC),
+		ToolVersion: "0.9.0",
+	}
+}
+
+func render(t *testing.T, in Inputs) string {
+	t.Helper()
+	out, err := Render(fixture(), in)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	return out
+}
+
+func heading(id string) string { return "<h2>" + headings[id] + "</h2>" }
+
+// without is All minus one section.
+func without(id string) []string {
+	var out []string
+	for _, s := range All {
+		if s != id {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func TestRenderAllSections(t *testing.T) {
+	out := render(t, inputs(All...))
+
+	for _, m := range []string{MarkerStart, MarkerEnd} {
+		if n := strings.Count(out, m); n != 1 {
+			t.Errorf("%s appears %d times, want exactly once", m, n)
+		}
+	}
+	if strings.Index(out, MarkerStart) > strings.Index(out, MarkerEnd) {
+		t.Error("the end marker comes before the start")
+	}
+	for id, h := range headings {
+		if n := strings.Count(out, heading(id)); n != 1 {
+			t.Errorf("heading for %s appears %d times, want once", h, n)
+		}
+	}
+	if n := strings.Count(out, "<th>Reason</th>"); n != 1 {
+		t.Errorf("Reason column header appears %d times, want once", n)
+	}
+
+	// A few figures that would be easy to get subtly wrong.
+	for _, want := range []string{
+		"Generated by Argus 0.9.0 on 17 Jan 2026 · closed",
+		"Capacity: 1 person away",
+		"8/12 (3 injected)",
+		"<td>67%</td>",
+		// html/template writes a plus as &#43; in text, which is a valid
+		// character reference in XHTML and reads as a plus on the page.
+		"<td>&#43;0.25</td>",                   // two decimals kept when they carry
+		"<td>-0.5 <em>0.5 unplanned</em></td>", // one otherwise, with the absence beneath
+		"<td>2.0 / 1.0</td>",                   // away as planned / unplanned
+		"<td><strong>18.0</strong></td>",       // the baseline total from the rows
+		"<td>&#43;20.0%</td>",                  // the variance
+		"3.0 → 6.0 (&#43;3.0)",                 // estimate against actual
+		"5 of 9 tickets",                       // coverage
+		"Handed back to earlier sprints: 1.5 pts",
+		`<a href="https://jira.example/browse/T-120">T-120</a>`,
+		"<td>never started</td>",
+		"<td>no time logged</td>",
+		"<strong>done no estimate</strong>",
+		"<code>T-102 T-103</code>",
+		"one of the statuses Done or Closed",
+		"Epic and Story are containers",
+		"Story Points field",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q", want)
+		}
+	}
+
+	// Measured people come before anybody unmeasured, whatever order the
+	// report listed them in.
+	kit, noor, sam := strings.Index(out, "<td>Kit</td>"), strings.Index(out, "<td>Noor</td>"), strings.Index(out, "<td>Sam <em>(not on roster)</em></td>")
+	if kit < 0 || noor < 0 || sam < 0 || !(kit < noor && noor < sam) {
+		t.Errorf("people are out of order: kit=%d noor=%d sam=%d", kit, noor, sam)
+	}
+}
+
+func TestEachSectionCanBeSwitchedOff(t *testing.T) {
+	for _, id := range All {
+		if id == SectionReasons {
+			continue
+		}
+		t.Run(id, func(t *testing.T) {
+			out := render(t, inputs(without(id)...))
+			if strings.Contains(out, heading(id)) {
+				t.Errorf("%s is off but its heading is on the page", id)
+			}
+			for other := range headings {
+				if other != id && !strings.Contains(out, heading(other)) {
+					t.Errorf("switching off %s also lost %s", id, other)
+				}
+			}
+		})
+	}
+}
+
+func TestReasonsOffRemovesTheColumn(t *testing.T) {
+	out := render(t, inputs(without(SectionReasons)...))
+	if !strings.Contains(out, heading(SectionPeople)) {
+		t.Fatal("the people table should still be there")
+	}
+	if strings.Contains(out, "<th>Reason</th>") {
+		t.Error("the Reason column header is still there")
+	}
+	if strings.Contains(out, "Out sick") {
+		t.Error("the note reached the page with reasons switched off")
+	}
+	// Reasons without people is nothing at all: it is a column of a
+	// table that is not there.
+	out = render(t, inputs(SectionReasons))
+	if strings.Contains(out, "Reason") || strings.Contains(out, "Out sick") {
+		t.Error("reasons alone should render nothing")
+	}
+}
+
+func TestSectionOrderIsThePages(t *testing.T) {
+	out := render(t, inputs(SectionCounted, SectionFlags, SectionSummary))
+	if !(strings.Index(out, heading(SectionSummary)) < strings.Index(out, heading(SectionFlags)) &&
+		strings.Index(out, heading(SectionFlags)) < strings.Index(out, heading(SectionCounted))) {
+		t.Error("sections were rendered in the caller's order rather than the page's")
+	}
+}
+
+func TestEveryValueIsEscaped(t *testing.T) {
+	out := render(t, inputs(All...))
+	for _, raw := range []string{"<b>rewrite</b>", "<script>", "<two>"} {
+		if strings.Contains(out, raw) {
+			t.Errorf("%q reached the page as markup", raw)
+		}
+	}
+	for _, escaped := range []string{"Checkout &lt;b&gt;rewrite&lt;/b&gt;", "Migrate &lt;script&gt; tags", "Out sick &lt;two&gt; days"} {
+		if !strings.Contains(out, escaped) {
+			t.Errorf("output lacks the escaped form %q", escaped)
+		}
+	}
+}
+
+func TestCalibrationSaysWhenItCannotCompare(t *testing.T) {
+	rep := fixture()
+	rep.Calibration = sprint.Calibration{Configured: false, Finished: 9}
+	out, err := Render(rep, inputs(SectionCalibration))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "nothing to compare") || strings.Contains(out, "<th>Estimated</th>") {
+		t.Errorf("an unconfigured comparison should be a sentence, not a table:\n%s", out)
+	}
+}
+
+// TestGolden pins the whole output for the fixture. The file is written
+// on the first run and rewritten only with -update, so any change to the
+// rendering shows up as a diff somebody has to look at.
+func TestGolden(t *testing.T) {
+	got := render(t, inputs(All...))
+	if *update {
+		if err := os.WriteFile(goldenFile, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(goldenFile)
+	if os.IsNotExist(err) {
+		if err := os.MkdirAll(filepath.Dir(goldenFile), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(goldenFile, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s from this run; commit it", goldenFile)
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(want) != got {
+		t.Errorf("rendering changed; if that is intended, run go test ./internal/page -update and review the diff\n--- want\n%s\n--- got\n%s", want, got)
+	}
+}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/jira"
+	"github.com/Tzomily-Anvar/argus/internal/publish"
 	"github.com/Tzomily-Anvar/argus/internal/sprint"
 	"github.com/Tzomily-Anvar/argus/internal/store"
 )
@@ -14,13 +15,15 @@ import (
 // SprintRoutes registers the sprint report's endpoints. They are only
 // registered when the tool is configured, so a deployment without Jira
 // credentials simply has no sprint API rather than one that always errors.
-func (s *Server) SprintRoutes(svc *sprint.Service, st store.Store) {
+// pub may be nil, in which case publishing answers as not configured.
+func (s *Server) SprintRoutes(svc *sprint.Service, st store.Store, pub *publish.Service) {
 	s.sprint = svc
 	s.store = st
 	s.changeRoutes(svc)
 	s.worklogRoutes(svc)
 	s.closeoutRoutes(svc, st)
 	s.applyRoutes(svc, st)
+	s.publishRoutes(pub)
 
 	// The dropdown. Fetched live because it costs about half a second,
 	// and marked with which sprints already have a stored report.

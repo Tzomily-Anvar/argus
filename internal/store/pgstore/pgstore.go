@@ -150,23 +150,28 @@ func (s *Store) PutSprint(ctx context.Context, sp store.Sprint) error {
 	if sp.JiraID == 0 {
 		return fmt.Errorf("sprint needs a Jira id")
 	}
+	// The page id is only ever set, never cleared, by this path: the
+	// sweep rewrites the sprint without knowing about its page, so an
+	// empty id means "unchanged" and the stored one is kept.
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO sprints (jira_id, label, number, starts_at, ends_at, state, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, now())
+		INSERT INTO sprints (jira_id, label, number, starts_at, ends_at, state, confluence_page_id, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), now())
 		ON CONFLICT (jira_id) DO UPDATE SET
 			label = EXCLUDED.label, number = EXCLUDED.number,
 			starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at,
-			state = EXCLUDED.state, updated_at = now()`,
-		sp.JiraID, sp.Label, sp.Number, sp.StartsAt, sp.EndsAt, sp.State)
+			state = EXCLUDED.state,
+			confluence_page_id = COALESCE(EXCLUDED.confluence_page_id, sprints.confluence_page_id),
+			updated_at = now()`,
+		sp.JiraID, sp.Label, sp.Number, sp.StartsAt, sp.EndsAt, sp.State, sp.ConfluencePageID)
 	return err
 }
 
 func (s *Store) GetSprint(ctx context.Context, jiraID int64) (store.Sprint, error) {
 	var sp store.Sprint
 	err := s.db.QueryRowContext(ctx, `
-		SELECT jira_id, label, number, starts_at, ends_at, state, updated_at
+		SELECT jira_id, label, number, starts_at, ends_at, state, COALESCE(confluence_page_id, ''), updated_at
 		FROM sprints WHERE jira_id = $1`, jiraID).
-		Scan(&sp.JiraID, &sp.Label, &sp.Number, &sp.StartsAt, &sp.EndsAt, &sp.State, &sp.UpdatedAt)
+		Scan(&sp.JiraID, &sp.Label, &sp.Number, &sp.StartsAt, &sp.EndsAt, &sp.State, &sp.ConfluencePageID, &sp.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Sprint{}, store.ErrNotFound
 	}
@@ -175,7 +180,7 @@ func (s *Store) GetSprint(ctx context.Context, jiraID int64) (store.Sprint, erro
 
 func (s *Store) ListSprints(ctx context.Context, limit int) ([]store.Sprint, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT jira_id, label, number, starts_at, ends_at, state, updated_at
+		SELECT jira_id, label, number, starts_at, ends_at, state, COALESCE(confluence_page_id, ''), updated_at
 		FROM sprints
 		ORDER BY number DESC
 		LIMIT NULLIF($1, 0)`, limit)
@@ -187,7 +192,7 @@ func (s *Store) ListSprints(ctx context.Context, limit int) ([]store.Sprint, err
 	out := []store.Sprint{}
 	for rows.Next() {
 		var sp store.Sprint
-		if err := rows.Scan(&sp.JiraID, &sp.Label, &sp.Number, &sp.StartsAt, &sp.EndsAt, &sp.State, &sp.UpdatedAt); err != nil {
+		if err := rows.Scan(&sp.JiraID, &sp.Label, &sp.Number, &sp.StartsAt, &sp.EndsAt, &sp.State, &sp.ConfluencePageID, &sp.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, sp)

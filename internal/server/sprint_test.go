@@ -37,7 +37,7 @@ func reviewServer(t *testing.T) (*server.Server, store.Store) {
 	}
 
 	srv := server.New(nil)
-	srv.SprintRoutes(sprint.NewService(nil, st, sprint.Config{}), st)
+	srv.SprintRoutes(sprint.NewService(nil, st, sprint.Config{}), st, nil)
 	return srv, st
 }
 

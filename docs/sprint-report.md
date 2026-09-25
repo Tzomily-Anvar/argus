@@ -109,6 +109,82 @@ new entry with a new id, and the preview says so.
 **It is you doing it.** Edits are made with your token, so Jira shows
 your name on every one. Tell the team before the first close-out.
 
+### Publishing
+
+The last step of a close-out is the page. The report can be published to
+Confluence as one page per sprint under a parent page you name:
+
+```bash
+ARGUS_CONFLUENCE_SPACE_ID=<the space's id>
+ARGUS_CONFLUENCE_PARENT_PAGE_ID=<the parent page's id>
+```
+
+Both identify your wiki, so neither has a default, and with either unset
+the Publish button is not offered at all. Publishing is a write and
+shares `ARGUS_SPRINT_ALLOW_WRITES`: with writes off the preview still
+renders, and the button is the line naming the setting. Both ids are in
+a page's URL in Confluence, or under "Page information".
+
+**One page per sprint.** The page is titled from a template,
+`ARGUS_CONFLUENCE_TITLE`, over the sprint's `Number`, `Name` and
+`Project` - `Sprint {{.Number}} Report` by default. While the sprint is
+open the title carries `ARGUS_CONFLUENCE_LIVE_SUFFIX` (` (live)`), and
+at close the same page is renamed without it. The first publish creates
+the page; every later one updates it. The page's id is remembered with
+the sprint, so a page somebody renames is still found and a second one
+is never created by accident; a remembered page that has been deleted is
+reported rather than silently recreated.
+
+**The markers.** Argus owns only the part of the page between two
+comments:
+
+```
+<!-- ARGUS:REPORT:START -->  ...  <!-- ARGUS:REPORT:END -->
+```
+
+On an update only that block is replaced. Everything you write around it
+- a scaffold above, notes and decisions below - survives every
+re-publish. A page carrying the earlier tool's markers
+(`SPRINT-REPORT:AUTO`) is recognised and its markers replaced with these
+on the first publish, and a page with no markers has the block appended
+and the preview says so. The Jira client refuses to send a page body
+without exactly one pair of markers, so it can never write a page it
+could not update again.
+
+**The sections.** The page is a fixed sequence, each part of which can be
+left out:
+
+| Section | What it holds |
+|---|---|
+| `summary` | baseline, capacity, delivered, the say/do line |
+| `saydo` | promised, injected, delivered, both ratios |
+| `people` | the per-person table |
+| `reasons` | the Reason column on that table, from the capacity note |
+| `calibration` | estimate against actual, and the tickets that moved furthest |
+| `stories` | containers concluded this sprint |
+| `flags` | "Needs a look" |
+| `carryover` | still open at close |
+| `counted` | the "How this was counted" footer naming your conventions |
+
+`ARGUS_CONFLUENCE_SECTIONS` is the team's standing choice, all of them by
+default. The Publish panel shows the same list as switches, pre-filled
+from the setting, and an untick there applies to that one publish only.
+`reasons` is the one section that puts free text about a named colleague
+on the page; it is what the team's pages have always carried, and it is
+your choice each time.
+
+**Preview first, always.** The preview is the rendered block beside the
+block currently on the page, as a line-by-line difference, with the
+action (create or update), the title and whether it changes, the version
+being replaced, and the page's link. It lasts fifteen minutes and is
+published once. The page is updated at the version the preview read, so
+a colleague's edit in between is a refusal - from Argus first, and from
+Confluence itself if that were ever missed - rather than an overwrite.
+Each publish leaves one row in the same audit log as the Jira writes:
+the page, the version replaced, the version written, the digest and the
+title. The block's previous content is not copied there; Confluence
+keeps the page's history itself.
+
 ### Storage
 
 Files by default, in a volume, so nobody has to run a database. Set

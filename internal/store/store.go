@@ -71,6 +71,14 @@ type Sprint struct {
 	EndsAt    *time.Time `json:"ends_at,omitempty"`
 	State     string     `json:"state"`
 	UpdatedAt time.Time  `json:"updated_at"`
+
+	// ConfluencePageID is the page this sprint's report was published
+	// to, once it has been. Kept so a renamed page is still found and a
+	// second page is never created by accident. Empty means never
+	// published, and an empty value in a PutSprint leaves a stored one
+	// alone, because the sweep rewrites a Sprint whenever it rebuilds a
+	// report and must not wipe it.
+	ConfluencePageID string `json:"confluence_page_id,omitempty"`
 }
 
 // Capacity is one person's availability for one sprint.

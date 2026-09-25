@@ -199,6 +199,11 @@ func (s *Store) PutSprint(_ context.Context, sp store.Sprint) error {
 	replaced := false
 	for i := range sprints {
 		if sprints[i].JiraID == sp.JiraID {
+			// The sweep rewrites the sprint without knowing about its
+			// page, so an empty id here means "unchanged", not "none".
+			if sp.ConfluencePageID == "" {
+				sp.ConfluencePageID = sprints[i].ConfluencePageID
+			}
 			sprints[i] = sp
 			replaced = true
 			break

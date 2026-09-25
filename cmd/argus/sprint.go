@@ -10,53 +10,56 @@ import (
 
 	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/jira"
+	"github.com/Tzomily-Anvar/argus/internal/page"
+	"github.com/Tzomily-Anvar/argus/internal/publish"
 	"github.com/Tzomily-Anvar/argus/internal/sprint"
 	"github.com/Tzomily-Anvar/argus/internal/store"
 	"github.com/Tzomily-Anvar/argus/internal/store/jsonstore"
 	"github.com/Tzomily-Anvar/argus/internal/store/pgstore"
 )
 
-// setUpSprint wires the sprint report, or reports why it stayed off.
+// setUpSprint wires the sprint report and its publisher, or reports why
+// the report stayed off.
 //
 // Absent Jira configuration is not an error: most people running Argus
 // want the pull request tool and nothing else, and they should not have
 // to read a failure about a tool they never asked for.
-func setUpSprint(ctx context.Context) (*sprint.Service, store.Store, error) {
+func setUpSprint(ctx context.Context) (*sprint.Service, store.Store, *publish.Service, error) {
 	// Switched off unless asked for. Checked before anything else, so a
 	// deployment that only wants pull request triage opens no database,
 	// makes no Jira call, and reads no message about a tool it never
 	// enabled.
 	if !config.ToolEnabled("sprint") {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	base, err := config.JiraBaseURL()
 	if err != nil {
 		log.Printf("argus: sprint report off (%v)", err)
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	email, token, err := config.JiraCredentials()
 	if err != nil {
 		log.Printf("argus: sprint report off (%v)", err)
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	project, err := config.JiraProject()
 	if err != nil {
 		log.Printf("argus: sprint report off (%v)", err)
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	st, err := openStore(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err := st.Migrate(ctx); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	client, err := jira.New(base, email, token, config.Concurrency(), config.HTTPTimeout())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	svc := sprint.NewService(client, st, sprint.Config{
@@ -78,7 +81,39 @@ func setUpSprint(ctx context.Context) (*sprint.Service, store.Store, error) {
 	log.Printf("argus: sprint report on (project %s, %d recent sprints)",
 		project, config.Int("ARGUS_SPRINT_RECENT", 4))
 	go retain(ctx, st)
-	return svc, st, nil
+	return svc, st, setUpPublish(client, svc, st, project, email), nil
+}
+
+// setUpPublish wires publishing to Confluence. Always built, because an
+// unconfigured publisher is what tells the panel what to set; whether it
+// is offered is decided by the space and parent page being named.
+func setUpPublish(client *jira.Client, svc *sprint.Service, st store.Store, project, email string) *publish.Service {
+	pub := publish.New(client, svc, st, publish.Config{
+		SpaceID:      config.ConfluenceSpaceID(),
+		ParentPageID: config.ConfluenceParentPageID(),
+		Title:        config.ConfluenceTitle(),
+		LiveSuffix:   config.ConfluenceLiveSuffix(),
+		Sections:     config.ConfluenceSections(),
+		Project:      project,
+		Actor:        email,
+		ToolVersion:  versionString(),
+		EnableWrites: config.SprintWritesAllowed(),
+		Conventions: page.Conventions{
+			DoneStatuses:       config.JiraDoneStatuses(),
+			DoneSource:         "name",
+			Containers:         config.Strings("ARGUS_JIRA_CONTAINER_TYPES", []string{"Story"}),
+			AbsenceCost:        config.SprintAbsenceCost(),
+			WorklogAttribution: config.JiraWorklogAttribution(),
+			HoursPerPoint:      config.HoursPerPoint(),
+			SprintLengthDays:   config.JiraSprintLengthDays(),
+			PointsField:        config.JiraPointsFieldName(),
+		},
+	})
+	if pub.Configured() {
+		log.Printf("argus: publishing to Confluence on (space %s, under page %s)",
+			config.ConfluenceSpaceID(), config.ConfluenceParentPageID())
+	}
+	return pub
 }
 
 // openStore picks a backend. Files by default, so nobody has to run a

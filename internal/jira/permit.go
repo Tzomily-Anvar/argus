@@ -51,6 +51,11 @@ type permittedWrite struct {
 	// equalling Query: for the one write whose query names a board, and
 	// boards differ per site.
 	QueryPattern *regexp.Regexp
+
+	// BodyAt, when set, judges the body against the path as well, in
+	// place of Body: for the one write whose body must name the same
+	// resource its path does.
+	BodyAt func(raw []byte, path string, pol writePolicy) error
 }
 
 // issuePath matches /rest/api/3/issue/ABC-123 and nothing beneath it, so
@@ -91,6 +96,11 @@ var permitted = []permittedWrite{
 	{Op: "worklog.add", Method: http.MethodPost, Path: worklogPath, Query: worklogQuery, Body: worklogAddBody},
 	{Op: "worklog.update", Method: http.MethodPut, Path: worklogEntryPath, Query: worklogQuery, Body: worklogUpdateBody},
 	{Op: "worklog.delete", Method: http.MethodDelete, Path: worklogEntryPath, Query: worklogQuery, Body: noBody},
+
+	// The two Confluence writes, permit_page.go. One page per sprint,
+	// created once and updated at its current version thereafter.
+	{Op: "page.create", Method: http.MethodPost, Path: pagesPath, Body: pageCreateBody},
+	{Op: "page.update", Method: http.MethodPut, Path: pagePath, BodyAt: pageUpdateBody},
 }
 
 // assertPermitted is the single gate every Jira request passes through.
@@ -144,7 +154,12 @@ func assertPermitted(method, path, rawQuery string, body any, pol writePolicy) e
 	}
 	var reasons []string
 	for _, w := range candidates {
-		err := w.Body(raw, pol)
+		var err error
+		if w.BodyAt != nil {
+			err = w.BodyAt(raw, path, pol)
+		} else {
+			err = w.Body(raw, pol)
+		}
 		if !queryAllowed(rawQuery, w) {
 			err = fmt.Errorf("the query %q is not the one this write carries", rawQuery)
 		}

@@ -26,6 +26,7 @@ func Run(t *testing.T, fresh func(t *testing.T) store.Store) {
 		"inactive people are filterable":   testInactivePeople,
 		"missing person is ErrNotFound":    testMissingPerson,
 		"sprints keyed by Jira id":         testSprints,
+		"a page id survives a re-sweep":    testPageIDSurvivesSweep,
 		"capacity is isolated per sprint":  testCapacityIsolation,
 		"absence splits planned/unplanned": testAbsenceSplit,
 		"capacity needs known references":  testUnknownReference,
@@ -143,6 +144,39 @@ func testSprints(t *testing.T, s store.Store) {
 	}
 	if got.StartsAt == nil || !got.StartsAt.Equal(start) {
 		t.Errorf("StartsAt lost: %v", got.StartsAt)
+	}
+	if got.ConfluencePageID != "" {
+		t.Errorf("a sprint never published should have no page id, got %q", got.ConfluencePageID)
+	}
+	got.ConfluencePageID = "123"
+	if err := s.PutSprint(ctx(), got); err != nil {
+		t.Fatalf("PutSprint with a page id: %v", err)
+	}
+	if again, err := s.GetSprint(ctx(), 744); err != nil || again.ConfluencePageID != "123" {
+		t.Errorf("the page id did not round-trip: %+v, err %v", again, err)
+	}
+}
+
+// The sweep rewrites a sprint every time it rebuilds a report, and knows
+// nothing about the page. A PutSprint without an id must therefore keep
+// the stored one, or the second publish would create a second page.
+func testPageIDSurvivesSweep(t *testing.T, s store.Store) {
+	if err := s.PutSprint(ctx(), store.Sprint{JiraID: 744, Label: "Sprint 21", Number: 21, ConfluencePageID: "123"}); err != nil {
+		t.Fatalf("PutSprint: %v", err)
+	}
+	if err := s.PutSprint(ctx(), store.Sprint{JiraID: 744, Label: "Sprint 21", Number: 21, State: "closed"}); err != nil {
+		t.Fatalf("PutSprint from the sweep: %v", err)
+	}
+	got, err := s.GetSprint(ctx(), 744)
+	if err != nil {
+		t.Fatalf("GetSprint: %v", err)
+	}
+	if got.ConfluencePageID != "123" || got.State != "closed" {
+		t.Errorf("the re-sweep should update the sprint and keep its page id: %+v", got)
+	}
+	list, err := s.ListSprints(ctx(), 0)
+	if err != nil || len(list) != 1 || list[0].ConfluencePageID != "123" {
+		t.Errorf("ListSprints should carry the page id too: %+v, err %v", list, err)
 	}
 }
 

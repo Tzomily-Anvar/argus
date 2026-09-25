@@ -46,6 +46,9 @@ func TestPersistedJSONShape(t *testing.T) {
 			"ends_at":    "*time.Time",
 			"state":      "string",
 			"updated_at": "time.Time",
+			// Added for publishing. Additive: a sprint written before it
+			// reads as never published, which is the truthful reading.
+			"confluence_page_id": "string",
 		})
 	})
 

@@ -47,7 +47,7 @@ func closeoutServer(t *testing.T) (*server.Server, store.Store) {
 		Rules: sprint.Rules{Done: []string{"Done"}, Container: []string{"Story"}},
 	})
 	srv := server.New(nil)
-	srv.SprintRoutes(svc, st)
+	srv.SprintRoutes(svc, st, nil)
 	return srv, st
 }
 

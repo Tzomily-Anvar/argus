@@ -240,6 +240,9 @@ func TestMigrateFromEmpty(t *testing.T) {
 	if !hasIndex(t, s, "write_log_change_set") {
 		t.Error("write_log_change_set index missing: 003 was not applied")
 	}
+	if !hasColumn(t, s, "sprints", "confluence_page_id") {
+		t.Error("sprints.confluence_page_id missing: 005 was not applied")
+	}
 
 	// Startup runs this every time, so running it twice must be a no-op.
 	if err := s.Migrate(ctx); err != nil {
@@ -403,6 +406,24 @@ func TestUpgradeFrom001PreservesData(t *testing.T) {
 	if err := s.PutDraft(ctx, store.Draft{SprintJiraID: 999}); !errors.Is(err, store.ErrUnknownReference) {
 		t.Errorf("a draft for an unknown sprint: want ErrUnknownReference, got %v", err)
 	}
+
+	// 005's column: a sprint carried over reads as never published, the
+	// id sticks once written, and a later re-sweep of the sprint - which
+	// carries no id - leaves it alone.
+	if sp.ConfluencePageID != "" {
+		t.Errorf("a sprint carried over from 001 should have no page id, got %q", sp.ConfluencePageID)
+	}
+	sp.ConfluencePageID = "123"
+	if err := s.PutSprint(ctx, sp); err != nil {
+		t.Fatalf("PutSprint with a page id after the upgrade: %v", err)
+	}
+	sp.ConfluencePageID = ""
+	if err := s.PutSprint(ctx, sp); err != nil {
+		t.Fatalf("PutSprint from a re-sweep after the upgrade: %v", err)
+	}
+	if again, err := s.GetSprint(ctx, 744); err != nil || again.ConfluencePageID != "123" {
+		t.Errorf("the page id did not survive a re-sweep on the upgraded database: %+v, err %v", again, err)
+	}
 }
 
 // Rolling the newest migration back must not take the rest of the schema
@@ -428,6 +449,16 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	}
 	if got := dbVersion(t, s); got != latestMigration(t)-1 {
 		t.Errorf("after one rollback the version is %d, want %d", got, latestMigration(t)-1)
+	}
+	if hasColumn(t, s, "sprints", "confluence_page_id") {
+		t.Error("rolling back 005 left its column behind")
+	}
+	if !hasTable(t, s, "drafts") {
+		t.Error("rolling back 005 took 004's table with it")
+	}
+
+	if err := goose.DownContext(ctx, s.db, "migrations"); err != nil {
+		t.Fatalf("rolling back 004: %v", err)
 	}
 	if hasTable(t, s, "drafts") {
 		t.Error("rolling back 004 left the drafts table behind")
@@ -479,6 +510,9 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	}
 	if !hasTable(t, s, "drafts") {
 		t.Error("re-applying did not restore 004's table")
+	}
+	if !hasColumn(t, s, "sprints", "confluence_page_id") {
+		t.Error("re-applying did not restore 005's column")
 	}
 }
 
