@@ -111,10 +111,19 @@ func renderPeople(w io.Writer, rep sprint.Report, in Inputs, on map[string]bool)
 func leave(planned, unplanned float64) string {
 	var parts []string
 	if planned > 0 {
-		parts = append(parts, num(planned)+" planned off")
+		parts = append(parts, days(planned)+" planned off")
 	}
 	if unplanned > 0 {
-		parts = append(parts, num(unplanned)+" unplanned, not deducted")
+		parts = append(parts, days(unplanned)+" unplanned, not deducted")
 	}
 	return strings.Join(parts, " · ")
+}
+
+// days says a count of days as days, so that beside a points figure it
+// cannot be read as points: "1 day", "2.5 days".
+func days(n float64) string {
+	if n == 1 {
+		return "1 day"
+	}
+	return num(n) + " days"
 }

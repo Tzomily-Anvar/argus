@@ -137,11 +137,11 @@ func TestRenderAllSections(t *testing.T) {
 		// character reference in XHTML and reads as a plus on the page.
 		"<td>&#43;0.25</td>", // two decimals kept when they carry
 		"<td>-0.5</td>",      // one otherwise, with the absence beneath
-		"<em>2.0 planned off · 1.0 unplanned, not deducted</em>", // away as planned / unplanned
-		"<td><strong>18.0</strong></td>",                         // the baseline total from the rows
-		"<td>&#43;20.0%</td>",                                    // the variance
-		"3.0 → 6.0 (&#43;3.0)",                                   // estimate against actual
-		"5 of 9 tickets",                                         // coverage
+		"<em>2.0 days planned off · 1 day unplanned, not deducted</em>", // away as planned / unplanned
+		"<td><strong>18.0</strong></td>",                                // the baseline total from the rows
+		"<td>&#43;20.0%</td>",                                           // the variance
+		"3.0 → 6.0 (&#43;3.0)",                                          // estimate against actual
+		"5 of 9 tickets",                                                // coverage
 		"Handed back to earlier sprints: 1.5 pts",
 		`<a href="https://jira.example/browse/T-120">T-120</a>`,
 		"<td>never started</td>",

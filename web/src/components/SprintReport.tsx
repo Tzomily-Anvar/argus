@@ -209,8 +209,8 @@ function PeopleTable({ report }: { report: Report }) {
                   {p.measured && p.planned_days_off + p.unplanned_days_off > 0 && (
                     <div className="text-[11px] font-normal" style={{ color: "var(--faint)" }}>
                       {[
-                        p.planned_days_off > 0 ? `${p.planned_days_off}d planned off` : "",
-                        p.unplanned_days_off > 0 ? `${p.unplanned_days_off}d unplanned` : "",
+                        p.planned_days_off > 0 ? `${p.planned_days_off} ${p.planned_days_off === 1 ? "day" : "days"} planned off` : "",
+                        p.unplanned_days_off > 0 ? `${p.unplanned_days_off} ${p.unplanned_days_off === 1 ? "day" : "days"} unplanned, not deducted` : "",
                       ].filter(Boolean).join(" · ")}
                     </div>
                   )}
