@@ -38,7 +38,19 @@ func New(cache *sweep.Cache) *Server {
 	return s
 }
 
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Every request but the health check counts as someone looking, which
+	// is what keeps the background sweep at its configured pace; once
+	// nobody has looked for a while it backs off, and the next request
+	// here wakes it. The health check is excluded because it is not a
+	// person: `argus doctor`, the container's own probe and anything
+	// else that polls it would otherwise keep a dashboard nobody is
+	// reading fresh all night. Tests build a server with no cache.
+	if s.cache != nil && r.URL.Path != "/healthz" {
+		s.cache.Touch()
+	}
+	s.mux.ServeHTTP(w, r)
+}
 
 func (s *Server) routes() {
 	// The healthcheck also says which Argus this is. Someone running the

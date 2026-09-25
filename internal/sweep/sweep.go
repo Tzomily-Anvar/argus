@@ -14,6 +14,15 @@
 //
 // Nothing is persisted. The cache lives as long as the process, which is
 // the whole point of leaving the container running.
+//
+// Leaving it running also means it runs all night. After about six hours
+// without anyone asking for the dashboard or the API the sweep slows to
+// four times its interval - the same picture, refreshed less often, for
+// a fraction of the API quota. The first request after that sweeps at
+// once and restores the interval, so the person who opens the dashboard
+// in the morning still sees a current one. There is no setting for this
+// because there is nothing to choose: a dashboard nobody is looking at
+// does not need to be fresh.
 package sweep
 
 import (
@@ -47,6 +56,27 @@ type Snapshot struct {
 	Ready      bool              `json:"ready"`
 }
 
+// idleAfter is how long the dashboard goes unvisited before the sweep
+// backs off, and idleFactor is how much it backs off by. Six hours is
+// longer than any working gap and shorter than a night, so the slow
+// interval applies overnight and at weekends and nowhere else.
+const (
+	idleAfter  = 6 * time.Hour
+	idleFactor = 4
+)
+
+// Interval is the sweep interval to use now, given when the dashboard or
+// API was last asked for and the configured interval. A pure function so
+// the decision can be tested without a clock or a client: the configured
+// interval while someone has looked within idleAfter, idleFactor times
+// that once nobody has. A zero lastRequest means nobody ever has.
+func Interval(lastRequest, now time.Time, configured time.Duration) time.Duration {
+	if lastRequest.IsZero() || now.Sub(lastRequest) >= idleAfter {
+		return configured * idleFactor
+	}
+	return configured
+}
+
 // Cache holds the latest snapshot and runs the background refresh.
 type Cache struct {
 	client   *gh.Client
@@ -61,6 +91,12 @@ type Cache struct {
 	sweeping bool
 	lastErr  string
 
+	// When the dashboard or API was last asked for. Seeded with the start
+	// time so a freshly started process gets its six hours before it
+	// slows down, rather than starting slow because nobody has visited
+	// yet.
+	lastRequest time.Time
+
 	trigger chan struct{}
 }
 
@@ -70,9 +106,10 @@ func New(client *gh.Client, interval time.Duration) *Cache {
 		interval = time.Minute
 	}
 	return &Cache{
-		client:   client,
-		interval: interval,
-		results:  map[string]Result{},
+		client:      client,
+		interval:    interval,
+		results:     map[string]Result{},
+		lastRequest: time.Now(),
 		// Buffered so a refresh request never blocks the HTTP handler,
 		// and depth 1 so several clicks coalesce into one sweep rather
 		// than queueing up duplicates of expensive work.
@@ -85,17 +122,51 @@ func New(client *gh.Client, interval time.Duration) *Cache {
 func (c *Cache) Start() {
 	go func() {
 		c.Sweep()
-		ticker := time.NewTicker(c.interval)
-		defer ticker.Stop()
+		// A fresh timer per wait rather than a ticker, because the wait
+		// is decided anew each time round: it lengthens once the
+		// dashboard has gone unvisited, and a request while it is long
+		// arrives on the trigger and ends it early.
+		idle := false
 		for {
+			wait := c.currentInterval()
+			if wait != c.interval && !idle {
+				log.Printf("sweep: no request for %s, sweeping every %s until someone looks", idleAfter, wait)
+			}
+			idle = wait != c.interval
+			timer := time.NewTimer(wait)
 			select {
-			case <-ticker.C:
+			case <-timer.C:
 				c.Sweep()
 			case <-c.trigger:
+				timer.Stop()
 				c.Sweep()
 			}
 		}
 	}()
+}
+
+// currentInterval applies Interval to the clock and the last request.
+func (c *Cache) currentInterval() time.Duration {
+	c.mu.RLock()
+	last := c.lastRequest
+	c.mu.RUnlock()
+	return Interval(last, time.Now(), c.interval)
+}
+
+// Touch records that someone asked for the dashboard or the API. If the
+// sweep had backed off, this is the request that wakes it: a sweep runs
+// now and the next wait is the configured interval again.
+func (c *Cache) Touch() {
+	now := time.Now()
+	c.mu.Lock()
+	was := c.lastRequest
+	c.lastRequest = now
+	c.mu.Unlock()
+	if Interval(was, now, c.interval) != c.interval {
+		log.Printf("sweep: first request in %s, sweeping now and every %s again",
+			now.Sub(was).Round(time.Minute), c.interval)
+		c.Refresh()
+	}
 }
 
 // Refresh asks for a sweep now. Non-blocking, and a no-op if one is
