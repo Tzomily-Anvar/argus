@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { saveCapacity, type CloseoutPerson, type SprintPerson, type SprintReport } from "../../api";
 import { Badge } from "../Badge";
 import { stateOf } from "../Panel";
+import { PublishStep } from "./PublishStep";
 import { Empty, StepIntro, th } from "./Table";
 
 /* Step 7: reasons and publish.
@@ -13,8 +14,9 @@ import { Empty, StepIntro, th } from "./Table";
  * person's days off along unchanged, because that endpoint replaces the
  * whole row. It saves on blur rather than through a Save button, and
  * the field keeps what was typed while the write is in flight so it
- * cannot appear to change its mind. Publishing follows in the next
- * release, and says so rather than offering a button that cannot work. */
+ * cannot appear to change its mind. Beneath the table sits the publish,
+ * which builds the page from what is saved here; it is its own file
+ * because it has its own preview and its own button. */
 
 function NoteRow({ p, stored, sprintJiraID, onSaved }: { p: SprintPerson; stored: string; sprintJiraID: number; onSaved: () => void }) {
   const [typed, setTyped] = useState<string | null>(null);
@@ -93,8 +95,8 @@ export function ReasonsStep({
     <>
       <StepIntro title="Reasons and publish">
         One line per measured person: why the figure is what it is. Saved as you leave the field,
-        to the same place the Capacity panel keeps it, and shown on the published page beside the
-        number it explains.
+        to the same place the Capacity panel keeps it. The page published below is built from what
+        is saved here, with each reason beside the number it explains.
       </StepIntro>
 
       {measured.length === 0 ? (
@@ -117,13 +119,7 @@ export function ReasonsStep({
         </table>
       )}
 
-      <section className="mt-8 rounded-lg px-4 py-4" style={{ background: "var(--surface-2)" }}>
-        <h3 className="text-[13px] font-semibold">Publish</h3>
-        <p className="mt-1 text-[12.5px]" style={{ color: "var(--muted)" }}>
-          Publishing to Confluence arrives in the next release. Everything saved here - the
-          capacity, the reasons, and what was written to Jira - is what that page will be built from.
-        </p>
-      </section>
+      <PublishStep sprintNumber={report.sprint.number} />
     </>
   );
 }

@@ -739,3 +739,67 @@ export const reverseChanges = (changeSet: string) =>
   postJSON<ChangeSet>("/api/sprint/changes/reverse", { change_set: changeSet });
 export const fetchWrites = (limit = 100) =>
   getJSON<{ writes: WriteRecord[] }>(`/api/sprint/writes?limit=${limit}`);
+
+
+// ---- publishing to Confluence -------------------------------------------
+
+/** Whether this deployment can publish at all, and the team's standing
+ *  choice of sections. `configured` is false when the space or parent
+ *  page is unset, which is an ordinary answer rather than a failure: the
+ *  step explains what to set instead of offering a button that cannot
+ *  work. `allowed` and `setting` are the writes switch, as for Jira. */
+export type PublishStatus = {
+  configured: boolean;
+  reason: string;
+  allowed: boolean;
+  setting: string;
+  sections: { id: string; label: string; on: boolean }[];
+};
+
+/** One line of the block, against what the page holds now. */
+export type PublishDiffLine = {
+  kind: "same" | "add" | "del";
+  text: string;
+};
+
+/** The page as it would be written, beside the page as it is. The
+ *  version is the one the preview read; the publish sends it, so a page
+ *  edited in between is refused by Confluence rather than overwritten.
+ *  `how` says what happens to the markers on an existing page: replaced
+ *  in place, migrated from the old tool's, or appended because the page
+ *  had none. Empty on a create. */
+export type PublishPreview = {
+  id: string;
+  digest: string;
+  action: "create" | "update";
+  /** The title the page will carry once published. */
+  title: string;
+  title_changes: boolean;
+  page_id: string;
+  version: number;
+  url: string;
+  /** The rendered block, as storage format. Shown as text, never as
+   *  markup: it is what will be sent, and the point is to read it. */
+  block: string;
+  diff: PublishDiffLine[];
+  sections: string[];
+  expires_at: string;
+  how: "replaced" | "migrated" | "appended" | "";
+};
+
+export type PublishResult = {
+  action: "create" | "update";
+  page_id: string;
+  url: string;
+  version: number;
+};
+
+export const fetchPublishStatus = () => getJSON<PublishStatus>("/api/sprint/publish/status");
+/** The sections travel with the request so what is previewed is exactly
+ *  what lands; an untick here is for this publish only. */
+export const previewPublish = (sprint: number, sections: string[]) =>
+  postJSON<PublishPreview>("/api/sprint/publish/preview", { sprint, sections });
+/** The digest travels with the publish so a preview that no longer
+ *  matches what would be written is refused rather than sent. */
+export const publishPage = (id: string, digest: string) =>
+  postJSON<PublishResult>("/api/sprint/publish", { id, digest });
