@@ -99,6 +99,7 @@ func (s *Service) Apply(ctx context.Context, id, digest string) (Result, error) 
 	}
 	a.preflight()
 	res := a.run(ctx)
+	s.clearApplied(ctx, cs.SprintJiraID, cs.Changes, res.Rows)
 	s.rebuild(cs.SprintJiraID)
 	return res, nil
 }

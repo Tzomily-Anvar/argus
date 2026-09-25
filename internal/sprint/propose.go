@@ -196,6 +196,12 @@ func (p proposer) rollup(req ChangeRequest, is jira.Issue) (Change, error) {
 	var was any
 	current, has := is.Number(p.in.PointsField)
 	if has {
+		if current == *req.Points {
+			// Already the case. Writing a value over itself is not
+			// harmful, but a preview that lists it reads as work to do,
+			// and after an apply the same rows would come round again.
+			return Change{}, fmt.Errorf("%s already holds %s points; nothing to write", is.Key, figure(current))
+		}
 		was = current
 	}
 	c := p.change(req, is, was)

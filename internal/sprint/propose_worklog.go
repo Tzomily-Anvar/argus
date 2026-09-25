@@ -35,6 +35,17 @@ func (p proposer) worklog(req ChangeRequest, is jira.Issue) (Change, error) {
 		if err := p.fillEntry(&c, req, is); err != nil {
 			return Change{}, err
 		}
+		// The same person, the same hours, the same day: an entry that
+		// is already there. A queue that survived an apply, or a person
+		// pressing Queue twice, must not log the time a second time.
+		for _, w := range is.Fields.Worklog.Entries {
+			names := w.Mentions()
+			sameDay := w.Started.Time.Format("2006-01-02") == c.Started.Format("2006-01-02")
+			if len(names) == 1 && names[0] == c.Person && w.Seconds == int(math.Round(c.Hours*3600)) && sameDay {
+				return Change{}, fmt.Errorf("%s already has %sh logged for %s on %s; nothing to add",
+					is.Key, figure(c.Hours), c.PersonLabel, c.Started.Format("2006-01-02"))
+			}
+		}
 		c.Reason = "carried over, more time logged"
 		if !row.TimeLogged {
 			c.Reason = "carried with no time logged"
