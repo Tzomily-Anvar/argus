@@ -91,7 +91,9 @@ personal data about your colleagues. Tell them.
 
 **It holds no shared credential.** Nothing is distributed with Argus that
 grants access to anything: no token in the image, no secret in the
-repository, nothing written to a log. Whatever it authenticates with
+repository, nothing written to a log. The same hooks that keep private
+strings out of the repository also refuse a credential, and CI scans the
+whole history for one on every pull request. Whatever it authenticates with
 belongs to the person running it, and there are two ways to supply that.
 
 A personal access token is yours, supplied at start time from 1Password
