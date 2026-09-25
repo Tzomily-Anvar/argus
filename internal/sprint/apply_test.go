@@ -162,13 +162,13 @@ func TestRequestIsTheShapeTheGateAccepts(t *testing.T) {
 // string, nil to clear. Types whose screen carries the field keep the
 // plain edit.
 func TestPointsGoThroughTheBoardWhenTheScreenLacksTheField(t *testing.T) {
-	a := &applier{points: testPointsField, board: 374, viaBoard: map[string]bool{"Story": true}}
+	a := &applier{points: testPointsField, board: 42, viaBoard: map[string]bool{"Story": true}}
 	body := func(v any) string {
 		b, _ := json.Marshal(v)
 		return string(b)
 	}
 	method, path, query, got := a.request(Change{Op: OpPointsSet, Key: "ABC-1", Type: "Story", After: 6.2})
-	if method != http.MethodPut || path != "/rest/agile/1.0/issue/ABC-1/estimation" || query != "boardId=374" || body(got) != `{"value":"6.2"}` {
+	if method != http.MethodPut || path != "/rest/agile/1.0/issue/ABC-1/estimation" || query != "boardId=42" || body(got) != `{"value":"6.2"}` {
 		t.Errorf("story points via the board: %s %s ?%s %s", method, path, query, body(got))
 	}
 	_, _, _, got = a.request(Change{Op: OpPointsSet, Key: "ABC-1", Type: "Story", After: nil})
