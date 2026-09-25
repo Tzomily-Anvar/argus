@@ -82,7 +82,6 @@ func inputs(sections ...string) Inputs {
 			HoursPerPoint: 6, SprintLengthDays: 10, PointsField: "Story Points",
 		},
 		GeneratedAt: time.Date(2026, 1, 17, 10, 0, 0, 0, time.UTC),
-		ToolVersion: "0.9.0",
 	}
 }
 
