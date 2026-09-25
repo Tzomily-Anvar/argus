@@ -117,7 +117,6 @@ type Inputs struct {
 	Notes       map[string]string // account id -> the Reason text
 	Conventions Conventions
 	GeneratedAt time.Time
-	ToolVersion string
 }
 
 // generatedNote is the line at the top of the block saying what it is.

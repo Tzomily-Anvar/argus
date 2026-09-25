@@ -96,7 +96,6 @@ func setUpPublish(client *jira.Client, svc *sprint.Service, st store.Store, proj
 		Sections:     config.ConfluenceSections(),
 		Project:      project,
 		Actor:        email,
-		ToolVersion:  versionString(),
 		EnableWrites: config.SprintWritesAllowed(),
 		Conventions: page.Conventions{
 			DoneStatuses:       config.JiraDoneStatuses(),

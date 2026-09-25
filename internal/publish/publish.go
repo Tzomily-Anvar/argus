@@ -58,7 +58,6 @@ type Config struct {
 
 	Project     string
 	Actor       string // the account the write is made as
-	ToolVersion string
 	Conventions page.Conventions
 
 	// EnableWrites is ARGUS_SPRINT_ALLOW_WRITES, read once by the caller,
@@ -145,7 +144,7 @@ func (s *Service) Preview(ctx context.Context, sprintNumber int, sections []stri
 	now := s.now()
 	block, err := page.Render(rep, page.Inputs{
 		Sections: sections, Notes: s.notes(ctx, rep.Sprint.JiraID),
-		Conventions: s.cfg.Conventions, GeneratedAt: now, ToolVersion: s.cfg.ToolVersion,
+		Conventions: s.cfg.Conventions, GeneratedAt: now,
 	})
 	if err != nil {
 		return Preview{}, fmt.Errorf("rendering the page: %w", err)

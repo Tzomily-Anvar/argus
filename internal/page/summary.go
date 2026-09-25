@@ -70,9 +70,6 @@ func generatedLine(rep sprint.Report, in Inputs) string {
 		at = rep.GeneratedAt
 	}
 	who := "Argus"
-	if in.ToolVersion != "" {
-		who += " " + in.ToolVersion
-	}
 	state := "live"
 	if rep.Sprint.State == "closed" {
 		state = "closed"
