@@ -16,10 +16,12 @@
 package page
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -77,10 +79,65 @@ func Labels() map[string]string {
 
 // Markers bound the block Argus owns on the page. Everything outside
 // them is the reader's prose and survives a re-publish.
+//
+// They are anchor macros, not HTML comments: Confluence drops comments
+// when it saves a page, which is how the first published page lost its
+// markers and grew a second block at the next publish. An anchor is
+// invisible on the page and kept in storage. Confluence rewrites the
+// macro on save - attributes appear, order changes - so a marker is
+// found by its anchor name through the patterns below, never by the
+// exact text Argus wrote.
 const (
-	MarkerStart = "<!-- ARGUS:REPORT:START -->"
-	MarkerEnd   = "<!-- ARGUS:REPORT:END -->"
+	MarkerStart = `<ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">argus-report-start</ac:parameter></ac:structured-macro>`
+	MarkerEnd   = `<ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">argus-report-end</ac:parameter></ac:structured-macro>`
+
+	MarkerStartPattern = `<ac:structured-macro\b[^>]*\bac:name="anchor"[^>]*>\s*<ac:parameter\s+ac:name="">\s*argus-report-start\s*</ac:parameter>\s*</ac:structured-macro>`
+	MarkerEndPattern   = `<ac:structured-macro\b[^>]*\bac:name="anchor"[^>]*>\s*<ac:parameter\s+ac:name="">\s*argus-report-end\s*</ac:parameter>\s*</ac:structured-macro>`
 )
+
+var (
+	markerStart = regexp.MustCompile(MarkerStartPattern)
+	markerEnd   = regexp.MustCompile(MarkerEndPattern)
+)
+
+// Bounds finds the block on a page: the offset where the start marker
+// begins and the offset just past the end marker. Each marker must be
+// there exactly once and in order; anything else is refused rather than
+// guessed at, because a wrong guess eats somebody's prose.
+func Bounds(body string) (from, to int, err error) {
+	starts, ends := markerStart.FindAllStringIndex(body, -1), markerEnd.FindAllStringIndex(body, -1)
+	if len(starts) != 1 || len(ends) != 1 {
+		return 0, 0, fmt.Errorf("the page holds the start marker %d times and the end marker %d times, expected once each", len(starts), len(ends))
+	}
+	if ends[0][0] < starts[0][1] {
+		return 0, 0, errors.New("the page's end marker comes before its start")
+	}
+	return starts[0][0], ends[0][1], nil
+}
+
+// HasMarkers reports whether either marker is on the page at all, which
+// is the question before Bounds: a page with neither gets the block
+// appended, a page with one is broken.
+func HasMarkers(body string) bool {
+	return markerStart.MatchString(body) || markerEnd.MatchString(body)
+}
+
+// Marked checks a body about to be sent carries both markers, once, in
+// order - the block itself, or a page holding it.
+func Marked(body string) error {
+	_, _, err := Bounds(body)
+	return err
+}
+
+// Inner is what sits between the markers, with the surrounding line
+// breaks dropped. Empty when there are none.
+func Inner(body string) string {
+	starts, ends := markerStart.FindStringIndex(body), markerEnd.FindStringIndex(body)
+	if starts == nil || ends == nil || ends[0] < starts[1] {
+		return ""
+	}
+	return strings.Trim(body[starts[1]:ends[0]], "\n")
+}
 
 // The old tool's markers, recognised on read and replaced once, so the
 // pages it kept migrate without a second block appearing under the

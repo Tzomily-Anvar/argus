@@ -135,3 +135,13 @@ func TestOnlyPagesAreWritableUnderWiki(t *testing.T) {
 		mustRefuse(t, assertPermitted(req.method, req.path, req.query, req.body, on), req.method+" "+req.path+"?"+req.query)
 	}
 }
+
+// A marker Confluence rewrote on save is still the marker to the gate.
+func TestGateRecognisesARewrittenMarker(t *testing.T) {
+	start := `<ac:structured-macro ac:name="anchor" ac:schema-version="1" ac:macro-id="9f"><ac:parameter ac:name="">argus-report-start</ac:parameter></ac:structured-macro>`
+	end := `<ac:structured-macro ac:schema-version="1" ac:name="anchor"><ac:parameter ac:name="">argus-report-end</ac:parameter></ac:structured-macro>`
+	mustAllow(t, assertPermitted(http.MethodPost, pages, "", create(storage(start+"<p>x</p>"+end)), on), "a rewritten marker pair")
+	if err := assertPermitted(http.MethodPost, pages, "", create(storage("<!-- ARGUS:REPORT:START --><p>x</p><!-- ARGUS:REPORT:END -->")), on); err == nil {
+		t.Error("HTML comments are not markers and must be refused")
+	}
+}

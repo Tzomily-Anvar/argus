@@ -20,6 +20,9 @@ func TestGateAndPageAgreeOnTheMarkers(t *testing.T) {
 	if jira.PageMarkerEnd != page.MarkerEnd {
 		t.Errorf("end marker: gate %q, page %q", jira.PageMarkerEnd, page.MarkerEnd)
 	}
+	if jira.PageMarkerStartPattern != page.MarkerStartPattern || jira.PageMarkerEndPattern != page.MarkerEndPattern {
+		t.Error("the gate and the page must recognise a marker the same way")
+	}
 }
 
 // The settings catalogue spells the default section list because it

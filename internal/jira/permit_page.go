@@ -27,8 +27,19 @@ import (
 // order, so that Argus can always find its own block to replace and
 // never sends a page it could not update again.
 const (
-	PageMarkerStart = "<!-- ARGUS:REPORT:START -->"
-	PageMarkerEnd   = "<!-- ARGUS:REPORT:END -->"
+	PageMarkerStart = `<ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">argus-report-start</ac:parameter></ac:structured-macro>`
+	PageMarkerEnd   = `<ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">argus-report-end</ac:parameter></ac:structured-macro>`
+
+	// Confluence rewrites a macro on save, so a marker on a page is
+	// recognised by its anchor name, not its exact text. These are the
+	// page package's patterns, held equal by the same test.
+	PageMarkerStartPattern = `<ac:structured-macro\b[^>]*\bac:name="anchor"[^>]*>\s*<ac:parameter\s+ac:name="">\s*argus-report-start\s*</ac:parameter>\s*</ac:structured-macro>`
+	PageMarkerEndPattern   = `<ac:structured-macro\b[^>]*\bac:name="anchor"[^>]*>\s*<ac:parameter\s+ac:name="">\s*argus-report-end\s*</ac:parameter>\s*</ac:structured-macro>`
+)
+
+var (
+	pageMarkerStart = regexp.MustCompile(PageMarkerStartPattern)
+	pageMarkerEnd   = regexp.MustCompile(PageMarkerEndPattern)
 )
 
 var (
@@ -139,11 +150,11 @@ func storageBody(raw json.RawMessage) error {
 	if err := json.Unmarshal(body["value"], &value); err != nil {
 		return errors.New("body.value must be a string")
 	}
-	start, end := strings.Count(value, PageMarkerStart), strings.Count(value, PageMarkerEnd)
-	if start != 1 || end != 1 {
-		return fmt.Errorf("body.value must carry each marker exactly once, not %d and %d", start, end)
+	starts, ends := pageMarkerStart.FindAllStringIndex(value, -1), pageMarkerEnd.FindAllStringIndex(value, -1)
+	if len(starts) != 1 || len(ends) != 1 {
+		return fmt.Errorf("body.value must carry each marker exactly once, not %d and %d", len(starts), len(ends))
 	}
-	if strings.Index(value, PageMarkerStart) > strings.Index(value, PageMarkerEnd) {
+	if ends[0][0] < starts[0][1] {
 		return errors.New("body.value has its end marker before its start marker")
 	}
 	return nil

@@ -115,3 +115,29 @@ func TestLabelsCoverEverySection(t *testing.T) {
 		t.Errorf("Labels has %d entries, All has %d", len(labels), len(All))
 	}
 }
+
+// Confluence rewrites a macro when it saves the page: attributes appear
+// and their order changes. The marker is still the marker.
+func TestSpliceFindsAMarkerConfluenceRewrote(t *testing.T) {
+	saved := `<ac:structured-macro ac:name="anchor" ac:schema-version="1" ac:local-id="a1b2" ac:macro-id="9f"><ac:parameter ac:name="">argus-report-start</ac:parameter></ac:structured-macro>`
+	savedEnd := `<ac:structured-macro ac:schema-version="1" ac:name="anchor" ac:macro-id="9e"><ac:parameter ac:name="">argus-report-end</ac:parameter></ac:structured-macro>`
+	body := "<p>intro</p>\n" + saved + "<p>old</p>" + savedEnd + "\n<p>after</p>"
+	out, how, err := Splice(body, block)
+	if err != nil || how != Replaced {
+		t.Fatalf("how = %q, err = %v", how, err)
+	}
+	if strings.Contains(out, "old") || !strings.Contains(out, "new block") || !strings.Contains(out, "<p>after</p>") || !strings.Contains(out, "<p>intro</p>") {
+		t.Errorf("out = %q", out)
+	}
+	if _, _, err := Bounds(out); err != nil {
+		t.Errorf("the spliced page should be findable again: %v", err)
+	}
+}
+
+// A comment is not a marker: Confluence drops comments on save, which is
+// exactly how a page once lost its markers and grew a second block.
+func TestAnHTMLCommentIsNotAMarker(t *testing.T) {
+	if HasMarkers("<!-- ARGUS:REPORT:START --><p>x</p><!-- ARGUS:REPORT:END -->") {
+		t.Error("comments must not count as markers")
+	}
+}

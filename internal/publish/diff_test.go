@@ -1,6 +1,7 @@
 package publish
 
 import (
+	"github.com/Tzomily-Anvar/argus/internal/page"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ func TestDiffKeepsOrderAndNamesEveryLine(t *testing.T) {
 }
 
 func TestInnerFindsEitherMarkerPair(t *testing.T) {
-	if got := inner("x\n<!-- ARGUS:REPORT:START -->\nblock\n<!-- ARGUS:REPORT:END -->\ny"); got != "block" {
+	if got := inner("x\n" + page.MarkerStart + "\nblock\n" + page.MarkerEnd + "\ny"); got != "block" {
 		t.Errorf("inner = %q", got)
 	}
 	if got := inner("<!-- SPRINT-REPORT:AUTO:START -->old<!-- SPRINT-REPORT:AUTO:END -->"); got != "old" {

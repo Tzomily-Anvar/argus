@@ -1,7 +1,6 @@
 package page
 
 import (
-	"errors"
 	"fmt"
 	"html/template"
 	"strings"
@@ -29,9 +28,12 @@ func Splice(body, block string) (out string, how string, err error) {
 		return "", "", err
 	}
 	switch {
-	case strings.Contains(body, MarkerStart) || strings.Contains(body, MarkerEnd):
-		out, err := replaceBetween(body, MarkerStart, MarkerEnd, block)
-		return out, Replaced, err
+	case HasMarkers(body):
+		from, to, err := Bounds(body)
+		if err != nil {
+			return "", "", err
+		}
+		return body[:from] + block + body[to:], Replaced, nil
 	case strings.Contains(body, LegacyStart) || strings.Contains(body, LegacyEnd):
 		out, err := replaceBetween(body, LegacyStart, LegacyEnd, block)
 		return out, Migrated, err
@@ -46,11 +48,8 @@ func Splice(body, block string) (out string, how string, err error) {
 // one without both markers would leave a page Argus can never update,
 // and the block is the one thing here Argus made itself.
 func checkBlock(block string) error {
-	if strings.Count(block, MarkerStart) != 1 || strings.Count(block, MarkerEnd) != 1 {
-		return errors.New("the block must carry each marker exactly once")
-	}
-	if strings.Index(block, MarkerStart) > strings.Index(block, MarkerEnd) {
-		return errors.New("the block's end marker comes before its start")
+	if err := Marked(block); err != nil {
+		return fmt.Errorf("the block cannot be found again: %v", err)
 	}
 	return nil
 }

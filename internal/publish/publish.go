@@ -231,28 +231,21 @@ func (s *Service) notes(ctx context.Context, sprintJiraID int64) map[string]stri
 // marked is the rule the gate applies to a body, stated here as well so
 // a preview can refuse a page in its own words.
 func marked(body string) error {
-	start, end := strings.Count(body, page.MarkerStart), strings.Count(body, page.MarkerEnd)
-	if start != 1 || end != 1 {
-		return fmt.Errorf("it must carry each marker exactly once, not %d and %d", start, end)
-	}
-	if strings.Index(body, page.MarkerStart) > strings.Index(body, page.MarkerEnd) {
-		return errors.New("its end marker comes before its start marker")
-	}
-	return nil
+	return page.Marked(body)
 }
 
 // inner is what sits between a body's markers - Argus's own, or the old
 // tool's - with the surrounding line breaks dropped. Empty when there
 // are none, which is what a page about to have a block appended holds.
 func inner(body string) string {
-	for _, m := range [][2]string{{page.MarkerStart, page.MarkerEnd}, {page.LegacyStart, page.LegacyEnd}} {
-		i, j := strings.Index(body, m[0]), strings.Index(body, m[1])
-		if i < 0 || j < i {
-			continue
-		}
-		return strings.Trim(body[i+len(m[0]):j], "\n")
+	if got := page.Inner(body); got != "" {
+		return got
 	}
-	return ""
+	i, j := strings.Index(body, page.LegacyStart), strings.Index(body, page.LegacyEnd)
+	if i < 0 || j < i {
+		return ""
+	}
+	return strings.Trim(body[i+len(page.LegacyStart):j], "\n")
 }
 
 // digest is a sha256 over what will be sent and what it replaces. The
