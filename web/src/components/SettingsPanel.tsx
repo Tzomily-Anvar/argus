@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchConventions, fetchPeople, fetchTeamImport, savePerson,
-  type SprintReport, type StoredPerson, type TeamCandidate,
+  type Provenance, type SprintReport, type StoredPerson, type TeamCandidate,
 } from "../api";
 import { NumberField, SaveBar, SidePanel, parse, stateOf } from "./Panel";
 
@@ -37,6 +37,47 @@ import { NumberField, SaveBar, SidePanel, parse, stateOf } from "./Panel";
  * person against a baseline. It is not a delete and it is not a filter on
  * delivery - see the note beneath the table, which says so on the screen
  * rather than only here. */
+
+/** ageOf is how long ago, in the words a person would say - "2 days
+ *  ago" rather than "2d" - because it sits inside a sentence beside the
+ *  source. Empty for anything that is not a time. */
+function ageOf(iso?: string): string {
+  if (!iso) return "";
+  const secs = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (Number.isNaN(secs)) return "";
+  if (secs < 60) return "just now";
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"} ago`;
+  const m = Math.floor(secs / 60);
+  if (m < 60) return unit(m, "minute");
+  const h = Math.floor(m / 60);
+  if (h < 24) return unit(h, "hour");
+  return unit(Math.floor(h / 24), "day");
+}
+
+/* sourceOf says where a value came from. Jira is named with what was
+ * read and when, because "from Jira" alone answers neither "why does it
+ * think this" nor "how stale is that". Nothing when the server did not
+ * say: an older server sends no provenance, and printing "default" in
+ * its place would be a claim rather than a gap. */
+function sourceOf(p?: Provenance): string {
+  if (!p) return "";
+  switch (p.source) {
+    case "jira": {
+      const detail = [p.read, ageOf(p.at)].filter(Boolean).join(", ");
+      return detail ? `from Jira (${detail})` : "from Jira";
+    }
+    case "file":
+      return "from your config file";
+    case "env":
+      return "from the environment";
+    default:
+      return "default";
+  }
+}
+
+/** One convention as the panel lists it: the setting's name for the
+ *  tooltip, a label and value in words, and where the value came from. */
+type ConventionRow = { key: string; label: string; value: string; source: string };
 
 type Edit = {
   /** Undefined means unchanged. A blank string is a cleared field, which
@@ -93,6 +134,46 @@ export function SettingsPanel({
   const hoursPerDay = conv.data?.hours_per_day ?? 6;
   const sprintDays = conv.data?.sprint_length_days ?? 10;
   const daysPerPoint = hoursPerPoint / hoursPerDay;
+
+  // What the report counts with, and where each value came from. The
+  // first two are the arithmetic the sentence above them is made of. The
+  // rest are read off the board and cannot be typed here; they are listed
+  // all the same, because a value read from Jira that is never shown
+  // with its source is a magic number, and "I set it and nothing
+  // happened" is nearly always a question about which layer won. A row
+  // the server sent no value for is left out rather than invented.
+  const prov = conv.data?.provenance ?? {};
+  const declared = (key: string, label: string, words?: (v: string) => string): ConventionRow | null => {
+    const p = prov[key];
+    if (!p) return null;
+    return { key, label, value: words ? words(p.value) : p.value, source: sourceOf(p) };
+  };
+  const conventions: ConventionRow[] = [
+    {
+      key: "ARGUS_SPRINT_HOURS_PER_POINT",
+      label: "Hours per point",
+      value: `${hoursPerPoint}h`,
+      source: sourceOf(prov.ARGUS_SPRINT_HOURS_PER_POINT),
+    },
+    {
+      key: "ARGUS_JIRA_SPRINT_LENGTH_DAYS",
+      label: "Sprint length",
+      value: `${sprintDays} working days`,
+      source: sourceOf(prov.ARGUS_JIRA_SPRINT_LENGTH_DAYS),
+    },
+    declared("ARGUS_JIRA_DONE_STATUSES", "Counted as done"),
+    declared("ARGUS_JIRA_POINTS_FIELD", "Points field"),
+    declared("ARGUS_JIRA_CONTAINER_TYPES", "Container types"),
+    declared("ARGUS_JIRA_WORKLOG_ATTRIBUTION", "Logged time goes to", (v) =>
+      v === "mention" ? "the person the entry @mentions" : v === "author" ? "the entry's author" : v,
+    ),
+    {
+      key: "ARGUS_SPRINT_ABSENCE_COST",
+      label: "A day off costs",
+      value: (conv.data?.absence_cost ?? "point") === "share" ? "the baseline's share of a sprint day" : "a whole point",
+      source: sourceOf(prov.ARGUS_SPRINT_ABSENCE_COST),
+    },
+  ].filter((r): r is ConventionRow => r !== null);
 
   const rows = useMemo<Row[]>(() => {
     const byID = new Map<string, Row>();
@@ -218,10 +299,34 @@ export function SettingsPanel({
         className="mb-4 rounded-lg px-3 py-2 text-[12.5px]"
         style={{ background: "var(--surface-2)", color: "var(--muted)" }}
       >
-        Your team&rsquo;s convention: <strong style={{ color: "var(--ink)" }}>1 point = {hoursPerPoint}h</strong>
-        {daysPerPoint === 1 ? " = 1 working day" : ` = ${daysPerPoint.toFixed(2)} working days`}, and a
-        sprint is <strong style={{ color: "var(--ink)" }}>{sprintDays} working days</strong>.
-        {" "}A full-time person is therefore about {(sprintDays / daysPerPoint).toFixed(0)} points.
+        <p>
+          Your team&rsquo;s convention: <strong style={{ color: "var(--ink)" }}>1 point = {hoursPerPoint}h</strong>
+          {daysPerPoint === 1 ? " = 1 working day" : ` = ${daysPerPoint.toFixed(2)} working days`}, and a
+          sprint is <strong style={{ color: "var(--ink)" }}>{sprintDays} working days</strong>.
+          {" "}A full-time person is therefore about {(sprintDays / daysPerPoint).toFixed(0)} points.
+        </p>
+
+        {/* Each value with its source, as a list rather than more prose:
+            the question this answers is "which of these is wrong, and
+            where do I change it", and that is read row by row. The
+            setting's name is on the label for whoever goes to change it. */}
+        <dl
+          className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t pt-2"
+          style={{ borderColor: "var(--line)" }}
+        >
+          {conventions.map((c) => (
+            <Fragment key={c.key}>
+              <dt title={c.key} style={{ color: "var(--faint)" }}>{c.label}</dt>
+              <dd className="min-w-0">
+                <span style={{ color: "var(--ink)" }}>{c.value}</span>
+                {c.source && <span style={{ color: "var(--faint)" }}> · {c.source}</span>}
+              </dd>
+            </Fragment>
+          ))}
+        </dl>
+        <p className="mt-2 text-[11.5px]" style={{ color: "var(--faint)" }}>
+          Read from Jira or from your setup, and changed there rather than here.
+        </p>
       </div>
 
       {/* The three counts, together, because apart they look like a bug.

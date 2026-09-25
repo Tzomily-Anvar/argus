@@ -34,6 +34,19 @@ func DataDir() string {
 	return defaultDataDir()
 }
 
+// DataDirFrom is DataDir for a process that has not run Load, given the
+// file's values: `argus config` keeps the layers apart, so the directory
+// the file names is not in its environment.
+func DataDirFrom(file map[string]string) string {
+	if v := String("ARGUS_DATA_DIR", ""); v != "" {
+		return v
+	}
+	if v := file["ARGUS_DATA_DIR"]; v != "" {
+		return v
+	}
+	return defaultDataDir()
+}
+
 // ConfigDir is where the configuration file lives.
 func ConfigDir() string {
 	if v := String("ARGUS_CONFIG_DIR", ""); v != "" {

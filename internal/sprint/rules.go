@@ -13,9 +13,14 @@ import "strings"
 // rather than code, because every one of them differs between teams and
 // getting one wrong silently changes the headline number.
 type Rules struct {
-	// Done are the status names that count as delivered. By name, not by
-	// Jira's done category: teams usually have several statuses in that
-	// category and disagree about which of them mean finished.
+	// Done are the status names that count as delivered. Normally the
+	// project's own status configuration answers this: every status
+	// declares a category - new, indeterminate or done - and the three
+	// map onto never started, in flight and delivered, so the service
+	// fills this from the done category. ARGUS_JIRA_DONE_STATUSES
+	// overrides it for a site where a done-category status is not
+	// delivery - one meaning cancelled or rejected is the case - and
+	// replaces the declared list rather than adding to it.
 	Done []string
 
 	// Container types hold a rollup of the work beneath them. Their points

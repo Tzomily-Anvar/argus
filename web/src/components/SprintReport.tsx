@@ -12,7 +12,7 @@ import {
 } from "../api";
 import { useChangeDraft, type ChangeDraft } from "../changes";
 import { CalibrationView } from "./Calibration";
-import { Badge } from "./Badge";
+import { Badge, type Tone } from "./Badge";
 import { StatTiles, type Stat } from "./StatTiles";
 import { FlagInput } from "./FlagInputs";
 import { Effort } from "./EffortPanel";
@@ -299,6 +299,40 @@ function CapacityReviewBadge({ review }: { review: CapacityReview }) {
   }
 }
 
+/* One flag, in either list. The two lists are never mixed, but a row in
+ * each reads the same way: what kind of thing, what it says, and where to
+ * check it rather than believe it. `fix` is the slot for an input, and
+ * only "Needs a look" fills it - an assumption is put right in setup, not
+ * on a ticket. */
+function FlagRow({ flag, tone, fix }: { flag: SprintFlag; tone: Tone; fix?: React.ReactNode }) {
+  return (
+    <li className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px]">
+      <Badge tone={tone} label={flag.kind.replace(/_/g, " ")} />
+      <span className="flex-1">{flag.message}</span>
+      {fix}
+      {flag.url && (
+        <a href={flag.url} target="_blank" rel="noreferrer" className="lnk shrink-0 text-xs">
+          open
+        </a>
+      )}
+      {/* A flag speaking for several tickets keeps them behind it, so
+          one row can stand in for what would otherwise be nine. */}
+      {flag.keys && flag.keys.length > 0 && (
+        <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--faint)" }}>
+          {flag.keys.join(" ")}
+        </span>
+      )}
+      {/* Verify the whole set in Jira: trust in a number comes from
+          being able to check it. */}
+      {flag.jql && (
+        <a href={flag.jql} target="_blank" rel="noreferrer" className="lnk shrink-0 text-xs">
+          see all in Jira →
+        </a>
+      )}
+    </li>
+  );
+}
+
 function Flags({ flags, draft, roster }: { flags: SprintFlag[]; draft: ChangeDraft; roster: StoredPerson[] }) {
   if (flags.length === 0) {
     return (
@@ -310,32 +344,37 @@ function Flags({ flags, draft, roster }: { flags: SprintFlag[]; draft: ChangeDra
   return (
     <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
       {flags.map((f, i) => (
-        <li key={i} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px]">
-          <Badge tone={flagTone(f.kind)} label={f.kind.replace(/_/g, " ")} />
-          <span className="flex-1">{f.message}</span>
-          {/* The fix, typed on the flag. Only the two kinds Argus could
-              write grow an input; the rest name things to go and look at. */}
-          <FlagInput flag={f} draft={draft} roster={roster} />
-          {f.url && (
-            <a href={f.url} target="_blank" rel="noreferrer" className="lnk shrink-0 text-xs">
-              open
-            </a>
-          )}
-          {/* A flag speaking for several tickets keeps them behind it, so
-              one row can stand in for what would otherwise be nine. */}
-          {f.keys && f.keys.length > 0 && (
-            <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--faint)" }}>
-              {f.keys.join(" ")}
-            </span>
-          )}
-          {/* Verify the whole set in Jira: trust in a number comes from
-              being able to check it. */}
-          {f.jql && (
-            <a href={f.jql} target="_blank" rel="noreferrer" className="lnk shrink-0 text-xs">
-              see all in Jira →
-            </a>
-          )}
-        </li>
+        <FlagRow
+          key={i}
+          flag={f}
+          tone={flagTone(f.kind)}
+          // The fix, typed on the flag. Only the two kinds Argus could
+          // write grow an input; the rest name things to go and look at.
+          fix={<FlagInput flag={f} draft={draft} roster={roster} />}
+        />
+      ))}
+    </ul>
+  );
+}
+
+/* What Argus assumed about this board to count the sprint, where that
+ * may be wrong. Every row is a warning rather than graded by kind: this
+ * list is empty when what Jira declares and what is configured agree, so
+ * anything in it means a figure above may have been counted the wrong
+ * way, and the kinds themselves are the server's to add as boards turn
+ * up new ways of disagreeing. */
+function Assumptions({ assumptions }: { assumptions: SprintFlag[] }) {
+  if (assumptions.length === 0) {
+    return (
+      <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>
+        Nothing to check: what Jira declares and what is configured agree.
+      </p>
+    );
+  }
+  return (
+    <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
+      {assumptions.map((f, i) => (
+        <FlagRow key={i} flag={f} tone="warning" />
       ))}
     </ul>
   );
@@ -343,9 +382,11 @@ function Flags({ flags, draft, roster }: { flags: SprintFlag[]; draft: ChangeDra
 
 export function SprintReportView({ report, trend }: { report: Report; trend?: CalibrationTrend }) {
   const s = report.summary;
-  // An older server can still answer null where a list was promised, and
-  // a null here once blanked the whole page. Read them as empty.
+  // An older server can still answer null where a list was promised, or
+  // not know of the list at all, and a null here once blanked the whole
+  // page. Read them as empty.
   const stories = report.stories_concluded ?? [];
+  const assumptions = report.assumptions ?? [];
   const storyPts = stories.reduce((a, b) => a + b.points, 0);
   const carry = report.carryover;
 
@@ -471,6 +512,16 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
           trend={trend}
           sprintNumber={report.sprint.number}
         />
+      </Section>
+
+      {/* Above "Needs a look" and never folded into it. That list says
+          your Jira is untidy and has something in it most sprints; this
+          one says Argus may be reading your board wrong and should
+          normally be empty. Mixed, people learn to dismiss both. It has
+          no stat tile for the same reason: a count that is nearly always
+          zero is not a headline. */}
+      <Section title="Check these assumptions" hint="Argus may be reading your board wrong. Normally empty.">
+        <Assumptions assumptions={assumptions} />
       </Section>
 
       <Section title="Needs a look" hint="Each one names a single fixable thing.">

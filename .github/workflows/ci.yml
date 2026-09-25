@@ -158,6 +158,28 @@ jobs:
           docker logs argus-ci
           exit 1
 
+  leaks:
+    name: Credential scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The whole history, not the one commit a shallow clone would
+          # give it: a token that was committed and then removed is still
+          # in the repository, and still works.
+          fetch-depth: 0
+
+      # The same script the pre-commit and pre-push hooks run, in the mode
+      # that reads no pattern file. Contributors keep their own private
+      # patterns on their own machines; this job checks only for issued
+      # credentials, from the patterns built into the script, and it must
+      # stay that way. A pattern file here - as a secret, a checked-in
+      # file, anything - would put the strings it exists to withhold into
+      # a public repository's build.
+      - name: Scan the history for credentials
+        run: ./scripts/private-check.sh --generic --all
+
   release:
     name: Release build
     runs-on: ubuntu-latest
