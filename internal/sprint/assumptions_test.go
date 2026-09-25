@@ -93,6 +93,10 @@ func TestAssumptionRows(t *testing.T) {
 		{"a configured container type with no issues", func(rep *sprint.Report, in *sprint.Inputs) {
 			in.Rules.Container = []string{"Story"}
 		}, sprint.AssumeContainerTypeAbsent, `"Story" is set as a container and this sprint contains none`},
+		{"an epic-level container is never in a sprint, so its absence says nothing", func(rep *sprint.Report, in *sprint.Inputs) {
+			in.Rules.Container = []string{"Epic"}
+			in.Rules.ExcludedFromSayDo = []string{"Epic"}
+		}, "", ""},
 		{"declared sprint length differing from the setting", func(rep *sprint.Report, in *sprint.Inputs) {
 			in.Declared.SprintLengthDays, in.Declared.SprintLengthSetting = 15, 10
 		}, sprint.AssumeSprintLength, "run 15 working days; ARGUS_JIRA_SPRINT_LENGTH_DAYS says 10"},

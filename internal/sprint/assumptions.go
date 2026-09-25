@@ -157,6 +157,11 @@ func Assumptions(rep Report, in Inputs) []Flag {
 
 	if sum.IssueCount+sum.Containers > 0 {
 		for _, typ := range in.Rules.Container {
+			// A type left out of say/do is an epic-level one, and epics
+			// never sit in a sprint; their absence says nothing.
+			if !in.Rules.InSayDo(typ) {
+				continue
+			}
 			if countType(sum.IssuesByType, typ) == 0 {
 				add(Flag{Kind: AssumeContainerTypeAbsent,
 					Message: fmt.Sprintf("%q is set as a container and this sprint contains none. If your rollups are epic-level, delivery is being counted twice. Check ARGUS_JIRA_CONTAINER_TYPES", typ),
