@@ -48,8 +48,15 @@ time logged are flagged too: the entry is still divided by them, but one of
 the two numbers is wrong and Jira reports the logged one.
 
 Your team's conventions are configuration, not code — which issue types
-are containers, which are estimated only once resolved, which statuses
-mean done, and what a point is worth in hours. See `.env.example`.
+are containers, which are estimated only once resolved, and what a point
+is worth in hours. Which statuses mean delivered and which field holds
+the points are read from what your Jira declares: every status's category
+and the board's estimation field, with `ARGUS_JIRA_DONE_STATUSES` and
+`ARGUS_JIRA_POINTS_FIELD` as overrides for the site whose setup does not
+mean what it says. Argus asks only what nothing declares;
+[the conventions page](sprint-conventions.md) lists every one, how it is
+established, the override where there is one, and what a wrong answer
+looks like in the numbers. The exact spellings are in `.env.example`.
 
 ### Closing out a sprint
 
