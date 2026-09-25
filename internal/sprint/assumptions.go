@@ -118,10 +118,13 @@ func Assumptions(rep Report, in Inputs) []Flag {
 			JQL: jqlLink(in, fmt.Sprintf(`sprint = %d AND issuetype IN (%s)`, sprintID, quoteList(in.Rules.Container)))})
 	}
 
-	// A done-category status whose name says the work was dropped.
+	// A done-category status whose name says the work was dropped, and
+	// that counted something this sprint. One nothing finished in is not
+	// a question worth asking every sprint; it becomes one the sprint an
+	// issue lands there.
 	if d.DoneFromJira {
 		for _, s := range d.Statuses {
-			if s.Category.Key != "done" || !suggestsAbandonment(s.Name) {
+			if s.Category.Key != "done" || !suggestsAbandonment(s.Name) || sum.DoneByStatus[s.Name] == 0 {
 				continue
 			}
 			add(Flag{Kind: AssumeDoneMayNotMean,

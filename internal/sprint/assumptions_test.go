@@ -70,6 +70,9 @@ func TestAssumptionRows(t *testing.T) {
 			rep.Summary.Containers, rep.Summary.ContainersUnlinked = 84, 7
 			rep.Summary.IssuesByType["Story"] = 84
 		}, sprint.AssumeContainersUnlinked, "7 of 84 containers"},
+		{"an abandonment-named status nothing finished in is not questioned", func(rep *sprint.Report, in *sprint.Inputs) {
+			in.Declared.Statuses = append(in.Declared.Statuses, status("4", "Superseded", "done"))
+		}, "", ""},
 		{"a done-category status that suggests abandonment", func(rep *sprint.Report, in *sprint.Inputs) {
 			in.Declared.Statuses = append(in.Declared.Statuses, status("4", "Superseded", "done"))
 			rep.Summary.DoneByStatus["Superseded"] = 9
