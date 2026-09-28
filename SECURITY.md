@@ -42,6 +42,25 @@ never send a page it could not update again. `internal/jira/client_test.go`,
 setting, and a structural test fails the build if any file in the
 package reaches the network without the gate.
 
+The backlog tool adds its bulk writes to the same list, behind the same
+setting: add or remove labels on an issue, set or clear its parent,
+create one link between two issues or remove one it created, move
+issues onto a sprint or back to the backlog, and delete an issue. Each
+is an exact path and body too - a label edit is the add/remove form,
+never the whole list; a link names its type and two different keys; a
+move names one to fifty keys and nothing else - and
+`permit_backlog_test.go` asserts them.
+
+Deleting is different from everything else Argus writes, and is treated
+differently. It is the one write that cannot be reversed: a deleted
+issue is gone from Jira, history and all. So it sits behind a second
+setting, `ARGUS_BACKLOG_ALLOW_DELETE`, off by default and refused by the
+gate itself until it is on, on top of `ARGUS_SPRINT_ALLOW_WRITES`. With
+both on, an apply still asks the person to type the number of tickets
+the preview says will go, an Epic is never deleted in bulk, one audit
+row is written per ticket - key, summary, outcome - and the reverse
+button is not offered because there is nothing it could do.
+
 Nothing is written without a person seeing each change in a preview and
 approving it. The apply re-reads every issue immediately before writing
 and skips anything that has moved since the preview; a page is updated

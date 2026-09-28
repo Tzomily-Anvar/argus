@@ -21,6 +21,12 @@ import (
 type writePolicy struct {
 	Allowed     bool   // ARGUS_SPRINT_ALLOW_WRITES, read once at startup
 	PointsField string // customfield_NNNNN for this site, resolved at startup
+
+	// Delete is ARGUS_BACKLOG_ALLOW_DELETE, on top of Allowed. Deleting
+	// an issue is the one write on the list that nothing can undo, so it
+	// answers to a setting of its own rather than riding on the general
+	// one.
+	Delete bool
 }
 
 // WritesDisabledError means the request was a permitted operation, but
@@ -56,6 +62,11 @@ type permittedWrite struct {
 	// place of Body: for the one write whose body must name the same
 	// resource its path does.
 	BodyAt func(raw []byte, path string, pol writePolicy) error
+
+	// Destroys marks the one write that removes an issue outright. It
+	// needs the policy's Delete as well as Allowed, because it is the
+	// one write no reversal can put back.
+	Destroys bool
 }
 
 // issuePath matches /rest/api/3/issue/ABC-123 and nothing beneath it, so
@@ -101,6 +112,17 @@ var permitted = []permittedWrite{
 	// created once and updated at its current version thereafter.
 	{Op: "page.create", Method: http.MethodPost, Path: pagesPath, Body: pageCreateBody},
 	{Op: "page.update", Method: http.MethodPut, Path: pagePath, BodyAt: pageUpdateBody},
+
+	// The Backlog tool's bulk writes, permit_backlog.go. Labels and the
+	// parent share PUT on an issue with the two field edits above; the
+	// "update" key tells the first apart, and "parent" the second.
+	{Op: "labels.update", Method: http.MethodPut, Path: issuePath, Query: notifyQuery, Body: labelsBody},
+	{Op: "parent.set", Method: http.MethodPut, Path: issuePath, Query: notifyQuery, Body: parentBody},
+	{Op: "link.create", Method: http.MethodPost, Path: issueLinkPath, Body: linkCreateBody},
+	{Op: "link.delete", Method: http.MethodDelete, Path: issueLinkEntryPath, Body: noBody},
+	{Op: "sprint.move", Method: http.MethodPost, Path: sprintIssuesPath, Body: issuesBody},
+	{Op: "backlog.move", Method: http.MethodPost, Path: backlogIssuesPath, Body: issuesBody},
+	{Op: "issue.delete", Method: http.MethodDelete, Path: issuePath, Query: deleteQuery, Body: noBody, Destroys: true},
 }
 
 // assertPermitted is the single gate every Jira request passes through.
@@ -143,6 +165,15 @@ func assertPermitted(method, path, rawQuery string, body any, pol writePolicy) e
 	if !pol.Allowed {
 		return &WritesDisabledError{msg: fmt.Sprintf("%s %s is a write, and writes are off for this "+
 			"deployment; set ARGUS_SPRINT_ALLOW_WRITES to switch them on", method, path)}
+	}
+	// Judged after the general setting and before the body, so a delete
+	// with writes off is refused for the same reason as any other write,
+	// and one with writes on names the second setting it still lacks.
+	for _, w := range candidates {
+		if w.Destroys && !pol.Delete {
+			return &DeletesDisabledError{msg: fmt.Sprintf("%s %s deletes an issue, and deletes are off "+
+				"for this deployment; set ARGUS_BACKLOG_ALLOW_DELETE to switch them on", method, path)}
+		}
 	}
 
 	var raw []byte
