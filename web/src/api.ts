@@ -335,6 +335,16 @@ export type SprintReport = {
   epics: EpicGroup[];
   carryover: SprintRow[];
   flags: SprintFlag[];
+  /** The second class of flag, and the second place it goes. `flags`
+   *  says your Jira is untidy: a ticket finished with no estimate. This
+   *  says Argus may be reading your board wrong: a done-category status
+   *  the team may not mean by "done", a container type this sprint has
+   *  none of. The first is expected to have something in it every
+   *  sprint; this one should normally be empty, which is why the two are
+   *  never mixed - one list that is always full teaches people to
+   *  dismiss the one that should not be. Absent from an older server,
+   *  and read as empty. */
+  assumptions: SprintFlag[];
   capacity_review: CapacityReview;
   calibration: Calibration;
   generated_at: string;
@@ -444,6 +454,23 @@ export const saveSprintReview = (sprintJiraID: number, reviewed: boolean) =>
   putJSON("/api/sprint/review", { sprint_jira_id: sprintJiraID, reviewed });
 
 
+/** Where a convention's value came from. Jira is the one layer that can
+ *  go stale, so it is the one that also carries what was read and when. */
+export type ProvenanceSource = "jira" | "file" | "env" | "default";
+
+export type Provenance = {
+  /** The value as the server holds it, printed. */
+  value: string;
+  source: ProvenanceSource;
+  /** What in Jira it was read off - "status categories", "board
+   *  estimation" - which is what tells a reader how far to trust it.
+   *  Only with a `source` of "jira". */
+  read?: string;
+  /** When it was read, so a reader can tell how stale that is. Only
+   *  with a `source` of "jira". */
+  at?: string;
+};
+
 export type Conventions = {
   hours_per_point: number;
   hours_per_day: number;
@@ -451,6 +478,12 @@ export type Conventions = {
   /** How a day off is priced: "point" takes a whole point, "share" takes
    *  the baseline's share of one sprint day. */
   absence_cost: "point" | "share";
+  /** The source of each setting, keyed by its name (ARGUS_JIRA_DONE_STATUSES
+   *  and the rest). It carries settings the fields above do not, such as
+   *  the done statuses and the points field, because a value read from
+   *  Jira that cannot be shown with its source is a magic number. Absent
+   *  from an older server. */
+  provenance?: Record<string, Provenance>;
 };
 
 export const fetchConventions = () => getJSON<Conventions>("/api/sprint/conventions");

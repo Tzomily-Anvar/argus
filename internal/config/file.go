@@ -44,9 +44,15 @@ func Load() (string, error) {
 			return "", fmt.Errorf("reading %s: %w", path, err)
 		}
 		loaded = path
-		return path, nil
+		break
 	}
-	return "", nil
+	// A setting under a former name is honoured after both layers are
+	// in, and said out loud: the rename is somebody's to make, not
+	// something to paper over for ever.
+	for _, notice := range FormerNames(Core()) {
+		fmt.Fprintf(os.Stderr, "argus: %s\n", notice)
+	}
+	return loaded, nil
 }
 
 // ActiveFile returns the configuration file Load would use, or the one

@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/rules"
@@ -149,6 +150,7 @@ func configList(args []string) error {
 		return err
 	}
 	all := settings()
+	useDeclared(file)
 
 	dim, off := dimming(os.Stdout)
 	fmt.Println()
@@ -195,8 +197,12 @@ func configList(args []string) error {
 		if r.Origin != config.FromDefault {
 			changed++
 		}
+		origin := string(r.Origin)
+		if r.Origin == config.FromJira {
+			origin = "from Jira"
+		}
 		line := fmt.Sprintf("  %-*s  %-30s %s%-12s%s",
-			width, r.Setting.Key, ellipsis(value, 30), dim, r.Origin, note(r))
+			width, r.Setting.Key, ellipsis(value, 30), dim, origin, note(r))
 		fmt.Println(strings.TrimRight(line, " ") + off)
 	}
 
@@ -213,6 +219,8 @@ func note(r config.Resolution) string {
 	case r.Shadowed:
 		return fmt.Sprintf("the file says %q, which is ignored",
 			r.Setting.Display(r.InFile))
+	case r.Origin == config.FromJira && r.Declared != nil:
+		return declaredNote(*r.Declared)
 	case r.Origin == config.FromDefault:
 		return ""
 	case r.Setting.Default == "":
@@ -220,6 +228,42 @@ func note(r config.Resolution) string {
 	default:
 		return "default " + r.Setting.Default
 	}
+}
+
+// declaredNote is the half-sentence for a value Jira declared: which
+// read it came from and how old that reading is, because both decide
+// how much to trust it.
+func declaredNote(d config.Declaration) string {
+	s := fmt.Sprintf("(%s, %s)", d.Source, ago(d.At))
+	if d.Stale {
+		s += ", and the last read failed"
+	}
+	return s
+}
+
+// ago renders an age the way a person would say it.
+func ago(t time.Time) string {
+	if t.IsZero() {
+		return "undated"
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%d minutes ago", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%d hours ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+	}
+}
+
+// useDeclared points the registry of values read from Jira at the data
+// directory the configuration names, since this command never loads
+// that configuration into its environment.
+func useDeclared(file map[string]string) {
+	config.UseDeclaredFile(filepath.Join(config.DataDirFrom(file), "declared.json"))
 }
 
 // ---- get -------------------------------------------------------------
@@ -236,6 +280,7 @@ func configGet(args []string) error {
 	if err != nil {
 		return err
 	}
+	useDeclared(file)
 	r := s.Resolve(file)
 
 	dim, off := dimming(os.Stdout)
@@ -256,6 +301,8 @@ func configGet(args []string) error {
 		fmt.Printf("    %-10s the environment\n", "from")
 	case config.FromFile:
 		fmt.Printf("    %-10s %s\n", "from", config.ActiveFile())
+	case config.FromJira:
+		fmt.Printf("    %-10s Jira %s. Set it to override what Jira declares\n", "from", declaredNote(*r.Declared))
 	default:
 		fmt.Printf("    %-10s the built-in default\n", "from")
 	}

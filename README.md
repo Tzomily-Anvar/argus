@@ -12,6 +12,8 @@ shared.
 
 It sweeps in the background and serves from memory, so the dashboard is
 **instant whenever you open it**, however slow the underlying API was.
+After about six hours with nobody looking it sweeps a quarter as often,
+and the first visit afterwards sweeps at once and restores the pace.
 
 ---
 

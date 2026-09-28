@@ -79,6 +79,11 @@ type Setting struct {
 	// Rule names the rule a setting belongs to, empty for core settings.
 	// Set by the caller that derives settings from the rule registry.
 	Rule string
+
+	// Was lists the names this setting used to have. A configuration
+	// file written under an old name is still read, with a notice, so a
+	// rename never silently returns somebody's value to the default.
+	Was []string
 }
 
 // Catalogue is a set of settings, in display order.
@@ -127,8 +132,8 @@ func Core() Catalogue {
 			Desc: "How often the background sweep runs. Lower is fresher and costs more API quota.",
 		},
 		{
-			Key: "ARGUS_CONCURRENCY", Section: "Server", Kind: KindInt, Default: "10",
-			Desc: "Maximum GitHub requests in flight at once, across every rule.",
+			Key: "ARGUS_CONCURRENCY", Section: "Server", Kind: KindInt, Default: "6",
+			Desc: "Maximum GitHub or Jira requests in flight at once, across every rule.",
 		},
 		{
 			Key: "ARGUS_HTTP_TIMEOUT_SECONDS", Section: "Server", Kind: KindInt, Default: "45",
@@ -167,8 +172,8 @@ func Core() Catalogue {
 			Desc: "The project key whose sprints you report on.",
 		},
 		{
-			Key: "ARGUS_JIRA_DONE_STATUSES", Section: "Jira", Kind: KindList, Default: "Done",
-			Desc: "Status names that count as delivered. Matched by name, not by Jira's done category.",
+			Key: "ARGUS_JIRA_DONE_STATUSES", Section: "Jira", Kind: KindList,
+			Desc: "Overrides which statuses count as delivered. Normally unset: every status in the project's done category counts. Set only where one of those is not delivery for you.",
 		},
 		{
 			Key: "ARGUS_JIRA_EXCLUDED_TYPES", Section: "Jira", Kind: KindList, Default: "Epic",
@@ -193,12 +198,12 @@ func Core() Catalogue {
 		},
 		{
 			Key: "ARGUS_JIRA_POINTS_FIELD", Section: "Jira", Kind: KindString,
-			Desc: "Pin the story points custom field id. Resolved by name when left unset.",
+			Desc: "Pin the points custom field id. Normally unset: the board's own estimation field is read.",
 		},
 		{
 			Key: "ARGUS_JIRA_POINTS_FIELD_NAME", Section: "Jira", Kind: KindString,
 			Default: "Story Points",
-			Desc:    "The field name to resolve story points by.",
+			Desc:    "Deprecated. The field name points are resolved by only when no board declares an estimation field.",
 		},
 		{
 			Key: "ARGUS_JIRA_ESTIMATE_FIELD_NAME", Section: "Jira", Kind: KindString,
@@ -418,6 +423,11 @@ const (
 	FromDefault Origin = "default"
 	FromFile    Origin = "file"
 	FromEnv     Origin = "environment"
+
+	// FromJira is a value the sprint service read from the team's Jira
+	// configuration. It sits between the file and the default: a person
+	// setting the key overrides it, and it fills the gap where nobody has.
+	FromJira Origin = "jira"
 )
 
 // Resolution is one setting's current state: what it is, where it came
@@ -439,6 +449,10 @@ type Resolution struct {
 	// Shadowed reports that the file sets this and the environment is
 	// winning, which is the case worth saying out loud.
 	Shadowed bool
+
+	// Declared is what Jira said, when the origin is FromJira: the read
+	// it came from and how old that reading is.
+	Declared *Declaration
 }
 
 // Resolve works out a setting's effective value from the environment and
@@ -461,6 +475,9 @@ func (s Setting) Resolve(file map[string]string) Resolution {
 		r.Value, r.Origin = r.InFile, FromFile
 	default:
 		r.Value, r.Origin = s.Default, FromDefault
+		if d, ok := s.Declaration(); ok {
+			r.Value, r.Origin, r.Declared = d.Value, FromJira, &d
+		}
 	}
 	return r
 }

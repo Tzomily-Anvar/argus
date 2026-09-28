@@ -87,6 +87,23 @@ go test ./...
 `Why`, uniquely named parameters, and supported parameter types — so a
 rule missing its help text fails the build rather than shipping blank.
 
+## Adding a convention
+
+The sprint report encodes somebody else's habits, and a habit it gets
+wrong produces a plausible number rather than an error. So every
+assumption it makes is catalogued in `internal/sprint/conventions.go`,
+with how it is established — declared by Jira, asked, a setting, fixed,
+or entered in the app — and explained on `docs/sprint-conventions.md`,
+ending with what a wrong answer looks like in the output.
+
+A new setting in the Jira or sprint sections of `config.Core()` has to be
+named by exactly one entry in that catalogue, and every entry's anchor
+has to be a heading on the page. `internal/sprint/conventions_test.go`
+enforces both, so a setting nobody has stated out loud fails the build.
+Before adding a setting, ask the question the page is built on: is this
+declared somewhere in Jira, or am I inferring it from what a team happens
+to have done? Only the first may be read; the second is a question.
+
 ## Changing what is stored
 
 Argus holds things nobody can rebuild: the roster, each person's
@@ -183,9 +200,17 @@ identities, because a name can leak through any of them.
 ./scripts/private-check.sh --staged  # what is staged right now
 ```
 
-Without a `.private-patterns` file the check does nothing and says so, so
-a clone without one is not silently unprotected - it is visibly
-unconfigured.
+Without a `.private-patterns` file the check still catches credentials,
+and says that it is doing only that, so a clone without one is not
+silently unprotected - it is visibly unconfigured.
+
+CI runs that same script over the whole history on every pull request,
+as `private-check.sh --generic --all`: credentials only, from the
+patterns built into the script. It never has a pattern file and must
+never be given one. The team's own patterns stay on the team's own
+machines by design - a public build that carried the list of strings
+we must not publish would publish them - so anything on that list is
+caught by your hooks, or not at all.
 
 ## Frontend
 

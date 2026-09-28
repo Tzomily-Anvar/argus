@@ -177,8 +177,13 @@ func Port() string { return String("ARGUS_PORT", "18474") }
 func Bind() string { return String("ARGUS_BIND", "127.0.0.1") }
 
 // Addr is the listen address passed to the HTTP server.
-func Addr() string     { return Bind() + ":" + Port() }
-func Concurrency() int { return Int("ARGUS_CONCURRENCY", 10) }
+func Addr() string { return Bind() + ":" + Port() }
+
+// Concurrency is how many requests may be in flight at once. Six rather
+// than the ten it used to be: Jira's rate limit is reached sooner than
+// GitHub's, and a sprint sweep fires its changelog and search requests
+// together.
+func Concurrency() int { return Int("ARGUS_CONCURRENCY", 6) }
 func HTTPTimeout() int { return Int("ARGUS_HTTP_TIMEOUT_SECONDS", 45) }
 
 // EnabledTools names the tools that run. The pull request watchdog is the
@@ -247,13 +252,21 @@ func JiraProject() (string, error) {
 	}
 }
 
-// JiraPointsField is the custom field holding story points. Left empty,
-// the tool resolves it by the name in JiraPointsFieldName.
+// JiraPointsField pins the custom field holding points. Left empty, the
+// board's estimation field is read, and the name in JiraPointsFieldName
+// is the fallback where no board declares one.
 func JiraPointsField() string { return String("ARGUS_JIRA_POINTS_FIELD", "") }
 
+// JiraPointsFieldName is the deprecated name lookup. It stays because a
+// configuration file may still carry it, and because a sprint with no
+// board has nothing else to go on.
 func JiraPointsFieldName() string {
 	return String("ARGUS_JIRA_POINTS_FIELD_NAME", "Story Points")
 }
+
+// JiraPointsFieldNameSet reports whether somebody set the deprecated
+// name explicitly, which is worth one line at startup.
+func JiraPointsFieldNameSet() bool { return String("ARGUS_JIRA_POINTS_FIELD_NAME", "") != "" }
 
 // JiraEstimateFieldName is the field holding the planning estimate.
 //
@@ -307,11 +320,14 @@ func JiraSprintFieldName() string {
 	return String("ARGUS_JIRA_SPRINT_FIELD_NAME", "Sprint")
 }
 
-// JiraDoneStatuses are the status names that count as delivered. Matched
-// by name, not by Jira's "done" category: teams routinely have several
-// statuses in that category and disagree about which mean finished.
+// JiraDoneStatuses overrides which statuses count as delivered. Normally
+// empty, because the project's own status configuration answers the
+// question: every status declares a category, and the done category is
+// delivery. Set only where a done-category status is not delivery for
+// this team; setting it replaces the declared list rather than adding
+// to it.
 func JiraDoneStatuses() []string {
-	return Strings("ARGUS_JIRA_DONE_STATUSES", []string{"Done"})
+	return Strings("ARGUS_JIRA_DONE_STATUSES", nil)
 }
 
 // JiraExcludedTypes are issue types left out of the say/do count, usually

@@ -71,7 +71,9 @@ func setUpSprint(ctx context.Context) (*sprint.Service, store.Store, *publish.Se
 			EstimatedOnResolve: config.Strings("ARGUS_JIRA_ESTIMATED_ON_RESOLVE", []string{"Bug"}),
 			ExcludedFromSayDo:  config.JiraExcludedTypes(),
 		},
-		SprintLengthDays: config.JiraSprintLengthDays(),
+		// Zero when unset, so the length the board's own sprints declare
+		// fills the gap; a set value is kept and compared against it.
+		SprintLengthDays: config.Int("ARGUS_JIRA_SPRINT_LENGTH_DAYS", 0),
 		EpicClasses:      epicClasses(),
 		RecentSprints:    config.Int("ARGUS_SPRINT_RECENT", 4),
 		Actor:            email,
@@ -80,14 +82,41 @@ func setUpSprint(ctx context.Context) (*sprint.Service, store.Store, *publish.Se
 
 	log.Printf("argus: sprint report on (project %s, %d recent sprints)",
 		project, config.Int("ARGUS_SPRINT_RECENT", 4))
+	if config.JiraPointsFieldNameSet() {
+		log.Printf("argus: ARGUS_JIRA_POINTS_FIELD_NAME is deprecated. The points field is read from the board's "+
+			"configuration; the name %q is only used where no board declares one. Unset it, or pin the id with ARGUS_JIRA_POINTS_FIELD",
+			config.JiraPointsFieldName())
+	}
 	go retain(ctx, st)
 	return svc, st, setUpPublish(client, svc, st, project, email), nil
+}
+
+// doneConventions is the delivered statuses a published page names, with
+// where they came from. The override where one is set; otherwise the
+// project's done category, read once here because the publisher takes
+// its conventions at startup. The read is made only when publishing is
+// configured, since nothing else consumes it, and a failure leaves the
+// list empty with its source stated rather than inventing one.
+func doneConventions(client *jira.Client, project string) ([]string, string) {
+	if override := config.JiraDoneStatuses(); len(override) > 0 {
+		return override, page.DoneSourceSetting
+	}
+	if !config.ConfluenceConfigured() {
+		return nil, page.DoneSourceJira
+	}
+	statuses, err := client.ProjectStatuses(project)
+	if err != nil {
+		log.Printf("argus: could not read the statuses of %s for the published footer: %v", project, err)
+		return nil, page.DoneSourceJira
+	}
+	return jira.DoneStatusNames(statuses), page.DoneSourceJira
 }
 
 // setUpPublish wires publishing to Confluence. Always built, because an
 // unconfigured publisher is what tells the panel what to set; whether it
 // is offered is decided by the space and parent page being named.
 func setUpPublish(client *jira.Client, svc *sprint.Service, st store.Store, project, email string) *publish.Service {
+	done, doneSource := doneConventions(client, project)
 	pub := publish.New(client, svc, st, publish.Config{
 		SpaceID:      config.ConfluenceSpaceID(),
 		ParentPageID: config.ConfluenceParentPageID(),
@@ -98,8 +127,8 @@ func setUpPublish(client *jira.Client, svc *sprint.Service, st store.Store, proj
 		Actor:        email,
 		EnableWrites: config.SprintWritesAllowed(),
 		Conventions: page.Conventions{
-			DoneStatuses:       config.JiraDoneStatuses(),
-			DoneSource:         "name",
+			DoneStatuses:       done,
+			DoneSource:         doneSource,
 			Containers:         config.Strings("ARGUS_JIRA_CONTAINER_TYPES", []string{"Story"}),
 			AbsenceCost:        config.SprintAbsenceCost(),
 			WorklogAttribution: config.JiraWorklogAttribution(),

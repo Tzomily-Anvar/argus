@@ -53,6 +53,12 @@ type Service struct {
 	// In memory on purpose: a preview is an in-flight intention rather
 	// than a record of anything, and losing it on a restart is right.
 	changes *changeSets
+
+	// declared is the last reading of what Jira's configuration says,
+	// kept so a sweep whose read fails builds on the previous reading,
+	// dated and marked stale, rather than on a built-in default that
+	// would look exactly like a successful read.
+	declared Declared
 }
 
 type Config struct {
@@ -99,6 +105,13 @@ type Config struct {
 	// place the setting reaches the client; nothing consults it per
 	// request, where it could also be forgotten.
 	EnableWrites bool
+
+	// PointsField pins the points field id, and PointsFieldName is the
+	// deprecated name to resolve it by where no board declares one. Left
+	// empty, NewService reads the settings. The board's own estimation
+	// field is what normally decides it, per sprint, in declare.
+	PointsField     string
+	PointsFieldName string
 }
 
 type fields struct {
@@ -106,10 +119,22 @@ type fields struct {
 	points   string
 	estimate string
 
-	// categories maps a status id to new, indeterminate or done. It is
-	// resolved once alongside the field ids because it changes about as
-	// often - which is to say when somebody edits the workflow.
+	// pinned reports that points came from ARGUS_JIRA_POINTS_FIELD, which
+	// wins over anything a board declares.
+	pinned bool
+
+	// catalogue is every status on the site with its category, and
+	// categories the same keyed by id. Resolved once alongside the field
+	// ids because they change about as often - which is to say when
+	// somebody edits the workflow.
+	catalogue  []jira.Status
 	categories map[string]string
+
+	// done is the delivered set in force for one sweep and declared what
+	// Jira said for it. Both are read again on every sweep, so they live
+	// on the copy build makes rather than on the cached original.
+	done     []string
+	declared Declared
 }
 
 type cached struct {
@@ -159,6 +184,12 @@ func NewService(client *jira.Client, st store.Store, cfg Config) *Service {
 	if cfg.AbsenceCost == "" {
 		cfg.AbsenceCost = config.SprintAbsenceCost()
 	}
+	if cfg.PointsField == "" {
+		cfg.PointsField = config.JiraPointsField()
+	}
+	if cfg.PointsFieldName == "" {
+		cfg.PointsFieldName = config.JiraPointsFieldName()
+	}
 	return &Service{
 		client: client, store: st, cfg: cfg,
 		reports:   map[int64]*cached{},
@@ -202,9 +233,14 @@ func (s *Service) resolveFields() (*fields, error) {
 	if sprintID == "" {
 		return nil, fmt.Errorf("no field named Sprint on this Jira site")
 	}
-	pointsID, err := s.client.FieldID("Story Points")
-	if err != nil {
-		return nil, fmt.Errorf("resolving the Story Points field: %w", err)
+	// Points: the pinned id, or the deprecated name lookup. Either is
+	// only the starting point - the board a sprint belongs to declares
+	// the field it estimates in, and declare weighs the two per sweep.
+	pointsID, pinned := s.cfg.PointsField, s.cfg.PointsField != ""
+	if !pinned {
+		if pointsID, err = s.client.FieldID(s.cfg.PointsFieldName); err != nil {
+			return nil, fmt.Errorf("resolving the %s field: %w", s.cfg.PointsFieldName, err)
+		}
 	}
 	// The estimate is optional. A site without one simply has no fallback
 	// for a finished ticket whose actual was never filled in, which is
@@ -214,12 +250,17 @@ func (s *Service) resolveFields() (*fields, error) {
 		return nil, fmt.Errorf("resolving the %s field: %w", config.JiraEstimateFieldName(), err)
 	}
 
-	categories, err := s.client.StatusCategories()
+	catalogue, err := s.client.Statuses()
 	if err != nil {
 		return nil, fmt.Errorf("reading the status catalogue: %w", err)
 	}
+	categories := make(map[string]string, len(catalogue))
+	for _, st := range catalogue {
+		categories[st.ID] = st.Category.Key
+	}
 
-	f = &fields{sprint: sprintID, points: pointsID, estimate: estimateID, categories: categories}
+	f = &fields{sprint: sprintID, points: pointsID, pinned: pinned, estimate: estimateID,
+		catalogue: catalogue, categories: categories}
 	s.mu.Lock()
 	if s.fieldIDs == nil && s.cfg.EnableWrites {
 		// The gate opens here and nowhere else: once, under the lock so
@@ -485,8 +526,24 @@ func (s *Service) derive(ctx context.Context, sp jira.Sprint, issues []jira.Issu
 		in.EstimateField = got.fields.estimate
 		in.SprintField = got.fields.sprint
 		in.StatusCategories = got.fields.categories
+		in.Declared = got.fields.declared
+		// What Jira declared fills a gap and never overrules a person:
+		// the done set only where no override names one, the sprint
+		// length only where the setting is unset.
+		if len(got.fields.done) > 0 {
+			in.Rules.Done = got.fields.done
+		}
+		if in.SprintLengthDays <= 0 && in.Declared.SprintLengthDays > 0 {
+			in.SprintLengthDays = in.Declared.SprintLengthDays
+		}
 	}
-	return Build(in)
+	rep := Build(in)
+	if sp.OriginBoardID == 0 && got.fields != nil && !got.fields.pinned {
+		rep.Warnings = append(rep.Warnings, fmt.Sprintf(
+			"This sprint belongs to no board, so the points field could not be read from a board's configuration; it was resolved by the name %q instead.",
+			s.cfg.PointsFieldName))
+	}
+	return rep
 }
 
 // install computes a report and caches it, retrying if somebody saved a
@@ -644,6 +701,14 @@ func (s *Service) build(ctx context.Context, sp jira.Sprint, f *fields) (Report,
 		s.mu.Unlock()
 	}()
 
+	// What Jira declares is read again on every sweep, so a status added
+	// or a board changed since the last one is seen rather than assumed
+	// away. The reading rides on a copy of the field ids for this build.
+	f, err := s.declare(sp, f)
+	if err != nil {
+		return Report{}, err
+	}
+
 	// Jira's sprint field is cumulative, so this returns every issue that
 	// has ever been in the sprint rather than the work that happened in
 	// it. Narrowing it in JQL is not possible - Jira has no "finished
@@ -653,11 +718,18 @@ func (s *Service) build(ctx context.Context, sp jira.Sprint, f *fields) (Report,
 	if f.estimate != "" {
 		fields = append(fields, f.estimate)
 	}
+	// Where the board's field was held back, both are fetched so the
+	// report can say how many issues each one is populated on.
+	if held := f.declared.BoardField; held != "" && held != f.points {
+		fields = append(fields, held)
+	}
 	issues, err := s.client.Search(
 		fmt.Sprintf("project = %s AND sprint = %d", s.cfg.Project, sp.ID), fields, 0)
 	if err != nil {
 		return Report{}, err
 	}
+	f.declared.BoardFieldPopulated = populated(issues, f.declared.BoardField)
+	f.declared.NamedFieldPopulated = populated(issues, f.declared.NamedField)
 
 	got, err := s.enrich(sp, f, issues)
 	if err != nil {
@@ -717,7 +789,12 @@ func (s *Service) enrich(sp jira.Sprint, f *fields, issues []jira.Issue) (fetche
 		return got, err
 	}
 	got.changes = changes
-	got.previous = s.previousClose(sp)
+	got.previous, f.declared.SprintLengthDays = s.previousClose(sp)
+	f.declared.SprintLengthSetting = s.cfg.SprintLengthDays
+	if s.cfg.SprintLengthDays <= 0 && f.declared.SprintLengthDays > 0 {
+		config.Declared("ARGUS_JIRA_SPRINT_LENGTH_DAYS", strconv.Itoa(f.declared.SprintLengthDays),
+			"sprint dates", time.Now().UTC())
+	}
 	return got, nil
 }
 
@@ -783,33 +860,169 @@ func (s *Service) linkedIssues(f *fields, issues []jira.Issue) (map[string]jira.
 }
 
 // previousClose is when the sprint before this one was completed, zero
-// when it cannot be worked out.
+// when it cannot be worked out, and how many working days the board's
+// most recently closed sprint ran - the sprint length Jira declares.
 //
 // Jira leaves a gap of a few minutes between one sprint being completed
 // and the next being started, and work does finish in it - one ticket
 // worth five points did, in the sprints this was measured on. Without
 // this the gap is a hole that work falls into and no sprint claims.
-func (s *Service) previousClose(sp jira.Sprint) time.Time {
+func (s *Service) previousClose(sp jira.Sprint) (time.Time, int) {
 	if sp.OriginBoardID == 0 || sp.Number <= 0 {
-		return time.Time{}
+		return time.Time{}, 0
 	}
 	siblings, err := s.client.BoardSprints(sp.OriginBoardID, "closed")
 	if err != nil {
-		return time.Time{}
+		return time.Time{}, 0
 	}
-	var best jira.Sprint
+	var best, latest jira.Sprint
 	for _, sib := range siblings {
-		if sib.ID == sp.ID || sib.CompleteDate.IsZero() {
+		if sib.CompleteDate.IsZero() {
 			continue
 		}
-		if !sib.CompleteDate.Before(sp.StartDate.Time) {
+		if latest.CompleteDate.IsZero() || sib.CompleteDate.After(latest.CompleteDate.Time) {
+			latest = sib
+		}
+		if sib.ID == sp.ID || !sib.CompleteDate.Before(sp.StartDate.Time) {
 			continue
 		}
 		if best.CompleteDate.IsZero() || sib.CompleteDate.After(best.CompleteDate.Time) {
 			best = sib
 		}
 	}
-	return best.CompleteDate.Time
+	return best.CompleteDate.Time, workingDays(latest.StartDate.Time, latest.EndDate.Time)
+}
+
+// workingDays counts the weekdays from one date up to, not including,
+// another: a sprint starting on a Monday and ending on the Monday two
+// weeks later ran ten.
+func workingDays(from, to time.Time) int {
+	if from.IsZero() || to.IsZero() || !to.After(from) {
+		return 0
+	}
+	n := 0
+	for d := from.Truncate(24 * time.Hour); d.Before(to.Truncate(24 * time.Hour)); d = d.AddDate(0, 0, 1) {
+		if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
+			n++
+		}
+	}
+	return n
+}
+
+// populated counts the issues carrying a value in a field.
+func populated(issues []jira.Issue, field string) int {
+	if field == "" {
+		return 0
+	}
+	n := 0
+	for _, is := range issues {
+		if _, ok := is.Number(field); ok {
+			n++
+		}
+	}
+	return n
+}
+
+// declare reads what Jira's configuration says for this sweep: the
+// project's statuses and their categories, and the board's estimation
+// field and columns. Each read fills a gap and never overrules a person:
+// the done set only where ARGUS_JIRA_DONE_STATUSES is unset, the points
+// field only where nothing was pinned and the name lookup agrees or
+// found nothing. A failed read keeps the last reading, dated and marked
+// stale, because a default that looks detected cannot be told from a
+// real one; only a first read with nothing behind it refuses.
+func (s *Service) declare(sp jira.Sprint, base *fields) (*fields, error) {
+	f := *base
+	now := time.Now().UTC()
+	s.mu.RLock()
+	d := s.declared
+	s.mu.RUnlock()
+	ok := true
+
+	// With an override the project's statuses are not read: the override
+	// replaces the declared list, and the site's catalogue, already in
+	// hand, says whether a named status exists at all.
+	if len(s.cfg.Rules.Done) == 0 {
+		statuses, err := s.client.ProjectStatuses(s.cfg.Project)
+		switch {
+		case err == nil:
+			d.Statuses = statuses
+		case len(d.Statuses) == 0 || !d.DoneFromJira:
+			return nil, fmt.Errorf("reading the statuses of project %s: %w. Set ARGUS_JIRA_DONE_STATUSES to name the delivered statuses without that read", s.cfg.Project, err)
+		default:
+			ok = false
+		}
+		d.DoneFromJira = true
+		f.done = jira.DoneStatusNames(d.Statuses)
+		if len(f.done) == 0 {
+			return nil, fmt.Errorf("no status in project %s declares Jira's done category, so nothing would count as delivered. Set ARGUS_JIRA_DONE_STATUSES", s.cfg.Project)
+		}
+	} else {
+		d.Statuses, d.DoneFromJira, f.done = base.catalogue, false, s.cfg.Rules.Done
+	}
+
+	// The board's reading carries over a failed read only for the same
+	// board; a sprint on another board starts from nothing.
+	last := d
+	d.BoardID, d.Estimation, d.BoardField, d.BoardFieldName, d.Columns = sp.OriginBoardID, "", "", "", nil
+	if sp.OriginBoardID > 0 {
+		b, err := s.client.BoardConfiguration(sp.OriginBoardID)
+		switch {
+		case err == nil:
+			d.Estimation, d.BoardField, d.BoardFieldName, d.Columns =
+				b.Estimation.Type, b.PointsField(), b.Estimation.Field.DisplayName, b.Columns
+		case last.BoardID == sp.OriginBoardID:
+			d.Estimation, d.BoardField, d.BoardFieldName, d.Columns =
+				last.Estimation, last.BoardField, last.BoardFieldName, last.Columns
+			ok = false
+		default:
+			ok = false
+		}
+	}
+
+	d.NamedField, d.PointsFromJira = base.points, false
+	switch {
+	case base.pinned, d.BoardField == "":
+		f.points = base.points
+	case base.points == "" || base.points == d.BoardField:
+		f.points, d.PointsFromJira = d.BoardField, true
+	default:
+		// Held back: the two disagree and every figure moves with the
+		// choice, so the report says so and a person accepts it.
+		f.points = base.points
+	}
+	if d.PointsFromJira && s.cfg.EnableWrites {
+		s.client.AllowWrites(f.points)
+	}
+
+	if ok {
+		d.ReadAt, d.Stale = now, false
+	} else {
+		d.Stale = true
+	}
+	f.declared = d
+	s.mu.Lock()
+	s.declared = d
+	s.mu.Unlock()
+	s.record(&f, ok)
+	return &f, nil
+}
+
+// record tells the configuration registry what was read, so `argus
+// config list` can show each value with its source and age.
+func (s *Service) record(f *fields, ok bool) {
+	note := func(key string, inForce bool, value, source string) {
+		switch {
+		case !inForce:
+			config.Undeclare(key)
+		case ok:
+			config.Declared(key, value, source, f.declared.ReadAt)
+		default:
+			config.DeclaredStale(key)
+		}
+	}
+	note("ARGUS_JIRA_DONE_STATUSES", f.declared.DoneFromJira, strings.Join(f.done, ", "), "status categories")
+	note("ARGUS_JIRA_POINTS_FIELD", f.declared.PointsFromJira, f.points, "board estimation")
 }
 
 // hasFold reports whether name appears in list, ignoring case and

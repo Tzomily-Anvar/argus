@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/jira"
@@ -68,7 +69,9 @@ func (s *Server) SprintRoutes(svc *sprint.Service, st store.Store, pub *publish.
 	})
 
 	// The team's conventions, so the panel can say what a baseline of 10
-	// actually means rather than leaving it a bare number.
+	// actually means rather than leaving it a bare number - and where
+	// each convention came from, so "why does it think this" is answered
+	// on the page rather than by reading the configuration.
 	s.mux.HandleFunc("GET /api/sprint/conventions", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"hours_per_point":     config.HoursPerPoint(),
@@ -76,6 +79,7 @@ func (s *Server) SprintRoutes(svc *sprint.Service, st store.Store, pub *publish.
 			"sprint_length_days":  config.JiraSprintLengthDays(),
 			"worklog_attribution": config.JiraWorklogAttribution(),
 			"absence_cost":        config.SprintAbsenceCost(),
+			"provenance":          provenance(),
 		})
 	})
 
@@ -212,4 +216,49 @@ func (s *Server) SprintRoutes(svc *sprint.Service, st store.Store, pub *publish.
 		svc.Recompute(r.Context())
 		writeJSON(w, http.StatusOK, map[string]bool{"saved": true})
 	})
+}
+
+// Provenance is where one convention's value in force came from: a
+// person's setting, in the environment or the file; Jira, with the read
+// it came from and when; or the built-in default.
+type Provenance struct {
+	Value  string     `json:"value"`
+	Source string     `json:"source"` // jira | file | env | default
+	Read   string     `json:"read,omitempty"`
+	At     *time.Time `json:"at,omitempty"`
+	Stale  bool       `json:"stale,omitempty"`
+}
+
+// provenance resolves the conventions the panel shows. The registry of
+// values read from Jira is consulted for the ones Jira can declare; a
+// setting somebody made always wins over it.
+func provenance() map[string]Provenance {
+	keys := []string{
+		"ARGUS_JIRA_DONE_STATUSES", "ARGUS_JIRA_POINTS_FIELD", "ARGUS_JIRA_SPRINT_LENGTH_DAYS",
+		"ARGUS_JIRA_WORKLOG_ATTRIBUTION", "ARGUS_SPRINT_ABSENCE_COST", "ARGUS_JIRA_CONTAINER_TYPES",
+	}
+	core := config.Core()
+	out := make(map[string]Provenance, len(keys))
+	for _, key := range keys {
+		s, ok := core.Find(key)
+		if !ok {
+			continue
+		}
+		r := s.ResolveInForce()
+		p := Provenance{Value: r.Value, Source: "default"}
+		switch r.Origin {
+		case config.FromEnv:
+			p.Source = "env"
+		case config.FromFile:
+			p.Source = "file"
+		case config.FromJira:
+			p.Source = "jira"
+			if r.Declared != nil {
+				at := r.Declared.At
+				p.Read, p.At, p.Stale = r.Declared.Source, &at, r.Declared.Stale
+			}
+		}
+		out[key] = p
+	}
+	return out
 }

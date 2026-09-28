@@ -101,6 +101,11 @@ type Inputs struct {
 	// availability, zero if nobody has. It is what separates a sprint
 	// where everyone was available from one nobody has filled in.
 	CapacityReviewedAt time.Time
+
+	// Declared is what the team's Jira configuration said when this was
+	// built, for the assumption panel to compare against what the
+	// report did with it.
+	Declared Declared
 }
 
 // window is the stretch of time this sprint gets to claim work in.
@@ -144,10 +149,13 @@ func Build(in Inputs) Report {
 		// Empty slices rather than nil. This crosses to a browser as JSON,
 		// and null where an array was promised took the whole page down
 		// the first time a sprint had nothing concluded in it.
-		Stories: []Story{},
-		Flags:   []Flag{},
-		Carry:   []Row{},
+		Stories:     []Story{},
+		Flags:       []Flag{},
+		Assumptions: []Flag{},
+		Carry:       []Row{},
 	}
+	r.Summary.DoneByStatus = map[string]int{}
+	r.Summary.IssuesByType = map[string]int{}
 
 	people := indexPeople(in.People)
 	// Who the roster actually knows about, taken before any assignee
@@ -177,6 +185,7 @@ func Build(in Inputs) Report {
 	for _, is := range in.Issues {
 		life := newTimeline(is, in.Changes[is.ID], in.StatusCategories, in.Rules.Done)
 		row := toRow(is, in, life, opens, closes)
+		r.Summary.IssuesByType[row.Type]++
 
 		// Containers roll up the work beneath them. Their points are a
 		// total of their children, so they are never delivery - counting
@@ -184,6 +193,10 @@ func Build(in Inputs) Report {
 		// twice. They are reported in their own section instead.
 		if in.Rules.IsContainer(row.Type) {
 			items := work[is.Key]
+			r.Summary.Containers++
+			if len(items) == 0 {
+				r.Summary.ContainersUnlinked++
+			}
 			st, here := concludedStory(row, items, in, opens, closes)
 			if here {
 				r.Stories = append(r.Stories, st)
@@ -220,9 +233,13 @@ func Build(in Inputs) Report {
 
 		case StateConcluded:
 			r.Summary.DoneCount++
+			r.Summary.DoneByStatus[row.Status]++
 			finished = append(finished, row)
 			if row.StartedEarlier {
 				r.Summary.FinishedFromEarlier++
+			}
+			if (!row.HasPoints || row.UsedEstimate) && in.Rules.ExpectsPointsWhenDone(row.Type) {
+				r.Summary.DoneUnsized++
 			}
 			if row.UsedEstimate {
 				r.Flags = append(r.Flags, estimateFallbackFlag(row))
@@ -306,6 +323,7 @@ func Build(in Inputs) Report {
 	sortFlags(r.Flags)
 	sort.SliceStable(r.Carry, func(i, j int) bool { return r.Carry[i].Key < r.Carry[j].Key })
 	sort.SliceStable(r.Stories, func(i, j int) bool { return r.Stories[i].Points > r.Stories[j].Points })
+	r.Assumptions = Assumptions(r, in)
 	return r
 }
 

@@ -14,6 +14,11 @@
 #
 # Checks file contents, file paths, commit messages and author identities,
 # because a name can leak through any of them.
+#
+# Put --generic before any of those to scan for credentials only, reading
+# no pattern file even if one is present. That is the mode CI runs in: a
+# public runner has no pattern file and must never be given one, and
+# saying so on the command line is clearer than relying on its absence.
 
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -64,6 +69,17 @@ builtin_pattern=${builtin_pattern%|}
 # So a per-user file is read as well. That one survives cloning, and on
 # a machine where somebody works in several checkouts it is the copy
 # that actually holds the line.
+#
+# --generic skips all of that on purpose. The message about a missing
+# pattern file is for a person who may have forgotten theirs; on a CI
+# runner nobody has forgotten anything, and a job that went looking for
+# the team's patterns would be a job that one day gets given them.
+generic=0
+if [[ "${1:-}" == "--generic" ]]; then
+  generic=1
+  shift
+fi
+
 sources=()
 [[ -n "${ARGUS_PRIVATE_PATTERNS:-}" ]] && sources+=("$ARGUS_PRIVATE_PATTERNS")
 sources+=("${XDG_CONFIG_HOME:-$HOME/.config}/argus/private-patterns")
@@ -71,28 +87,37 @@ sources+=("$PATTERNS_FILE")
 
 local_pattern=""
 loaded_from=()
-for src in "${sources[@]}"; do
-  [[ -f "$src" ]] || continue
-  part=$(grep -vE '^[[:space:]]*(#|$)' "$src" | paste -sd'|' -)
-  [[ -z "$part" ]] && continue
-  loaded_from+=("$src")
-  if [[ -z "$local_pattern" ]]; then
-    local_pattern="$part"
-  else
-    local_pattern="$local_pattern|$part"
-  fi
-done
+if [[ "$generic" -eq 0 ]]; then
+  for src in "${sources[@]}"; do
+    [[ -f "$src" ]] || continue
+    part=$(grep -vE '^[[:space:]]*(#|$)' "$src" | paste -sd'|' -)
+    [[ -z "$part" ]] && continue
+    loaded_from+=("$src")
+    if [[ -z "$local_pattern" ]]; then
+      local_pattern="$part"
+    else
+      local_pattern="$local_pattern|$part"
+    fi
+  done
+fi
 
-if [[ ${#loaded_from[@]} -eq 0 ]]; then
+if [[ "$generic" -eq 1 ]]; then
+  echo "${DIM}private-check: credentials only, by request. No pattern file is read.${OFF}"
+elif [[ ${#loaded_from[@]} -eq 0 ]]; then
   echo "${DIM}private-check: no pattern file, so only credentials are checked.${OFF}"
   echo "${DIM}  Looked in: ${sources[*]}${OFF}"
   echo "${DIM}  Copy .private-patterns.example to one of those to add your own.${OFF}"
 fi
 
+# What a hit is called at the end depends on what was loaded: blaming a
+# pattern file that was never read would send someone looking in the
+# wrong place.
 if [[ -n "$local_pattern" ]]; then
   pattern="$builtin_pattern|$local_pattern"
+  matched="$PATTERNS_FILE or a built-in credential pattern"
 else
   pattern="$builtin_pattern"
+  matched="a built-in credential pattern"
 fi
 
 mode="${1:-range}"
@@ -181,7 +206,7 @@ esac
 
 if [[ "$found" -ne 0 ]]; then
   echo
-  echo "${RED}Refusing to continue.${OFF} Something matching $PATTERNS_FILE is present."
+  echo "${RED}Refusing to continue.${OFF} Something matching $matched is present."
   echo "  Remove it, or if it is already committed, rewrite the history that contains it."
   exit 1
 fi

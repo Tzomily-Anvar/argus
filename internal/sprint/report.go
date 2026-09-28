@@ -15,6 +15,13 @@ type Report struct {
 	Flags    []Flag      `json:"flags"`
 	Warnings []string    `json:"warnings,omitempty"`
 
+	// Assumptions are the places Argus may be reading this board wrong,
+	// as opposed to Flags, which are the places the board is untidy. The
+	// two are never mixed: the first list is expected to have entries
+	// every sprint, and the second should normally be empty, and a
+	// reader trained to dismiss one dismisses both.
+	Assumptions []Flag `json:"assumptions"`
+
 	// Calibration is what refinement expected this sprint's work to cost
 	// against what it cost. A retrospective input rather than a headline:
 	// it is reported, not totalled into anything above.
@@ -103,6 +110,26 @@ type Summary struct {
 
 	IssueCount int `json:"issue_count"`
 	DoneCount  int `json:"done_count"`
+
+	// Containers is how many container issues the sprint holds, and
+	// ContainersUnlinked how many of those nothing links to. Every one
+	// unreached usually means the association lives somewhere Argus is
+	// not looking, which is worth more than the rollups it breaks.
+	Containers         int `json:"containers"`
+	ContainersUnlinked int `json:"containers_unlinked"`
+
+	// DoneUnsized counts the work that finished with nothing in the
+	// points field, and DoneByStatus which status each finished issue
+	// ended in. Both are what says whether a declared convention -
+	// the points field, a done-category status - means what Argus
+	// takes it to mean.
+	DoneUnsized  int            `json:"done_unsized"`
+	DoneByStatus map[string]int `json:"done_by_status,omitempty"`
+
+	// IssuesByType counts every issue in the sprint by type, containers
+	// included, which is how a configured container type with no issues
+	// at all gets noticed.
+	IssuesByType map[string]int `json:"issues_by_type,omitempty"`
 
 	// CarriedOver is the work still open when this sprint closed.
 	CarriedOver int `json:"carried_over"`
