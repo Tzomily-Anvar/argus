@@ -102,7 +102,7 @@ func Core() Catalogue {
 
 		{
 			Key: "ARGUS_TOOLS", Section: "Which tools run", Kind: KindList, Default: "pr",
-			Desc: "Tools to run: pr (pull request triage), sprint (sprint reports).",
+			Desc: "Tools to run: pr (pull request triage), sprint (sprint reports), backlog (backlog grooming and the inbox).",
 		},
 
 		{
@@ -256,6 +256,37 @@ func Core() Catalogue {
 		{
 			Key: "ARGUS_SPRINT_RETAIN_YEARS", Section: "Sprint report", Kind: KindInt, Default: "3",
 			Desc: "How long per-person records are kept. Aggregates carry no personal data and are never pruned.",
+		},
+
+		{
+			Key: "ARGUS_BACKLOG_STALE_DAYS", Section: "Backlog", Kind: KindInt, Default: "14",
+			Desc: "A ticket with no update in this many days is stale.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_NEW_DAYS", Section: "Backlog", Kind: KindInt, Default: "3",
+			Desc: "A ticket created within this many days is new, until acknowledged.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_OPERATIONS_LABEL", Section: "Backlog", Kind: KindString,
+			Default: "Operations",
+			Desc:    "The label that marks an operations request. The only label the tool ever adds.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_LEGACY_LABELS", Section: "Backlog", Kind: KindList, Default: "Ops",
+			Desc: "Older spellings of the operations label, read as the same thing and offered for replacement. Never added.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_INBOX_DAYS", Section: "Backlog", Kind: KindInt, Default: "3",
+			Desc: "How far back the inbox looks for mentions, assignments and watched changes, in Jira and Confluence.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_ALLOW_DELETE", Section: "Backlog", Kind: KindBool, Default: "false",
+			Desc: "Let the backlog tool delete tickets: the one irreversible write, on top of ARGUS_SPRINT_ALLOW_WRITES. Off until you ask for it.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_STORY_LINK_CHILD", Section: "Backlog", Kind: KindEnum,
+			Values: []string{LinkChildInward, LinkChildOutward}, Default: LinkChildInward,
+			Desc: "Which end of a story link the child sits at when the backlog tool links a ticket to a Story: inward or outward.",
 		},
 
 		{

@@ -89,6 +89,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The backlog shares the sprint report's store when there is one,
+	// and opens its own otherwise; either way there is one to close.
+	backlogSvc, batch, st, err := setUpBacklog(context.Background(), st)
+	if err != nil {
+		return err
+	}
 	if st != nil {
 		defer st.Close()
 	}
@@ -110,6 +116,9 @@ func run() error {
 	srv := server.New(cache)
 	if sprintSvc != nil {
 		srv.SprintRoutes(sprintSvc, st, pub)
+	}
+	if backlogSvc != nil {
+		srv.BacklogRoutes(backlogSvc, st, batch)
 	}
 	return server.Run(config.Addr(), srv)
 }

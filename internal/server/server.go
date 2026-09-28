@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tzomily-Anvar/argus/internal/backlog"
 	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/rules"
 	"github.com/Tzomily-Anvar/argus/internal/sprint"
@@ -30,6 +31,9 @@ type Server struct {
 	// rather than present and failing.
 	sprint *sprint.Service
 	store  store.Store
+
+	// Set only when the backlog tool is configured, for the same reason.
+	backlog *backlog.Service
 }
 
 func New(cache *sweep.Cache) *Server {
@@ -106,6 +110,7 @@ func (s *Server) routes() {
 		tools := []map[string]any{
 			{"id": "pr", "label": "Pull requests", "available": config.ToolEnabled("pr")},
 			{"id": "sprint", "label": "Sprint reports", "available": s.sprint != nil},
+			{"id": "backlog", "label": "Backlog", "available": s.backlog != nil},
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"tools": tools})
 	})

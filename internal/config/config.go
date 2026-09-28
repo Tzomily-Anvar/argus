@@ -191,8 +191,9 @@ func HTTPTimeout() int { return Int("ARGUS_HTTP_TIMEOUT_SECONDS", 45) }
 // credentials, storage, or both, and nobody should have to opt out of a
 // tool they never wanted.
 //
-//	ARGUS_TOOLS=pr           the default
-//	ARGUS_TOOLS=pr,sprint    both
+//	ARGUS_TOOLS=pr                   the default
+//	ARGUS_TOOLS=pr,sprint            both
+//	ARGUS_TOOLS=pr,sprint,backlog    all three
 func EnabledTools() []string { return Strings("ARGUS_TOOLS", []string{"pr"}) }
 
 // ToolEnabled reports whether a tool is switched on.
@@ -441,3 +442,36 @@ func ConfluenceSections() []string { return Strings("ARGUS_CONFLUENCE_SECTIONS",
 // points and assignees, log time on tickets and write a wiki page should
 // be something you switch on deliberately.
 func SprintWritesAllowed() bool { return Bool("ARGUS_SPRINT_ALLOW_WRITES", false) }
+
+// ---- the Backlog tool --------------------------------------------------
+//
+// The thresholds are days because the questions are: how long untouched
+// is stale, how recently created is new, how far back the personal inbox
+// looks. The labels are the team's own spelling of "this is an operations
+// request", so they are settings rather than assumptions.
+
+// BacklogStaleDays is how many days without an update makes a ticket
+// stale.
+func BacklogStaleDays() int { return Int("ARGUS_BACKLOG_STALE_DAYS", 14) }
+
+// BacklogNewDays is how recently a ticket must have been created to be
+// listed as new.
+func BacklogNewDays() int { return Int("ARGUS_BACKLOG_NEW_DAYS", 3) }
+
+// BacklogOperationsLabel is the label that marks an operations request.
+// It is the only label the tool ever adds.
+func BacklogOperationsLabel() string { return String("ARGUS_BACKLOG_OPERATIONS_LABEL", "Operations") }
+
+// BacklogLegacyLabels are older spellings of the same label. They are read
+// as meaning operations and offered for replacement; none is ever added.
+func BacklogLegacyLabels() []string { return Strings("ARGUS_BACKLOG_LEGACY_LABELS", []string{"Ops"}) }
+
+// BacklogInboxDays is how far back the inbox looks for mentions,
+// assignments and watched changes.
+func BacklogInboxDays() int { return Int("ARGUS_BACKLOG_INBOX_DAYS", 3) }
+
+// BacklogDeleteAllowed is the gate on the one irreversible write the
+// backlog tool can make. It sits on top of ARGUS_SPRINT_ALLOW_WRITES:
+// both have to be on before a ticket can be deleted, and this one is
+// off by default even where the other is on.
+func BacklogDeleteAllowed() bool { return Bool("ARGUS_BACKLOG_ALLOW_DELETE", false) }

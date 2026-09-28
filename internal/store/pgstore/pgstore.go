@@ -498,5 +498,14 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (store.PruneResult,
 	n, _ = wl.RowsAffected()
 	res.WriteRows = int(n)
 
+	// Acknowledgements age on their own clock, not the sprint cutoff.
+	acks, err := tx.ExecContext(ctx, `DELETE FROM acks WHERE at < $1`,
+		time.Now().UTC().Add(-store.AckRetention))
+	if err != nil {
+		return res, fmt.Errorf("pruning acknowledgements: %w", err)
+	}
+	n, _ = acks.RowsAffected()
+	res.Acks = int(n)
+
 	return res, tx.Commit()
 }

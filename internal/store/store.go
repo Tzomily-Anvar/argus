@@ -17,10 +17,12 @@
 // WHAT IS HELD HERE IS PERSONAL DATA. Names, Jira account ids, how much
 // someone was away, free text about why their delivery differed from
 // their baseline, and the close-out draft: which tickets the operator
-// means to size, assign or log hours against, and for whom. It stays on
-// the machine running Argus, it is excluded from version control, and
-// SECURITY.md says so plainly. Anything added to these types inherits
-// that responsibility.
+// means to size, assign or log hours against, and for whom. The backlog
+// tool adds its acknowledgements - ticket keys and page titles, which
+// say what one person has looked at - and the operations roster. It
+// stays on the machine running Argus, it is excluded from version
+// control, and SECURITY.md says so plainly. Anything added to these
+// types inherits that responsibility.
 package store
 
 import (
@@ -243,6 +245,58 @@ const (
 	OutcomeFailed  = "failed"
 )
 
+// Ack is one acknowledgement in the backlog tool: a person has seen this
+// version of this item and wants it out of the way.
+//
+// Nothing is written to Jira for it. The watermark is the item's updated
+// timestamp exactly as Jira gave it, and the item stays hidden while the
+// two agree; the moment the item changes again its timestamp moves, the
+// watermark no longer matches, and it comes back. That is the whole
+// mechanism, and it is why the watermark is an opaque string rather than
+// a parsed time: it only ever has to be compared for equality with what
+// the next sweep reads.
+//
+// Kind says what the key names: a ticket in the backlog view, or an item
+// in the inbox, whose keys carry their source and kind. Keys and kinds
+// are unrelated between the two, so an inbox dismissal never hides a
+// backlog row.
+//
+// An acknowledgement is a record of what one person looked at and when,
+// which makes it personal data of a sort, and the keys and titles it
+// holds are somebody else's tickets and pages. Prune drops any older
+// than ninety days: by then the item has either changed, and the row is
+// dead, or it has been still for three months and a fresh look at it is
+// no bad thing.
+type Ack struct {
+	Key       string    `json:"key"`
+	Kind      string    `json:"kind"`
+	Watermark string    `json:"watermark"`
+	At        time.Time `json:"at"`
+}
+
+// The kinds an Ack can be.
+const (
+	AckTicket = "ticket"
+	AckInbox  = "inbox"
+)
+
+// AckRetention is how long an acknowledgement is kept before Prune drops
+// it, whatever cutoff Prune was given for the sprint rows.
+const AckRetention = 90 * 24 * time.Hour
+
+// OpsMember is one person on the operations roster: someone whose
+// tickets are operations requests whether or not they carry the label.
+//
+// The roster exists because the label is applied by hand and forgotten,
+// and the reporter is the one signal that is never forgotten. It is a
+// list of account ids kept in the app, like the sprint roster, and it is
+// replaced whole on every save because the panel holds all of it.
+type OpsMember struct {
+	AccountID string    `json:"account_id"`
+	Name      string    `json:"name"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Store is the whole persistence surface. Kept deliberately small: every
 // method here has to be implemented twice and tested twice.
 type Store interface {
@@ -289,6 +343,21 @@ type Store interface {
 	PutDraft(ctx context.Context, d Draft) error
 	DeleteDraft(ctx context.Context, sprintJiraID int64) error
 
+	// Acknowledgements, for the backlog tool. PutAcks upserts by kind and
+	// key, stamping At when it is zero; ListAcks returns every one of a
+	// kind; DeleteAcks withdraws the named keys of a kind, and a key that
+	// was never acknowledged is not an error, because un-acknowledging
+	// twice is not a mistake worth reporting.
+	PutAcks(ctx context.Context, acks []Ack) error
+	ListAcks(ctx context.Context, kind string) ([]Ack, error)
+	DeleteAcks(ctx context.Context, kind string, keys []string) error
+
+	// The operations roster. PutOps replaces the whole list, since the
+	// panel that saves it holds all of it; an empty list empties the
+	// roster.
+	ListOps(ctx context.Context) ([]OpsMember, error)
+	PutOps(ctx context.Context, members []OpsMember) error
+
 	// Retention
 	//
 	// Trends need years of aggregates, but per-person absence records do
@@ -299,6 +368,11 @@ type Store interface {
 	// which carries no personal data and is what the trends are drawn
 	// from. Anything older than the retention window lives on in the
 	// published Confluence pages, which is the right archive for it.
+	//
+	// Acknowledgements are pruned on their own clock, AckRetention
+	// before now rather than the cutoff given here: they hold ticket keys
+	// and page titles, a record of what one person looked at, and three
+	// months is as long as one of those is worth keeping.
 	Prune(ctx context.Context, before time.Time) (PruneResult, error)
 
 	// Lifecycle
@@ -315,4 +389,8 @@ type PruneResult struct {
 	// left behind for a sprint that closed years ago is a queue nobody
 	// will ever run, holding names and ticket keys for nothing.
 	Drafts int `json:"drafts"`
+
+	// Acks is how many acknowledgements older than AckRetention were
+	// dropped.
+	Acks int `json:"acks"`
 }

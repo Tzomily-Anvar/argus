@@ -33,7 +33,16 @@ func TestEverySettingIsDocumented(t *testing.T) {
 	used := map[string]string{} // name -> file that reads it
 	re := regexp.MustCompile(`"((?:ARGUS|DATABASE)_[A-Z_]+)"`)
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
+		if err != nil {
+			return nil
+		}
+		// Other checkouts of this repository can sit under the tree - an
+		// agent's worktree, a vendored copy - and their settings are not
+		// this checkout's to document.
+		if info.IsDir() && (info.Name() == ".claude" || info.Name() == "node_modules" || info.Name() == ".git") {
+			return filepath.SkipDir
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".go") {
 			return nil
 		}
 		if strings.Contains(path, "/web/") || strings.HasSuffix(path, "_test.go") {

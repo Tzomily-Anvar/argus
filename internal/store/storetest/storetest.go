@@ -41,6 +41,10 @@ func Run(t *testing.T, fresh func(t *testing.T) store.Store) {
 		"a draft needs a known sprint":     testDraftUnknownSprint,
 		"empty store reads as empty":       testEmptyStore,
 		"migrate is repeatable":            testMigrateIsRepeatable,
+		"acks round-trip by kind and key":  testAcks,
+		"acks are withdrawn by kind":       testAcksWithdrawn,
+		"old acks are pruned":              testAcksPruned,
+		"the ops roster is replaced whole": testOpsRoster,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) { fn(t, fresh(t)) })
@@ -432,6 +436,147 @@ func testEmptyStore(t *testing.T, s store.Store) {
 	}
 	if _, err := s.ListWrites(ctx(), 0); err != nil {
 		t.Errorf("ListWrites: %v", err)
+	}
+	if acks, err := s.ListAcks(ctx(), store.AckTicket); err != nil || len(acks) != 0 {
+		t.Errorf("ListAcks on an empty store: %+v, err %v", acks, err)
+	}
+	if ops, err := s.ListOps(ctx()); err != nil || len(ops) != 0 {
+		t.Errorf("ListOps on an empty store: %+v, err %v", ops, err)
+	}
+}
+
+// An acknowledgement is a watermark per item: writing one again for the
+// same item replaces the watermark rather than adding a second, and the
+// two kinds never see each other's keys, so dismissing an inbox item
+// cannot hide a backlog row that happens to share a key.
+func testAcks(t *testing.T, s store.Store) {
+	if err := s.PutAcks(ctx(), []store.Ack{
+		{Kind: store.AckTicket, Key: "ABC-1", Watermark: "2026-01-06T09:00:00.000+0000"},
+		{Kind: store.AckTicket, Key: "ABC-2", Watermark: "2026-01-06T10:00:00.000+0000"},
+		{Kind: store.AckInbox, Key: "jira:mentioned:ABC-1", Watermark: "2026-01-07T09:00:00.000+0000"},
+	}); err != nil {
+		t.Fatalf("PutAcks: %v", err)
+	}
+	tickets, err := s.ListAcks(ctx(), store.AckTicket)
+	if err != nil {
+		t.Fatalf("ListAcks: %v", err)
+	}
+	if len(tickets) != 2 || tickets[0].Key != "ABC-1" || tickets[0].Watermark != "2026-01-06T09:00:00.000+0000" {
+		t.Errorf("ticket acks = %+v", tickets)
+	}
+	if tickets[0].At.IsZero() {
+		t.Error("At should be stamped on write")
+	}
+	inbox, _ := s.ListAcks(ctx(), store.AckInbox)
+	if len(inbox) != 1 || inbox[0].Key != "jira:mentioned:ABC-1" {
+		t.Errorf("inbox acks = %+v", inbox)
+	}
+
+	// The item changed and was acknowledged again: one row, new watermark.
+	if err := s.PutAcks(ctx(), []store.Ack{
+		{Kind: store.AckTicket, Key: "ABC-1", Watermark: "2026-01-08T09:00:00.000+0000"},
+	}); err != nil {
+		t.Fatalf("PutAcks again: %v", err)
+	}
+	tickets, _ = s.ListAcks(ctx(), store.AckTicket)
+	if len(tickets) != 2 || tickets[0].Watermark != "2026-01-08T09:00:00.000+0000" {
+		t.Errorf("re-acknowledging should replace the watermark: %+v", tickets)
+	}
+
+	if err := s.PutAcks(ctx(), []store.Ack{{Kind: store.AckTicket}}); err == nil {
+		t.Error("an acknowledgement without a key should be refused")
+	}
+	if err := s.PutAcks(ctx(), nil); err != nil {
+		t.Errorf("acknowledging nothing should be quiet, got %v", err)
+	}
+}
+
+// Withdrawing names keys of one kind. A key that was never acknowledged
+// is not an error, and the other kind is untouched.
+func testAcksWithdrawn(t *testing.T, s store.Store) {
+	_ = s.PutAcks(ctx(), []store.Ack{
+		{Kind: store.AckTicket, Key: "ABC-1", Watermark: "w1"},
+		{Kind: store.AckTicket, Key: "ABC-2", Watermark: "w2"},
+		{Kind: store.AckInbox, Key: "ABC-1", Watermark: "w3"},
+	})
+	if err := s.DeleteAcks(ctx(), store.AckTicket, []string{"ABC-1", "ABC-9"}); err != nil {
+		t.Fatalf("DeleteAcks: %v", err)
+	}
+	tickets, _ := s.ListAcks(ctx(), store.AckTicket)
+	if len(tickets) != 1 || tickets[0].Key != "ABC-2" {
+		t.Errorf("after withdrawing ABC-1: %+v", tickets)
+	}
+	inbox, _ := s.ListAcks(ctx(), store.AckInbox)
+	if len(inbox) != 1 {
+		t.Errorf("withdrawing a ticket ack should leave the inbox alone: %+v", inbox)
+	}
+	if err := s.DeleteAcks(ctx(), store.AckTicket, nil); err != nil {
+		t.Errorf("withdrawing nothing should be quiet, got %v", err)
+	}
+}
+
+// Acknowledgements are a record of what somebody looked at, so they are
+// pruned by their own age whatever cutoff the sprint rows are given.
+func testAcksPruned(t *testing.T, s store.Store) {
+	old := time.Now().UTC().Add(-store.AckRetention - 24*time.Hour)
+	if err := s.PutAcks(ctx(), []store.Ack{
+		{Kind: store.AckTicket, Key: "ABC-old", Watermark: "w", At: old},
+		{Kind: store.AckTicket, Key: "ABC-new", Watermark: "w"},
+	}); err != nil {
+		t.Fatalf("PutAcks: %v", err)
+	}
+	// A cutoff far in the past for the sprint rows: nothing about it
+	// should decide which acknowledgements go.
+	res, err := s.Prune(ctx(), time.Now().UTC().AddDate(-10, 0, 0))
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if res.Acks != 1 {
+		t.Errorf("expected 1 acknowledgement pruned, got %d", res.Acks)
+	}
+	acks, _ := s.ListAcks(ctx(), store.AckTicket)
+	if len(acks) != 1 || acks[0].Key != "ABC-new" {
+		t.Errorf("the recent acknowledgement should survive: %+v", acks)
+	}
+}
+
+// The panel saves the whole roster, so a save is the roster: a member
+// left out is gone, and an empty save empties it.
+func testOpsRoster(t *testing.T, s store.Store) {
+	if err := s.PutOps(ctx(), []store.OpsMember{
+		{AccountID: "acc-b", Name: "Person B"},
+		{AccountID: "acc-a", Name: "Person A"},
+		{AccountID: "acc-a", Name: "Person A again"},
+	}); err != nil {
+		t.Fatalf("PutOps: %v", err)
+	}
+	members, err := s.ListOps(ctx())
+	if err != nil {
+		t.Fatalf("ListOps: %v", err)
+	}
+	if len(members) != 2 || members[0].AccountID != "acc-a" || members[1].AccountID != "acc-b" {
+		t.Errorf("roster = %+v, want two people by name with the duplicate folded", members)
+	}
+	if members[0].UpdatedAt.IsZero() {
+		t.Error("UpdatedAt should be stamped on write")
+	}
+
+	if err := s.PutOps(ctx(), []store.OpsMember{{AccountID: "acc-b", Name: "Person B"}}); err != nil {
+		t.Fatalf("second PutOps: %v", err)
+	}
+	members, _ = s.ListOps(ctx())
+	if len(members) != 1 || members[0].AccountID != "acc-b" {
+		t.Errorf("the second save should replace the first: %+v", members)
+	}
+
+	if err := s.PutOps(ctx(), []store.OpsMember{{Name: "nobody"}}); err == nil {
+		t.Error("a member without an account id should be refused")
+	}
+	if err := s.PutOps(ctx(), nil); err != nil {
+		t.Fatalf("emptying the roster: %v", err)
+	}
+	if members, _ := s.ListOps(ctx()); len(members) != 0 {
+		t.Errorf("an empty save should empty the roster, got %+v", members)
 	}
 }
 
