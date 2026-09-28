@@ -31,7 +31,7 @@ export const TOOLS: Tool[] = [
   // the same reasoning the original Argus used when it health-checked
   // each backend before listing it.
   { id: "sprint", label: "Sprint reports", icon: Icon.clock, available: false },
-  { id: "backlog", label: "Backlog", icon: Icon.inbox, available: false },
+  { id: "backlog", label: "Backlog", icon: Icon.inbox, available: true },
   { id: "notifications", label: "Atlassian", icon: Icon.bell, available: false },
 ];
 

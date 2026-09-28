@@ -9,6 +9,7 @@ import { navigate, useRoute } from "./route";
 import { mergeAvailability } from "./tools";
 import { fetchTools } from "./api";
 import { SprintTool } from "./SprintTool";
+import { BacklogTool } from "./BacklogTool";
 import { Icon } from "./components/Icons";
 import { Sidebar } from "./components/Sidebar";
 import { SectionTabs, type Section } from "./components/SectionTabs";
@@ -244,6 +245,8 @@ export default function App() {
       <main className="min-w-0">
         {tool === "sprint" ? (
           <SprintTool />
+        ) : tool === "backlog" ? (
+          <BacklogTool />
         ) : (
         <div className="mx-auto max-w-5xl px-6 pt-6 pb-20">
           <header className="mb-5 flex flex-wrap items-center justify-between gap-3">

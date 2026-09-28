@@ -836,3 +836,205 @@ export const previewPublish = (sprint: number, sections: string[]) =>
  *  matches what would be written is refused rather than sent. */
 export const publishPage = (id: string, digest: string) =>
   postJSON<PublishResult>("/api/sprint/publish", { id, digest });
+
+
+// ---- the backlog -----------------------------------------------------------
+
+/* The backlog tool reads one sweep of the open tickets and offers to tidy
+ * them in batches. Every list below may be missing from an older server
+ * or null from a Go encoder, and every reader treats that as empty. */
+
+export type BacklogPerson = { account_id: string; label: string };
+export type BacklogRef = { key: string; summary: string };
+export type BacklogSprintRef = { id: number; name: string; state: string };
+
+export type BacklogRow = {
+  key: string;
+  summary: string;
+  type: string;
+  status: string;
+  status_category: string;
+  created: string;
+  updated: string;
+  reporter: BacklogPerson;
+  assignee: BacklogPerson | null;
+  labels: string[];
+  epic: BacklogRef | null;
+  story: BacklogRef | null;
+  points: number | null;
+  estimate: number | null;
+  sprint: BacklogSprintRef | null;
+  url: string;
+  priority: string;
+  /** Created or changed since it was last acknowledged. Acknowledging is a
+   *  local watermark on `updated`: the row hides until it changes again. */
+  new: boolean;
+  acknowledged: boolean;
+  stale_days: number;
+  /** An Operations request, whether by label, legacy label or roster
+   *  reporter. The two flags after it say which fix it needs. */
+  operations: boolean;
+  operations_missing_label: boolean;
+  legacy_label: boolean;
+};
+
+/** One of the fixed groups: the tickets the sweep put in it, the sentence
+ *  saying why, and the JQL that reproduces the list in Jira. `jql_url` is
+ *  the link ready-made when the server sends one; otherwise it is built
+ *  from a row's URL. */
+export type BacklogGroup = {
+  id: string;
+  label: string;
+  why: string;
+  keys: string[];
+  jql: string;
+  jql_url?: string;
+};
+
+/** An epic with open work under it. `keys` are the tickets still to be
+ *  refined, which is what "Select unrefined" selects. */
+export type BacklogEpic = {
+  key: string;
+  summary: string;
+  class: string;
+  open: number;
+  unrefined: number;
+  keys: string[];
+};
+
+export type BacklogOperations = {
+  all_keys: string[];
+  missing_label_keys: string[];
+  legacy_label_keys: string[];
+  roster: BacklogPerson[];
+};
+
+export type BacklogSettings = {
+  operations_label: string;
+  legacy_labels: string[];
+  allow_delete: boolean;
+  writes_allowed: boolean;
+};
+
+export type Backlog = {
+  swept_at: string;
+  building: boolean;
+  warnings: string[];
+  rows: BacklogRow[];
+  groups: BacklogGroup[];
+  epics: BacklogEpic[];
+  sprints: BacklogSprintRef[];
+  epics_all: BacklogRef[];
+  stories: (BacklogRef & { epic_key: string })[];
+  operations: BacklogOperations;
+  settings: BacklogSettings;
+};
+
+export type InboxItem = {
+  id: string;
+  source: "jira" | "confluence";
+  kind: "mentioned" | "assigned" | "watching";
+  title: string;
+  summary: string;
+  url: string;
+  updated: string;
+  dismissed: boolean;
+};
+
+export type Inbox = { items: InboxItem[]; warnings: string[] };
+
+export type OpsMember = { account_id: string; name: string };
+
+export type OpsRoster = {
+  members: OpsMember[];
+  /** Everyone who reported an open ticket, with how many, so the roster
+   *  can be built from who actually asks rather than typed from memory. */
+  candidates: { account_id: string; label: string; reported: number }[];
+};
+
+export type BatchAction =
+  | "sprint.assign"
+  | "epic.set"
+  | "story.link"
+  | "labels.add"
+  | "operations.label"
+  | "operations.migrate"
+  | "issue.delete";
+
+/** One ticket in a preview: what the field holds and what it would hold,
+ *  or why nothing will be written to it. */
+export type BatchPreviewRow = {
+  key: string;
+  summary: string;
+  type: string;
+  before: string;
+  after: string;
+  skipped: string;
+};
+
+export type BatchPreview = {
+  id: string;
+  digest: string;
+  action: BatchAction;
+  rows: BatchPreviewRow[];
+  changes: number;
+  skipped: number;
+  expires_at: string;
+  /** The writes switch, and the second switch a delete is behind. */
+  allowed: boolean;
+  delete_allowed: boolean;
+  /** True for a delete: there are no audit rows to build a reverse from. */
+  irreversible: boolean;
+};
+
+export type BatchRowResult = {
+  key: string;
+  outcome: "applied" | "skipped" | "failed";
+  reason: string;
+};
+
+export type BatchResult = {
+  rows: BatchRowResult[];
+  applied: number;
+  skipped: number;
+  failed: number;
+  stopped: string;
+};
+
+/* A DELETE with a body, for the two watermarks that are withdrawn by
+ * naming what to withdraw. The bodiless deleteJSON above stays as it is. */
+async function deleteJSONWith(path: string, body: unknown): Promise<void> {
+  const res = await fetch(path, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(detail.error ?? res.statusText);
+  }
+}
+
+export const fetchBacklog = () => getJSON<Backlog>("/api/backlog");
+export const refreshBacklog = () => postJSON<unknown>("/api/backlog/refresh", {});
+export const acknowledgeBacklog = (keys: string[]) => postJSON<unknown>("/api/backlog/ack", { keys });
+export const unacknowledgeBacklog = (keys: string[]) => deleteJSONWith("/api/backlog/ack", { keys });
+
+export const fetchInbox = () => getJSON<Inbox>("/api/backlog/inbox");
+export const dismissInbox = (ids: string[]) => postJSON<unknown>("/api/backlog/inbox/dismiss", { ids });
+export const undismissInbox = (ids: string[]) => deleteJSONWith("/api/backlog/inbox/dismiss", { ids });
+
+export const fetchOpsRoster = () => getJSON<OpsRoster>("/api/backlog/ops-roster");
+export const saveOpsRoster = (members: OpsMember[]) => putJSON("/api/backlog/ops-roster", { members });
+
+export const previewBatch = (action: BatchAction, keys: string[], params: Record<string, unknown>) =>
+  postJSON<BatchPreview>("/api/backlog/batch/preview", { action, keys, params });
+/** The digest travels with the apply so a preview edited under the
+ *  viewer's feet is refused. `confirm` is the agreement a delete demands,
+ *  sent as true only once the count has been typed. */
+export const applyBatch = (id: string, digest: string, confirm: string) =>
+  postJSON<BatchResult>(`/api/backlog/batch/${encodeURIComponent(id)}/apply`, { digest, confirm });
+/** A new preview that undoes what a batch wrote. Applied like any other;
+ *  refused for a delete, which has nothing to undo from. */
+export const reverseBatch = (batch: string) =>
+  postJSON<BatchPreview>("/api/backlog/batch/reverse", { batch });
