@@ -470,6 +470,11 @@ func BacklogLegacyLabels() []string { return Strings("ARGUS_BACKLOG_LEGACY_LABEL
 // assignments and watched changes.
 func BacklogInboxDays() int { return Int("ARGUS_BACKLOG_INBOX_DAYS", 3) }
 
+// BacklogEpicProjects names other projects whose open Epics the backlog
+// tool offers when setting a ticket's Epic, for a team whose epics live
+// on more than one board. Empty by default: the report's own project.
+func BacklogEpicProjects() []string { return Strings("ARGUS_BACKLOG_EPIC_PROJECTS", nil) }
+
 // BacklogDeleteAllowed is the gate on the one irreversible write the
 // backlog tool can make. It sits on top of ARGUS_SPRINT_ALLOW_WRITES:
 // both have to be on before a ticket can be deleted, and this one is

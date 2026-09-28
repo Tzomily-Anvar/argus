@@ -280,6 +280,10 @@ func Core() Catalogue {
 			Desc: "How far back the inbox looks for mentions, assignments and watched changes, in Jira and Confluence.",
 		},
 		{
+			Key: "ARGUS_BACKLOG_EPIC_PROJECTS", Section: "Backlog", Kind: KindList,
+			Desc: "Other project keys whose open Epics the bulk bar offers when setting an Epic. Empty means this project only.",
+		},
+		{
 			Key: "ARGUS_BACKLOG_ALLOW_DELETE", Section: "Backlog", Kind: KindBool, Default: "false",
 			Desc: "Let the backlog tool delete tickets: the one irreversible write, on top of ARGUS_SPRINT_ALLOW_WRITES. Off until you ask for it.",
 		},

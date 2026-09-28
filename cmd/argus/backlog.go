@@ -96,6 +96,7 @@ func setUpBacklog(ctx context.Context, shared store.Store) (*backlog.Service, *b
 		StoryLinkTypes:  config.JiraStoryLinkTypes(),
 		ContainerTypes:  config.Strings("ARGUS_JIRA_CONTAINER_TYPES", []string{"Story"}),
 		EpicClasses:     epicClasses(),
+		EpicProjects:    config.BacklogEpicProjects(),
 	}, interval)
 	svc.Start()
 

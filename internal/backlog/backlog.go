@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,6 +37,11 @@ import (
 type Config struct {
 	Project string
 	BaseURL string
+
+	// EpicProjects are other projects whose open Epics the picker offers
+	// beside this project's, for a team whose epics live on more than
+	// one board.
+	EpicProjects []string
 
 	StaleDays       int
 	NewDays         int
@@ -270,8 +276,7 @@ func (s *Service) fetch() (Snapshot, error) {
 	}
 	// Every open epic, not only the ones with open work: the picker for
 	// setting a ticket's epic has to offer the empty ones too.
-	snap.Epics, err = s.client.Search(
-		fmt.Sprintf("project = %s AND issuetype = Epic AND statusCategory != Done ORDER BY created DESC", s.cfg.Project),
+	snap.Epics, err = s.client.Search(epicJQL(s.cfg.Project, s.cfg.EpicProjects),
 		[]string{"summary", "status", "created", "updated"}, 0)
 	if err != nil {
 		return Snapshot{}, err
@@ -290,4 +295,21 @@ func (s *Service) fetch() (Snapshot, error) {
 	snap.Warnings = append(snap.Warnings, inboxWarnings...)
 	snap.SweptAt = time.Now().UTC()
 	return snap, nil
+}
+
+// epicJQL selects the open Epics the picker offers: this project's, and
+// any other project's the team named. This project's come first in the
+// picker because they are listed first here and the sort is by creation
+// within the set; the picker searches by text anyway.
+func epicJQL(project string, others []string) string {
+	keys := []string{project}
+	for _, o := range others {
+		if o = strings.TrimSpace(o); o != "" && !strings.EqualFold(o, project) {
+			keys = append(keys, o)
+		}
+	}
+	if len(keys) == 1 {
+		return fmt.Sprintf("project = %s AND issuetype = Epic AND statusCategory != Done ORDER BY created DESC", project)
+	}
+	return fmt.Sprintf("project in (%s) AND issuetype = Epic AND statusCategory != Done ORDER BY created DESC", strings.Join(keys, ", "))
 }
