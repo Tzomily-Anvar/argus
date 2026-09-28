@@ -475,6 +475,12 @@ func BacklogInboxDays() int { return Int("ARGUS_BACKLOG_INBOX_DAYS", 3) }
 // on more than one board. Empty by default: the report's own project.
 func BacklogEpicProjects() []string { return Strings("ARGUS_BACKLOG_EPIC_PROJECTS", nil) }
 
+// BacklogOpsTeamID is the Atlassian team whose members the operations
+// roster can be imported from, under the same organisation id as the
+// sprint roster's team. An identifier, so no default; unset, the import
+// is not offered.
+func BacklogOpsTeamID() string { return String("ARGUS_BACKLOG_OPS_TEAM_ID", "") }
+
 // BacklogDeleteAllowed is the gate on the one irreversible write the
 // backlog tool can make. It sits on top of ARGUS_SPRINT_ALLOW_WRITES:
 // both have to be on before a ticket can be deleted, and this one is

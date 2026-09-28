@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchOpsRoster, saveOpsRoster, type Backlog, type BacklogRow, type OpsMember } from "../../api";
+import { fetchOpsRoster, fetchOpsTeam, saveOpsRoster, type Backlog, type BacklogRow, type OpsMember } from "../../api";
 import { outlined, small } from "../closeout/Table";
 import { SaveBar, stateOf } from "../Panel";
 import type { BatchRequest } from "./BatchPanel";
@@ -45,6 +45,15 @@ function Roster() {
   };
   const remove = (id: string) => setDraft(members.filter((m) => m.account_id !== id));
 
+  // The Atlassian team, when one is configured. It proposes; nothing is
+  // saved until Save, the same as adding a reporter by hand.
+  const team = useQuery({ queryKey: ["ops-team"], queryFn: fetchOpsTeam, staleTime: 60_000 });
+  const proposed = (team.data?.candidates ?? []).filter((c) => !onRoster.has(c.account_id));
+  const importTeam = () => {
+    if (proposed.length === 0) return;
+    setDraft([...members, ...proposed.map((c) => ({ account_id: c.account_id, name: c.name }))]);
+  };
+
   // Unsaved changes, counted as people added plus people removed, so the
   // note under the list says how many rather than only that there are some.
   const saved = roster.data?.members ?? [];
@@ -56,7 +65,24 @@ function Roster() {
     <Section
       title="Operations roster"
       hint="Whose tickets count as requests even without the label. Add people from whoever has reported open tickets; nothing is saved until Save."
-      right={<Picker label="Add from reporters" items={candidates} onPick={add} placeholder="Find a reporter…" disabled={roster.isLoading} />}
+      right={
+        <span className="flex items-center gap-2">
+          {team.data?.configured && (
+            <button
+              onClick={importTeam}
+              disabled={proposed.length === 0}
+              title={proposed.length === 0
+                ? `Everyone on ${team.data.team_name ?? "the team"} is already on the roster.`
+                : `Add the ${proposed.length} on ${team.data.team_name ?? "the team"} who are not on the roster yet.`}
+              className={small}
+              style={outlined}
+            >
+              Import from {team.data.team_name ?? "Atlassian team"}{proposed.length > 0 ? ` (${proposed.length})` : ""}
+            </button>
+          )}
+          <Picker label="Add from reporters" items={candidates} onPick={add} placeholder="Find a reporter…" disabled={roster.isLoading} />
+        </span>
+      }
     >
       {roster.error && (
         <p className="px-4 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>

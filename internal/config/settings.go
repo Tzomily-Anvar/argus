@@ -284,6 +284,10 @@ func Core() Catalogue {
 			Desc: "Other project keys whose open Epics the bulk bar offers when setting an Epic. Empty means this project only.",
 		},
 		{
+			Key: "ARGUS_BACKLOG_OPS_TEAM_ID", Section: "Backlog", Kind: KindString,
+			Desc: "The Atlassian team id the operations roster can be imported from, under ARGUS_ATLASSIAN_ORG_ID. Optional.",
+		},
+		{
 			Key: "ARGUS_BACKLOG_ALLOW_DELETE", Section: "Backlog", Kind: KindBool, Default: "false",
 			Desc: "Let the backlog tool delete tickets: the one irreversible write, on top of ARGUS_SPRINT_ALLOW_WRITES. Off until you ask for it.",
 		},

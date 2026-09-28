@@ -1038,3 +1038,13 @@ export const applyBatch = (id: string, digest: string, confirm: string) =>
  *  refused for a delete, which has nothing to undo from. */
 export const reverseBatch = (batch: string) =>
   postJSON<BatchPreview>("/api/backlog/batch/reverse", { batch });
+
+/** What the operations team's Atlassian team proposes for the roster;
+ *  the same shape the sprint roster's import answers with. */
+export type OpsTeamImport = {
+  configured: boolean;
+  reason?: string;
+  team_name?: string;
+  candidates: { account_id: string; name: string; state: string }[];
+};
+export const fetchOpsTeam = () => getJSON<OpsTeamImport>("/api/backlog/ops-team");

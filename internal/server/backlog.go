@@ -5,6 +5,9 @@ import (
 	"net/http"
 
 	"github.com/Tzomily-Anvar/argus/internal/backlog"
+	"github.com/Tzomily-Anvar/argus/internal/config"
+	"github.com/Tzomily-Anvar/argus/internal/jira"
+	"github.com/Tzomily-Anvar/argus/internal/sprint"
 	"github.com/Tzomily-Anvar/argus/internal/store"
 )
 
@@ -132,6 +135,45 @@ func (s *Server) BacklogRoutes(svc *backlog.Service, st store.Store, b *backlog.
 	// The operations roster, with the reporters seen in the backlog as
 	// candidates, most frequent first, so a person is ticked rather than
 	// their account id copied about.
+	// Who the operations team's Atlassian team says is on it, merged with
+	// the roster already stored. Optional configuration, so an install
+	// without the team id answers 200 with the reason rather than an
+	// error; and this only ever proposes - the browser saves what was
+	// ticked through PUT /api/backlog/ops-roster.
+	handle("GET /api/backlog/ops-team", func(w http.ResponseWriter, r *http.Request) {
+		if config.AtlassianOrgID() == "" || config.BacklogOpsTeamID() == "" {
+			writeJSON(w, http.StatusOK, sprint.NotConfigured(
+				"Set ARGUS_ATLASSIAN_ORG_ID and ARGUS_BACKLOG_OPS_TEAM_ID to import the operations roster "+
+					"from an Atlassian team. Until then it is kept here by hand."))
+			return
+		}
+		email, token, err := config.JiraCredentials()
+		if err != nil {
+			writeJSON(w, http.StatusOK, sprint.NotConfigured(err.Error()))
+			return
+		}
+		team, err := jira.NewTeams(config.AtlassianOrgID(), config.BacklogOpsTeamID(), email, token, config.HTTPTimeout())
+		if err != nil {
+			writeJSON(w, http.StatusOK, sprint.NotConfigured(err.Error()))
+			return
+		}
+		members, err := st.ListOps(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		roster := make([]store.Person, 0, len(members))
+		for _, m := range members {
+			roster = append(roster, store.Person{AccountID: m.AccountID, Name: m.Name, Active: true})
+		}
+		imported, err := sprint.TeamImport(r.Context(), team, svc, roster)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, imported)
+	})
+
 	handle("GET /api/backlog/ops-roster", func(w http.ResponseWriter, r *http.Request) {
 		members, err := st.ListOps(r.Context())
 		if err != nil {
