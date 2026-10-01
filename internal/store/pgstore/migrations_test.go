@@ -453,6 +453,16 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	if got := dbVersion(t, s); got != latestMigration(t)-1 {
 		t.Errorf("after one rollback the version is %d, want %d", got, latestMigration(t)-1)
 	}
+	if hasTable(t, s, "backlog_labels") {
+		t.Error("rolling back 007 left its table behind")
+	}
+	if !hasTable(t, s, "acks") || !hasTable(t, s, "requesters") {
+		t.Error("rolling back 007 took 006's tables with it")
+	}
+
+	if err := goose.DownContext(ctx, s.db, "migrations"); err != nil {
+		t.Fatalf("rolling back 006: %v", err)
+	}
 	if hasTable(t, s, "acks") || hasTable(t, s, "requesters") {
 		t.Error("rolling back 006 left its tables behind")
 	}
