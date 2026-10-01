@@ -280,6 +280,10 @@ func Core() Catalogue {
 			Desc: "Labels that mark a kind of engineering work, not a request. A request carrying one is flagged.",
 		},
 		{
+			Key: "ARGUS_BACKLOG_UNREFINED_STATUSES", Section: "Backlog", Kind: KindList,
+			Desc: "Status names that count as unrefined, on top of Jira's own new category.",
+		},
+		{
 			Key: "ARGUS_BACKLOG_INBOX_DAYS", Section: "Backlog", Kind: KindInt, Default: "3",
 			Desc: "How far back the inbox looks for mentions, assignments and watched changes, in Jira and Confluence.",
 		},

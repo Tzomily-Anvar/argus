@@ -54,7 +54,10 @@ type Config struct {
 	RequestLabel string
 	LegacyLabels []string
 	WorkLabels   []string
-	InboxDays    int
+	// UnrefinedStatuses are status names that count as unrefined, on top
+	// of Jira's "new" category.
+	UnrefinedStatuses []string
+	InboxDays         int
 
 	// StoryLinkTypes tie a Task to its Story where Jira's parent field
 	// is taken by the Epic; ContainerTypes are the types that play the
@@ -125,6 +128,9 @@ func NewService(client *jira.Client, st store.Store, cfg Config, interval time.D
 	}
 	if cfg.LegacyLabels == nil {
 		cfg.LegacyLabels = config.BacklogLegacyLabels()
+	}
+	if cfg.UnrefinedStatuses == nil {
+		cfg.UnrefinedStatuses = config.BacklogUnrefinedStatuses()
 	}
 	if cfg.WorkLabels == nil {
 		cfg.WorkLabels = config.BacklogWorkLabels()

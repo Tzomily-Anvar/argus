@@ -56,8 +56,8 @@ a JQL clause — the query names the keys, which opens exactly the set
 shown.
 
 **Epics.** Every open epic with the open work beneath it and how much
-of that is still unrefined: in a status named *To Refine*, or in Jira's
-*new* category. A closed epic that still has open work under it is
+of that is still unrefined: in Jira's *new* category, or in a status
+named in `ARGUS_BACKLOG_UNREFINED_STATUSES`. A closed epic that still has open work under it is
 listed too, because that is worth seeing rather than hiding.
 
 **Requests.** Every request from outside the team, and above them the
@@ -135,6 +135,7 @@ no bad thing.
 | `ARGUS_BACKLOG_REQUEST_LABEL` | `Request` | The label that marks a request from outside the team; the one label the Requests view ever adds |
 | `ARGUS_BACKLOG_LEGACY_LABELS` | none | Older spellings of it, read as the same thing and never added |
 | `ARGUS_BACKLOG_WORK_LABELS` | none | Labels that mark engineering work; a requester's ticket carrying one is flagged |
+| `ARGUS_BACKLOG_UNREFINED_STATUSES` | none | Status names that count as unrefined, on top of Jira's *new* category |
 | `ARGUS_BACKLOG_REQUEST_TEAM_ID` | none | An Atlassian team whose members are proposed as requesters; optional |
 | `ARGUS_BACKLOG_INBOX_DAYS` | 3 | How far back the inbox looks |
 | `ARGUS_BACKLOG_ALLOW_DELETE` | `false` | The one irreversible write, on top of `ARGUS_SPRINT_ALLOW_WRITES` |

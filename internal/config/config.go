@@ -475,6 +475,12 @@ func BacklogLegacyLabels() []string { return Strings("ARGUS_BACKLOG_LEGACY_LABEL
 // has described the fix instead of the need.
 func BacklogWorkLabels() []string { return Strings("ARGUS_BACKLOG_WORK_LABELS", nil) }
 
+// BacklogUnrefinedStatuses are status names that mean a ticket has not
+// been refined yet, on top of Jira's own "new" category, which always
+// counts. A team with a "To Refine" or "Needs grooming" column names it
+// here; the tool does not guess the column's name.
+func BacklogUnrefinedStatuses() []string { return Strings("ARGUS_BACKLOG_UNREFINED_STATUSES", nil) }
+
 // BacklogInboxDays is how far back the inbox looks for mentions,
 // assignments and watched changes.
 func BacklogInboxDays() int { return Int("ARGUS_BACKLOG_INBOX_DAYS", 3) }

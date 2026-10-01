@@ -71,7 +71,10 @@ func Groups(rows []Row, cfg Config, f Fields, requesters map[string]bool) []Grou
 			}),
 			JQL: fmt.Sprintf("%s AND issuetype not in subTaskIssueTypes() AND %s AND (sprint IS EMPTY OR (sprint not in openSprints() AND sprint not in futureSprints()))", base, notEpic)},
 	)
-	if f.HasContainer {
+	// Only for a team whose epic classes include Build: with no such
+	// class the group would be empty for ever, which reads as a check
+	// that passes rather than one that does not apply.
+	if f.HasContainer && cfg.EpicClasses["Build"] != nil {
 		out = append(out, Group{ID: "build_epic_no_story", Label: "Build work without a story",
 			Why: "Under a Build epic but linked to no story, so it will never count as delivered.",
 			Keys: pick(rows, func(r Row) bool {
@@ -220,7 +223,7 @@ func Epics(rows []Row, open []IssueRef, cfg Config) []Epic {
 		e := add(*r.Epic)
 		e.Open++
 		e.Keys = append(e.Keys, r.Key)
-		if strings.EqualFold(r.Status, "To Refine") || r.StatusCategory == "new" {
+		if r.StatusCategory == "new" || hasFold(cfg.UnrefinedStatuses, r.Status) {
 			e.Unrefined++
 		}
 	}
