@@ -108,6 +108,8 @@ export type PolicyHint = {
 
 export type MergeReadiness = {
   rows: PRRow[];
+  /** Draft pull requests, kept apart from the open list by default. */
+  drafts?: PRRow[];
   policy_hints: PolicyHint[] | null;
 };
 

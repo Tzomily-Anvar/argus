@@ -79,6 +79,15 @@
   .tnum {
     font-variant-numeric: tabular-nums;
   }
+  /* A row that scrolls sideways without drawing a bar: the tab strip
+     shows a fade at the edge instead, which says the same thing without
+     a second line of chrome under the tabs. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @layer components {
