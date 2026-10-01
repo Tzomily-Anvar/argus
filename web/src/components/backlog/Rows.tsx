@@ -4,8 +4,9 @@ import { Badge, Pill } from "../Badge";
 
 /* The table of tickets, one copy for every view.
  *
- * The four views ask different questions of the same rows - which are
- * new, which sit in a group, which are Operations - but the answer is
+ * The views ask different questions of the same rows - which are new,
+ * which sit in a group, which are requests from outside the team, which
+ * carry a given label - but the answer is
  * always a list of tickets, and a list of tickets should read the same
  * wherever it appears. One table, so a person who has learned the New
  * view has learned the Groups view, and so the checkbox in each means
@@ -79,10 +80,10 @@ function Flags({ row, stale }: { row: BacklogRow; stale: boolean }) {
       {row.new && !row.acknowledged && <Badge tone="info" label="new" title="Created or changed since you last acknowledged it" />}
       {row.acknowledged && <Badge tone="neutral" label="acknowledged" title="Hidden from New until it changes again" />}
       {stale && <Badge tone="warning" label={`stale ${row.stale_days}d`} title="Nothing has happened to it for longer than the team's threshold" />}
-      {row.operations && <Badge tone="info" label="operations" title="An Operations request: by label, legacy label or roster reporter" />}
-      {row.operations_missing_label && <Badge tone="warning" label="missing label" title="Reported by the Operations roster but not labelled as such" />}
+      {row.request && <Badge tone="info" label="request" title="A request from outside the team: by label, legacy label or a requester as reporter" />}
+      {row.request_missing_label && <Badge tone="warning" label="missing label" title="Counted as a request by its reporter or a legacy label, but not labelled as one" />}
       {row.legacy_label && <Badge tone="warning" label="legacy label" title="Carries the old label rather than the current one" />}
-      {row.operations_work_label && <Badge tone="warning" label="work label" title="A request from the operations roster labelled as a kind of engineering work, which names the fix rather than the need" />}
+      {row.request_work_label && <Badge tone="warning" label="work label" title="A requester's ticket labelled as a kind of engineering work, which names the fix rather than the need" />}
     </span>
   );
 }

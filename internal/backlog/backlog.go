@@ -4,9 +4,9 @@
 // The sweep is the whole cost. A project's open backlog is a few hundred
 // issues, fetched in pages the search endpoint hands out one token at a
 // time, plus the board's sprints, the open epics and the personal inbox.
-// Every view - the groups, the epics, the operations requests - is a
-// pure function over that one fetch and the acknowledgements and roster
-// held locally, so a request costs microseconds and a test needs no
+// Every view - the groups, the epics, the requests from outside the team
+// - is a pure function over that one fetch and the acknowledgements and
+// requesters held locally, so a request costs microseconds and a test needs no
 // Jira.
 //
 // It reads and nothing else. Acknowledging a ticket writes a watermark
@@ -32,7 +32,7 @@ import (
 )
 
 // Config is what one team's backlog looks like: the project, the
-// thresholds, the spelling of the operations label, and the conventions
+// thresholds, the spelling of the request label, and the conventions
 // shared with the sprint report.
 type Config struct {
 	Project string
@@ -43,12 +43,18 @@ type Config struct {
 	// one board.
 	EpicProjects []string
 
-	StaleDays       int
-	NewDays         int
-	OperationsLabel string
-	LegacyLabels    []string
-	WorkLabels      []string
-	InboxDays       int
+	StaleDays int
+	NewDays   int
+
+	// RequestLabel marks a ticket as a request from outside the team;
+	// LegacyLabels are its older spellings, read as the same thing;
+	// WorkLabels mark engineering work, which a request should not be
+	// labelled as. A typical setup is an operations or support team
+	// whose tickets engineering triages, but nothing here assumes so.
+	RequestLabel string
+	LegacyLabels []string
+	WorkLabels   []string
+	InboxDays    int
 
 	// StoryLinkTypes tie a Task to its Story where Jira's parent field
 	// is taken by the Epic; ContainerTypes are the types that play the
@@ -114,8 +120,8 @@ func NewService(client *jira.Client, st store.Store, cfg Config, interval time.D
 	if cfg.NewDays <= 0 {
 		cfg.NewDays = config.BacklogNewDays()
 	}
-	if cfg.OperationsLabel == "" {
-		cfg.OperationsLabel = config.BacklogOperationsLabel()
+	if cfg.RequestLabel == "" {
+		cfg.RequestLabel = config.BacklogRequestLabel()
 	}
 	if cfg.LegacyLabels == nil {
 		cfg.LegacyLabels = config.BacklogLegacyLabels()

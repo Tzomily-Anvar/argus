@@ -31,7 +31,7 @@ type SprintRef struct {
 
 // Row is one open ticket with everything the views judge it by. The
 // facts come from Jira; the flags at the end are judged here, against
-// the thresholds, the acknowledgements and the roster.
+// the thresholds, the acknowledgements and the requesters.
 type Row struct {
 	Key            string     `json:"key"`
 	Summary        string     `json:"summary"`
@@ -56,29 +56,32 @@ type Row struct {
 	// is what an acknowledgement records and compares against.
 	Watermark string `json:"watermark"`
 
-	New                    bool `json:"new"`
-	Acknowledged           bool `json:"acknowledged"`
-	StaleDays              int  `json:"stale_days"`
-	Operations             bool `json:"operations"`
-	OperationsMissingLabel bool `json:"operations_missing_label"`
-	LegacyLabel            bool `json:"legacy_label"`
-	// WorkLabel is a request from the roster carrying a label that marks
+	New          bool `json:"new"`
+	Acknowledged bool `json:"acknowledged"`
+	StaleDays    int  `json:"stale_days"`
+	// Request is a ticket from outside the team, by any of three signals:
+	// the request label, a legacy spelling of it, or a reporter among the
+	// requesters. RequestMissingLabel is one the label does not cover.
+	Request             bool `json:"request"`
+	RequestMissingLabel bool `json:"request_missing_label"`
+	LegacyLabel         bool `json:"legacy_label"`
+	// WorkLabel is a requester's ticket carrying a label that marks
 	// engineering work. Judged on the reporter alone: an engineer may
 	// label their own ticket however the team labels work.
-	WorkLabel bool `json:"operations_work_label"`
+	WorkLabel bool `json:"request_work_label"`
 }
 
 // Rows turns a sweep's issues into rows, judged against now, the
-// acknowledgements (key to watermark) and the roster (account ids).
-func Rows(snap Snapshot, cfg Config, acks map[string]string, roster map[string]bool, now time.Time) []Row {
+// acknowledgements (key to watermark) and the requesters (account ids).
+func Rows(snap Snapshot, cfg Config, acks map[string]string, requesters map[string]bool, now time.Time) []Row {
 	out := make([]Row, 0, len(snap.Issues))
 	for _, is := range snap.Issues {
-		out = append(out, rowOf(is, snap.Fields, cfg, acks, roster, now))
+		out = append(out, rowOf(is, snap.Fields, cfg, acks, requesters, now))
 	}
 	return out
 }
 
-func rowOf(is jira.Issue, f Fields, cfg Config, acks map[string]string, roster map[string]bool, now time.Time) Row {
+func rowOf(is jira.Issue, f Fields, cfg Config, acks map[string]string, requesters map[string]bool, now time.Time) Row {
 	r := Row{
 		Key: is.Key, Summary: is.Fields.Summary,
 		Type: is.Fields.IssueType.Name, Subtask: is.Fields.IssueType.Subtask,
@@ -123,10 +126,10 @@ func rowOf(is jira.Issue, f Fields, cfg Config, acks map[string]string, roster m
 		}
 	}
 	r.LegacyLabel = hasAnyFold(r.Labels, cfg.LegacyLabels)
-	labelled := hasFold(r.Labels, cfg.OperationsLabel)
-	r.Operations = labelled || r.LegacyLabel || roster[r.Reporter.AccountID]
-	r.OperationsMissingLabel = r.Operations && !labelled
-	r.WorkLabel = roster[r.Reporter.AccountID] && hasAnyFold(r.Labels, cfg.WorkLabels)
+	labelled := hasFold(r.Labels, cfg.RequestLabel)
+	r.Request = labelled || r.LegacyLabel || requesters[r.Reporter.AccountID]
+	r.RequestMissingLabel = r.Request && !labelled
+	r.WorkLabel = requesters[r.Reporter.AccountID] && hasAnyFold(r.Labels, cfg.WorkLabels)
 	return r
 }
 

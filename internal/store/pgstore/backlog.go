@@ -1,7 +1,7 @@
 package pgstore
 
 // The backlog tool's tables: acks, one row per acknowledged item,
-// ops_roster, and backlog_labels. See migrations 006 and 007 for why
+// requesters, and backlog_labels. See migrations 006 and 007 for why
 // each exists.
 
 import (
@@ -75,17 +75,17 @@ func (s *Store) DeleteAcks(ctx context.Context, kind string, keys []string) erro
 	return err
 }
 
-func (s *Store) ListOps(ctx context.Context) ([]store.OpsMember, error) {
+func (s *Store) ListRequesters(ctx context.Context) ([]store.Requester, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT account_id, name, updated_at FROM ops_roster ORDER BY name, account_id`)
+		`SELECT account_id, name, updated_at FROM requesters ORDER BY name, account_id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	out := []store.OpsMember{}
+	out := []store.Requester{}
 	for rows.Next() {
-		var m store.OpsMember
+		var m store.Requester
 		if err := rows.Scan(&m.AccountID, &m.Name, &m.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -95,12 +95,12 @@ func (s *Store) ListOps(ctx context.Context) ([]store.OpsMember, error) {
 	return out, rows.Err()
 }
 
-// PutOps replaces the roster whole, in one transaction, so a failed save
-// leaves the previous roster rather than half of the new one.
-func (s *Store) PutOps(ctx context.Context, members []store.OpsMember) error {
+// PutRequesters replaces the list whole, in one transaction, so a failed
+// save leaves the previous list rather than half of the new one.
+func (s *Store) PutRequesters(ctx context.Context, members []store.Requester) error {
 	for _, m := range members {
 		if m.AccountID == "" {
-			return fmt.Errorf("a roster member needs an account id")
+			return fmt.Errorf("a requester needs an account id")
 		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -109,14 +109,14 @@ func (s *Store) PutOps(ctx context.Context, members []store.OpsMember) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.ExecContext(ctx, `DELETE FROM ops_roster`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM requesters`); err != nil {
 		return err
 	}
 	for _, m := range members {
 		// The same person listed twice is one person; the conflict clause
 		// keeps the first spelling of the name.
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO ops_roster (account_id, name, updated_at)
+			INSERT INTO requesters (account_id, name, updated_at)
 			VALUES ($1, $2, now())
 			ON CONFLICT (account_id) DO NOTHING`, m.AccountID, m.Name); err != nil {
 			return err
@@ -145,7 +145,7 @@ func (s *Store) ListLabels(ctx context.Context) ([]store.Label, error) {
 	return out, rows.Err()
 }
 
-// PutLabels replaces the list whole, in one transaction, as PutOps does.
+// PutLabels replaces the list whole, in one transaction, as PutRequesters does.
 func (s *Store) PutLabels(ctx context.Context, labels []store.Label) error {
 	for _, l := range labels {
 		if err := store.CheckLabel(l.Name); err != nil {

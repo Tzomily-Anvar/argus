@@ -1,7 +1,7 @@
 package jsonstore
 
 // The backlog tool's three files: acks.json, one entry per acknowledged
-// item; ops.json, the operations roster; and labels.json, the labels the
+// item; requesters.json, the requesters; and labels.json, the labels the
 // bulk bar offers. All are small - a few hundred acknowledgements at the
 // very most, a handful of people, a dozen labels - so each is read and
 // rewritten whole like everything else here.
@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	acksFile   = "acks"
-	opsFile    = "ops"
-	labelsFile = "labels"
+	acksFile       = "acks"
+	requestersFile = "requesters"
+	labelsFile     = "labels"
 )
 
 func (s *Store) PutAcks(_ context.Context, acks []store.Ack) error {
@@ -103,27 +103,27 @@ func (s *Store) DeleteAcks(_ context.Context, kind string, keys []string) error 
 	return s.write(acksFile, kept)
 }
 
-func (s *Store) ListOps(_ context.Context) ([]store.OpsMember, error) {
+func (s *Store) ListRequesters(_ context.Context) ([]store.Requester, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var all []store.OpsMember
-	if err := s.readInto(opsFile, &all); err != nil {
+	var all []store.Requester
+	if err := s.readInto(requestersFile, &all); err != nil {
 		return nil, err
 	}
 	if all == nil {
-		all = []store.OpsMember{}
+		all = []store.Requester{}
 	}
 	return all, nil
 }
 
-func (s *Store) PutOps(_ context.Context, members []store.OpsMember) error {
+func (s *Store) PutRequesters(_ context.Context, members []store.Requester) error {
 	now := time.Now().UTC()
-	out := make([]store.OpsMember, 0, len(members))
+	out := make([]store.Requester, 0, len(members))
 	seen := map[string]bool{}
 	for _, m := range members {
 		if m.AccountID == "" {
-			return fmt.Errorf("a roster member needs an account id")
+			return fmt.Errorf("a requester needs an account id")
 		}
 		// The same person listed twice is one person.
 		if seen[m.AccountID] {
@@ -137,7 +137,7 @@ func (s *Store) PutOps(_ context.Context, members []store.OpsMember) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.write(opsFile, out)
+	return s.write(requestersFile, out)
 }
 
 // pruneAcks drops acknowledgements older than the retention window and

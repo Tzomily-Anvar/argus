@@ -218,7 +218,7 @@ func TestMigrateFromEmpty(t *testing.T) {
 		t.Errorf("applied version %d, want %d: a migration on disk was not applied", got, want)
 	}
 
-	for _, table := range []string{"people", "sprints", "capacity", "sprint_stats", "write_log", "drafts", "acks", "ops_roster"} {
+	for _, table := range []string{"people", "sprints", "capacity", "sprint_stats", "write_log", "drafts", "acks", "requesters"} {
 		var n int
 		if err := s.db.QueryRowContext(ctx, `
 			SELECT count(*) FROM information_schema.tables
@@ -453,7 +453,7 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	if got := dbVersion(t, s); got != latestMigration(t)-1 {
 		t.Errorf("after one rollback the version is %d, want %d", got, latestMigration(t)-1)
 	}
-	if hasTable(t, s, "acks") || hasTable(t, s, "ops_roster") {
+	if hasTable(t, s, "acks") || hasTable(t, s, "requesters") {
 		t.Error("rolling back 006 left its tables behind")
 	}
 	if !hasColumn(t, s, "sprints", "confluence_page_id") {
@@ -527,7 +527,7 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	if !hasColumn(t, s, "sprints", "confluence_page_id") {
 		t.Error("re-applying did not restore 005's column")
 	}
-	if !hasTable(t, s, "acks") || !hasTable(t, s, "ops_roster") {
+	if !hasTable(t, s, "acks") || !hasTable(t, s, "requesters") {
 		t.Error("re-applying did not restore 006's tables")
 	}
 }

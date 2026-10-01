@@ -24,6 +24,9 @@ type spec struct {
 	story      string
 	add        []string // labels to add where absent
 	remove     []string // labels to remove where present
+	// migrate says the add and remove are one replacement, which is
+	// skipped as a whole where the ticket carries nothing to replace.
+	migrate bool
 }
 
 // plan is the write one row becomes. At most one of its parts is set;
@@ -86,13 +89,21 @@ func (b *Batch) parse(req BatchRequest) (spec, error) {
 			return sp, err
 		}
 		sp.remove = labels
-	case ActionOperationsLabel:
-		sp.add = []string{b.cfg.OperationsLabel}
-	case ActionOperationsMigrate:
-		if len(b.cfg.LegacyLabels) == 0 {
-			return sp, invalid("no legacy label is configured; set ARGUS_BACKLOG_LEGACY_LABELS")
+	case ActionLabelsMigrate:
+		from, err := labelList(req.Params["from"])
+		if err != nil {
+			return sp, err
 		}
-		sp.add, sp.remove = []string{b.cfg.OperationsLabel}, b.cfg.LegacyLabels
+		to, _ := req.Params["to"].(string)
+		if to = strings.TrimSpace(to); to == "" || strings.ContainsAny(to, " \t\n") {
+			return sp, invalid("to must be one label, not %q", to)
+		}
+		if contains(from, to) {
+			return sp, invalid("to must not be one of the labels being replaced")
+		}
+		sp.add, sp.remove, sp.migrate = []string{to}, from, true
+	case ActionRequestLabel:
+		sp.add = []string{b.cfg.RequestLabel}
 	case ActionIssueDelete:
 	default:
 		return sp, fmt.Errorf("%w: %q", ErrUnknownAction, req.Action)
@@ -159,7 +170,14 @@ func (b *Batch) row(sp spec, is jira.Issue, sprintField string) BatchRow {
 		Guard: Guard{IssueID: is.ID, Updated: is.Fields.Updated.Time},
 	}
 	switch sp.action {
-	case ActionLabelsAdd, ActionLabelsRemove, ActionOperationsLabel, ActionOperationsMigrate:
+	case ActionLabelsAdd, ActionLabelsRemove, ActionLabelsMigrate, ActionRequestLabel:
+		if sp.migrate && !hasAny(is.Fields.Labels, sp.remove) {
+			// Nothing to replace: a ticket that already carries the new
+			// label alone is not migrated, it was never on the old one.
+			r.Before, r.After = joinLabels(is.Fields.Labels), joinLabels(is.Fields.Labels)
+			r.Skipped = "does not carry " + joinLabels(sp.remove)
+			break
+		}
 		labelsRow(&r, is.Fields.Labels, sp.add, sp.remove)
 	case ActionEpicSet:
 		switch current := parentKey(is); {
@@ -324,6 +342,15 @@ func request(r BatchRow) (method, path, query string, body any) {
 func contains(list []string, s string) bool {
 	for _, x := range list {
 		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAny(list, any []string) bool {
+	for _, s := range any {
+		if contains(list, s) {
 			return true
 		}
 	}

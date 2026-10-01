@@ -32,7 +32,7 @@ func (s *Server) BacklogRoutes(svc *backlog.Service, st store.Store, b *backlog.
 	}
 
 	// The whole page in one answer, drawn over the last sweep and the
-	// acknowledgements and roster as they stand right now.
+	// acknowledgements and requesters as they stand right now.
 	handle("GET /api/backlog", func(w http.ResponseWriter, r *http.Request) {
 		v, err := svc.View(r.Context())
 		if err != nil {
@@ -132,19 +132,16 @@ func (s *Server) BacklogRoutes(svc *backlog.Service, st store.Store, b *backlog.
 		writeJSON(w, http.StatusOK, map[string]any{"withdrawn": len(ids)})
 	})
 
-	// The operations roster, with the reporters seen in the backlog as
-	// candidates, most frequent first, so a person is ticked rather than
-	// their account id copied about.
-	// Who the operations team's Atlassian team says is on it, merged with
-	// the roster already stored. Optional configuration, so an install
+	// Who the requesters' Atlassian team says is on it, merged with the
+	// requesters already stored. Optional configuration, so an install
 	// without the team id answers 200 with the reason rather than an
 	// error; and this only ever proposes - the browser saves what was
-	// ticked through PUT /api/backlog/ops-roster.
-	handle("GET /api/backlog/ops-team", func(w http.ResponseWriter, r *http.Request) {
-		if config.AtlassianOrgID() == "" || config.BacklogOpsTeamID() == "" {
+	// ticked through PUT /api/backlog/requesters.
+	handle("GET /api/backlog/request-team", func(w http.ResponseWriter, r *http.Request) {
+		if config.AtlassianOrgID() == "" || config.BacklogRequestTeamID() == "" {
 			writeJSON(w, http.StatusOK, sprint.NotConfigured(
-				"Set ARGUS_ATLASSIAN_ORG_ID and ARGUS_BACKLOG_OPS_TEAM_ID to import the operations roster "+
-					"from an Atlassian team. Until then it is kept here by hand."))
+				"Set ARGUS_ATLASSIAN_ORG_ID and ARGUS_BACKLOG_REQUEST_TEAM_ID to import the requesters "+
+					"from an Atlassian team. Until then they are kept here by hand."))
 			return
 		}
 		email, token, err := config.JiraCredentials()
@@ -152,12 +149,12 @@ func (s *Server) BacklogRoutes(svc *backlog.Service, st store.Store, b *backlog.
 			writeJSON(w, http.StatusOK, sprint.NotConfigured(err.Error()))
 			return
 		}
-		team, err := jira.NewTeams(config.AtlassianOrgID(), config.BacklogOpsTeamID(), email, token, config.HTTPTimeout())
+		team, err := jira.NewTeams(config.AtlassianOrgID(), config.BacklogRequestTeamID(), email, token, config.HTTPTimeout())
 		if err != nil {
 			writeJSON(w, http.StatusOK, sprint.NotConfigured(err.Error()))
 			return
 		}
-		members, err := st.ListOps(r.Context())
+		members, err := st.ListRequesters(r.Context())
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -176,7 +173,7 @@ func (s *Server) BacklogRoutes(svc *backlog.Service, st store.Store, b *backlog.
 
 	// The labels the bulk bar offers, beside every label the open
 	// backlog carries so the list is picked rather than typed. Saved
-	// whole, like the roster.
+	// whole, like the requesters.
 	handle("GET /api/backlog/labels", func(w http.ResponseWriter, r *http.Request) {
 		labels, err := st.ListLabels(r.Context())
 		if err != nil {
@@ -214,33 +211,36 @@ func (s *Server) BacklogRoutes(svc *backlog.Service, st store.Store, b *backlog.
 		writeJSON(w, http.StatusOK, map[string]any{"labels": saved, "in_use": svc.LabelsInUse()})
 	})
 
-	handle("GET /api/backlog/ops-roster", func(w http.ResponseWriter, r *http.Request) {
-		members, err := st.ListOps(r.Context())
+	// The requesters, with the reporters seen in the backlog as
+	// candidates, most frequent first, so a person is ticked rather than
+	// their account id copied about.
+	handle("GET /api/backlog/requesters", func(w http.ResponseWriter, r *http.Request) {
+		members, err := st.ListRequesters(r.Context())
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"members": members, "candidates": svc.Reporters()})
+		writeJSON(w, http.StatusOK, map[string]any{"requesters": members, "candidates": svc.Reporters()})
 	})
 
-	handle("PUT /api/backlog/ops-roster", func(w http.ResponseWriter, r *http.Request) {
+	handle("PUT /api/backlog/requesters", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Members []store.OpsMember `json:"members"`
+			Requesters []store.Requester `json:"requesters"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not read that roster"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not read those requesters"})
 			return
 		}
-		for _, m := range body.Members {
+		for _, m := range body.Requesters {
 			// The account id is the join key to who reported what; a
-			// member without one matches nobody and is refused here rather
-			// than stored and puzzled over later.
+			// requester without one matches nobody and is refused here
+			// rather than stored and puzzled over later.
 			if m.AccountID == "" {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a roster member needs an account id"})
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a requester needs an account id"})
 				return
 			}
 		}
-		if err := st.PutOps(r.Context(), body.Members); err != nil {
+		if err := st.PutRequesters(r.Context(), body.Requesters); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}

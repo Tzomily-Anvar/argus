@@ -7,6 +7,6 @@ import "context"
 // calls it, and retention uses Prune instead.
 func (s *Store) Truncate(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx,
-		`TRUNCATE write_log, drafts, sprint_stats, capacity, sprints, people, acks, ops_roster RESTART IDENTITY CASCADE`)
+		`TRUNCATE write_log, drafts, sprint_stats, capacity, sprints, people, acks, requesters RESTART IDENTITY CASCADE`)
 	return err
 }

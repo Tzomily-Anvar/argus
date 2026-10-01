@@ -24,15 +24,22 @@ export function BulkBar({
   base: string;
   onBatch: (req: BatchRequest) => void;
 }) {
-  // One input serves both label actions; which verb it was opened with
-  // decides what the preview asks for.
-  const [labelling, setLabelling] = useState<"add" | "remove" | null>(null);
+  // One input serves the label actions; which verb it was opened with
+  // decides what the preview asks for. A migration is two picks, the
+  // label to replace and then the one to put in its place; the first is
+  // held here between them.
+  const [labelling, setLabelling] = useState<"add" | "remove" | "migrate" | null>(null);
   const [labels, setLabels] = useState("");
+  const [migrating, setMigrating] = useState<string | null>(null);
   // The labels chosen behind the gear. With any chosen, the two label
   // buttons are pickers over them with "Other…" at the end for a typed
-  // one; with none, they open the input straight away.
+  // one; with none, they open the input straight away. A migration picks
+  // from the chosen ones and every label in use, since what it replaces
+  // is by definition a label the team would not choose to offer.
   const chosen = useQuery({ queryKey: ["labels"], queryFn: fetchLabels, staleTime: 60_000 });
   const shelf = (chosen.data?.labels ?? []).map((l) => l.name);
+  const inUse = (chosen.data?.in_use ?? []).map((l) => l.name);
+  const known = [...new Set([...shelf, ...inUse])];
   // The selection is one set across every view and section, so the
   // count can be larger than the ticks on screen. Opening the badge
   // lists every key, each with its own untick.
@@ -41,7 +48,7 @@ export function BulkBar({
   const n = keys.length;
   if (n === 0) return null;
 
-  const ops = data.settings?.operations_label || "Operations";
+  const requestLabel = data.settings?.request_label || "Request";
   const ask = (action: BatchRequest["action"], params: Record<string, unknown>, label: string) =>
     onBatch({ action, keys, params, label });
 
@@ -49,11 +56,16 @@ export function BulkBar({
   const epics = (data.epics_all ?? []).map((e) => ({ id: e.key, label: `${e.key} · ${e.summary}` }));
   const stories = (data.stories ?? []).map((s) => ({ id: s.key, label: `${s.key} · ${s.summary}`, hint: s.epic_key || undefined }));
 
-  const sendLabelList = (verb: "add" | "remove", list: string[]) => {
+  const sendLabelList = (verb: "add" | "remove" | "migrate", list: string[]) => {
     if (list.length === 0) return;
-    ask(verb === "add" ? "labels.add" : "labels.remove", { labels: list },
-      `${verb === "add" ? "Add" : "Remove"} ${list.length === 1 ? "label" : "labels"} ${list.join(", ")}`);
+    if (verb === "migrate") {
+      if (migrating) ask("labels.migrate", { from: [migrating], to: list[0] }, `Migrate ${migrating} to ${list[0]}`);
+    } else {
+      ask(verb === "add" ? "labels.add" : "labels.remove", { labels: list },
+        `${verb === "add" ? "Add" : "Remove"} ${list.length === 1 ? "label" : "labels"} ${list.join(", ")}`);
+    }
     setLabelling(null);
+    setMigrating(null);
     setLabels("");
   };
   const sendLabels = () => {
@@ -68,6 +80,29 @@ export function BulkBar({
       up
       placeholder="Find a label…"
       onPick={(id) => (id === OTHER ? setLabelling(verb) : sendLabelList(verb, [id]))}
+    />
+  );
+  // The second pick of a migration: anything known but the label being
+  // replaced, or a typed one.
+  const migratePicker = migrating ? (
+    <span className="flex items-center gap-1">
+      <Picker
+        label={`Migrate ${migrating} to`}
+        items={[...known.filter((l) => l !== migrating).map((l) => ({ id: l, label: l })), { id: OTHER, label: "Other…", hint: "type one" }]}
+        up
+        placeholder="Find the new label…"
+        onPick={(id) => (id === OTHER ? setLabelling("migrate") : sendLabelList("migrate", [id]))}
+      />
+      <button onClick={() => setMigrating(null)} className={small} style={outlined}>Cancel</button>
+    </span>
+  ) : (
+    <Picker
+      label="Migrate label"
+      items={known.map((l) => ({ id: l, label: l }))}
+      up
+      placeholder="Find the label to replace…"
+      onPick={setMigrating}
+      disabled={known.length === 0}
     />
   );
 
@@ -123,20 +158,23 @@ export function BulkBar({
             value={labels}
             onChange={(e) => setLabels(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") sendLabels(); if (e.key === "Escape") setLabelling(null); }}
-            placeholder="label, another"
-            aria-label={labelling === "add" ? "Labels to add" : "Labels to remove"}
+            placeholder={labelling === "migrate" ? "new label" : "label, another"}
+            aria-label={labelling === "add" ? "Labels to add" : labelling === "remove" ? "Labels to remove" : "The label to migrate to"}
             className="w-40 rounded-lg px-2.5 py-1.5 text-[13px] outline-none"
             style={{ background: "var(--surface-2)", border: "1px solid var(--line)", color: "var(--ink)" }}
           />
           <button onClick={sendLabels} disabled={!labels.trim()} className={small} style={outlined}>
-            {labelling === "add" ? "Add" : "Remove"}
+            {labelling === "add" ? "Add" : labelling === "remove" ? "Remove" : `Migrate ${migrating ?? ""}`}
           </button>
-          <button onClick={() => setLabelling(null)} className={small} style={outlined}>Cancel</button>
+          <button onClick={() => { setLabelling(null); setMigrating(null); }} className={small} style={outlined}>Cancel</button>
         </span>
+      ) : migrating ? (
+        migratePicker
       ) : shelf.length > 0 ? (
         <>
           {labelPicker("add")}
           {labelPicker("remove")}
+          {migratePicker}
         </>
       ) : (
         <>
@@ -154,14 +192,15 @@ export function BulkBar({
           >
             Remove label…
           </button>
+          {migratePicker}
         </>
       )}
       <button
-        onClick={() => ask("operations.label", {}, `Add ${ops}`)}
+        onClick={() => ask("request.label", {}, `Add ${requestLabel}`)}
         className="rounded-lg px-3 py-1.5 text-[13px] font-medium"
         style={{ background: "var(--surface)", border: "1px solid var(--line)", color: "var(--ink)" }}
       >
-        Add {ops}
+        Add {requestLabel}
       </button>
       {/* Named in the alert colour with its word, and never the default:
           it is the one action here that cannot be reversed. Behind its

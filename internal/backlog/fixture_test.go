@@ -27,7 +27,7 @@ func testConfig() Config {
 	return Config{
 		Project: "ABC", BaseURL: "https://jira.example",
 		StaleDays: 14, NewDays: 3,
-		OperationsLabel: "Operations", LegacyLabels: []string{"Ops"},
+		RequestLabel: "Operations", LegacyLabels: []string{"Ops"},
 		InboxDays:      3,
 		StoryLinkTypes: []string{"Blocks", "migration_parent"},
 		ContainerTypes: []string{"Story"},
@@ -113,7 +113,7 @@ func fixture(t *testing.T) Snapshot {
 				"parent": buildEpic, estimateField: 5,
 				sprintField: []any{sprint(1, "Sprint 1", "closed")},
 			}),
-			// New, reported by someone on the roster, otherwise complete.
+			// New, reported by a requester, otherwise complete.
 			issue(t, "ABC-4", map[string]any{
 				"summary": "From operations", "issuetype": typ("Task"), "status": status("In Progress", "indeterminate"),
 				"created": "2026-09-27T10:00:00.000+0000", "updated": updatedABC4,
