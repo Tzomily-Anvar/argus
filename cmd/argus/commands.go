@@ -30,8 +30,9 @@ func initConfig() error {
   Wrote %s
 
   Open it and set ARGUS_GITHUB_ORG to your organisation, or to your own
-  username if your repositories live under your personal account. That is
-  the only required setting; everything else has a working default.
+  username if your repositories live under your personal account: the
+  name in github.com/<name>, or paste that page's address. That is the
+  only required setting; everything else has a working default.
 
   Then:
       argus doctor     check the setup
@@ -74,8 +75,10 @@ func doctor() error {
 
 	org, err := config.Org()
 	switch {
+	case err != nil && config.OrgRaw() == "":
+		bad("account", "not set", "set ARGUS_GITHUB_ORG to your organisation, or to your own username")
 	case err != nil:
-		bad("account", "not set", "set ARGUS_GITHUB_ORG in your configuration")
+		bad("account", "not a GitHub name: "+config.OrgRaw(), config.OrgHint)
 	case org == "your-org-here":
 		bad("account", "still the placeholder",
 			"set ARGUS_GITHUB_ORG to your organisation, or to your own username")
@@ -92,6 +95,11 @@ func doctor() error {
 			warn("account type", kerr.Error())
 		default:
 			ok("account", org, dim+kind.Label()+off)
+		}
+		if raw := config.OrgRaw(); raw != org {
+			// Said rather than done quietly: the file says one thing and
+			// Argus reads another, and the person should know which.
+			warn("account as written", fmt.Sprintf("%q; Argus reads the name %q out of it. Set the name alone to quieten this", raw, org))
 		}
 	}
 

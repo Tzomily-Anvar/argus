@@ -93,15 +93,27 @@ func Strings(key string, def []string) []string {
 // set differently and nobody has to know that GitHub treats the two as
 // separate things. The setting keeps its name because changing it would
 // break every configuration file already written.
+//
+// The value is read through AccountName, so a pasted address yields the
+// account it names; OrgRaw says what was actually written, for the
+// commands that want to say so.
 func Org() (string, error) {
-	if v := String("ARGUS_GITHUB_ORG", ""); v != "" {
-		return v, nil
+	raw := OrgRaw()
+	if raw == "" {
+		return "", &Missing{
+			Key:  "ARGUS_GITHUB_ORG",
+			Hint: "This is the GitHub organisation, or your own username, to sweep. " + OrgHint,
+		}
 	}
-	return "", &Missing{
-		Key:  "ARGUS_GITHUB_ORG",
-		Hint: "This is the GitHub organisation, or your own username, to sweep.",
+	name, ok := AccountName(raw)
+	if !ok {
+		return "", fmt.Errorf("ARGUS_GITHUB_ORG is %q, which is not a GitHub account name. %s", raw, OrgHint)
 	}
+	return name, nil
 }
+
+// OrgRaw is ARGUS_GITHUB_ORG exactly as set, or empty.
+func OrgRaw() string { return String("ARGUS_GITHUB_ORG", "") }
 
 // Token is the caller's own GitHub token. Everything Argus shows is
 // scoped to it, so two people running Argus see two different dashboards.

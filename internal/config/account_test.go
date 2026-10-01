@@ -1,4 +1,4 @@
-package main
+package config
 
 import "testing"
 
@@ -9,7 +9,7 @@ import "testing"
 // was told their own username was not a real account. The name check
 // itself never distinguished the two, and must not start to: GitHub's
 // rule for a login is the same for both.
-func TestAccountFromAnswer(t *testing.T) {
+func TestAccountName(t *testing.T) {
 	cases := []struct {
 		name   string
 		answer string
@@ -29,12 +29,12 @@ func TestAccountFromAnswer(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := accountFromAnswer(tc.answer)
+			got, ok := AccountName(tc.answer)
 			if ok != tc.ok {
-				t.Fatalf("accountFromAnswer(%q) accepted = %v, want %v", tc.answer, ok, tc.ok)
+				t.Fatalf("AccountName(%q) accepted = %v, want %v", tc.answer, ok, tc.ok)
 			}
 			if ok && got != tc.want {
-				t.Errorf("accountFromAnswer(%q) = %q, want %q", tc.answer, got, tc.want)
+				t.Errorf("AccountName(%q) = %q, want %q", tc.answer, got, tc.want)
 			}
 		})
 	}
@@ -42,7 +42,7 @@ func TestAccountFromAnswer(t *testing.T) {
 
 func TestValidLogin(t *testing.T) {
 	for _, s := range []string{"octocat", "your-org", "a", "a1-b2"} {
-		if !validLogin(s) {
+		if !ValidLogin(s) {
 			t.Errorf("%q is a valid GitHub login", s)
 		}
 	}
@@ -51,8 +51,32 @@ func TestValidLogin(t *testing.T) {
 		long += "a"
 	}
 	for _, s := range []string{"", "-lead", "trail-", "has space", "has.dot", long} {
-		if validLogin(s) {
+		if ValidLogin(s) {
 			t.Errorf("%q is not a valid GitHub login", s)
 		}
+	}
+}
+
+// The setting itself is read the same way, so a file edited by hand with
+// the address in it still names the account.
+func TestOrgReadsAnAddress(t *testing.T) {
+	for raw, want := range map[string]string{
+		"acme-widgets": "acme-widgets",
+		"https://github.com/orgs/acme-widgets/repositories": "acme-widgets",
+		"github.com/octocat": "octocat",
+	} {
+		t.Setenv("ARGUS_GITHUB_ORG", raw)
+		got, err := Org()
+		if err != nil || got != want {
+			t.Errorf("Org() with %q = %q, %v; want %q", raw, got, err, want)
+		}
+	}
+	t.Setenv("ARGUS_GITHUB_ORG", "acme widgets")
+	if _, err := Org(); err == nil {
+		t.Error("a value with a space should be refused")
+	}
+	t.Setenv("ARGUS_GITHUB_ORG", "")
+	if _, err := Org(); err == nil {
+		t.Error("an empty value is missing")
 	}
 }
