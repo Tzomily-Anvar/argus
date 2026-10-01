@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tzomily-Anvar/argus/internal/backlog"
 	"github.com/Tzomily-Anvar/argus/internal/config"
 	"github.com/Tzomily-Anvar/argus/internal/rules"
 	"github.com/Tzomily-Anvar/argus/internal/sprint"
@@ -30,6 +31,9 @@ type Server struct {
 	// rather than present and failing.
 	sprint *sprint.Service
 	store  store.Store
+
+	// Set only when the backlog tool is configured, for the same reason.
+	backlog *backlog.Service
 }
 
 func New(cache *sweep.Cache) *Server {
@@ -71,6 +75,13 @@ func (s *Server) routes() {
 		writeJSON(w, http.StatusOK, s.cache.Snapshot())
 	})
 
+	// The review leaderboard, counted from the snapshot's reviews over
+	// whatever period the query names; see leaderboard.go.
+	s.mux.HandleFunc("GET /api/leaderboard", func(w http.ResponseWriter, r *http.Request) {
+		status, body := leaderboardResponse(s.cache.Snapshot(), r.URL.Query())
+		writeJSON(w, status, body)
+	})
+
 	// The rule catalogue: what exists, whether it is on, and the exact
 	// environment variable for each knob. This is generated from the
 	// registry, so a rule added tomorrow documents itself here today.
@@ -106,6 +117,10 @@ func (s *Server) routes() {
 		tools := []map[string]any{
 			{"id": "pr", "label": "Pull requests", "available": config.ToolEnabled("pr")},
 			{"id": "sprint", "label": "Sprint reports", "available": s.sprint != nil},
+			{"id": "backlog", "label": "Backlog", "available": s.backlog != nil},
+			// Drawn from the pull request sweep, so it is live whenever
+			// that tool and its rule are; turning the rule off hides it.
+			{"id": "leaderboard", "label": "Leaderboard", "available": leaderboardAvailable()},
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"tools": tools})
 	})

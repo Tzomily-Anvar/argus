@@ -203,8 +203,9 @@ func HTTPTimeout() int { return Int("ARGUS_HTTP_TIMEOUT_SECONDS", 45) }
 // credentials, storage, or both, and nobody should have to opt out of a
 // tool they never wanted.
 //
-//	ARGUS_TOOLS=pr           the default
-//	ARGUS_TOOLS=pr,sprint    both
+//	ARGUS_TOOLS=pr                   the default
+//	ARGUS_TOOLS=pr,sprint            both
+//	ARGUS_TOOLS=pr,sprint,backlog    all three
 func EnabledTools() []string { return Strings("ARGUS_TOOLS", []string{"pr"}) }
 
 // ToolEnabled reports whether a tool is switched on.
@@ -297,9 +298,10 @@ func JiraEstimateFieldName() string {
 // Jira's parent field points at the Epic for a team that puts Tasks under
 // a Story, so the association has nowhere to live but issue links - and
 // which link type carries it is a local habit rather than a standard. A
-// team that migrated between projects usually has two.
+// team that migrated between projects usually has two, and names the
+// legacy one here beside the current one.
 func JiraStoryLinkTypes() []string {
-	return Strings("ARGUS_JIRA_STORY_LINK_TYPES", []string{"Blocks", "migration_parent", "Relates"})
+	return Strings("ARGUS_JIRA_STORY_LINK_TYPES", []string{"Blocks", "Relates"})
 }
 
 // Worklog attribution modes: who a logged entry's time is credited to.
@@ -453,3 +455,61 @@ func ConfluenceSections() []string { return Strings("ARGUS_CONFLUENCE_SECTIONS",
 // points and assignees, log time on tickets and write a wiki page should
 // be something you switch on deliberately.
 func SprintWritesAllowed() bool { return Bool("ARGUS_SPRINT_ALLOW_WRITES", false) }
+
+// ---- the Backlog tool --------------------------------------------------
+//
+// The thresholds are days because the questions are: how long untouched
+// is stale, how recently created is new, how far back the personal inbox
+// looks. The labels are the team's own spelling of "this is a request
+// from outside the team", so they are settings rather than assumptions.
+
+// BacklogStaleDays is how many days without an update makes a ticket
+// stale.
+func BacklogStaleDays() int { return Int("ARGUS_BACKLOG_STALE_DAYS", 14) }
+
+// BacklogNewDays is how recently a ticket must have been created to be
+// listed as new.
+func BacklogNewDays() int { return Int("ARGUS_BACKLOG_NEW_DAYS", 3) }
+
+// BacklogRequestLabel is the label that marks a request from outside the
+// team - typically from an operations or support team whose tickets
+// engineering triages, though the tool assumes nothing about who asks.
+// It is the one label the request views ever add.
+func BacklogRequestLabel() string { return String("ARGUS_BACKLOG_REQUEST_LABEL", "Request") }
+
+// BacklogLegacyLabels are older spellings of the request label. They are
+// read as meaning a request and offered for replacement; none is ever added.
+// No default: which spelling a team used to use is the team's to say.
+func BacklogLegacyLabels() []string { return Strings("ARGUS_BACKLOG_LEGACY_LABELS", nil) }
+
+// BacklogWorkLabels mark a kind of engineering work rather than a
+// request. A request carrying one is flagged, because the person asking
+// has described the fix instead of the need.
+func BacklogWorkLabels() []string { return Strings("ARGUS_BACKLOG_WORK_LABELS", nil) }
+
+// BacklogUnrefinedStatuses are status names that mean a ticket has not
+// been refined yet, on top of Jira's own "new" category, which always
+// counts. A team with a "To Refine" or "Needs grooming" column names it
+// here; the tool does not guess the column's name.
+func BacklogUnrefinedStatuses() []string { return Strings("ARGUS_BACKLOG_UNREFINED_STATUSES", nil) }
+
+// BacklogInboxDays is how far back the inbox looks for mentions,
+// assignments and watched changes.
+func BacklogInboxDays() int { return Int("ARGUS_BACKLOG_INBOX_DAYS", 3) }
+
+// BacklogEpicProjects names other projects whose open Epics the backlog
+// tool offers when setting a ticket's Epic, for a team whose epics live
+// on more than one board. Empty by default: the report's own project.
+func BacklogEpicProjects() []string { return Strings("ARGUS_BACKLOG_EPIC_PROJECTS", nil) }
+
+// BacklogRequestTeamID is the Atlassian team whose members the
+// requesters can be imported from, under the same organisation id as
+// the sprint roster's team. An identifier, so no default; unset, the
+// import is not offered.
+func BacklogRequestTeamID() string { return String("ARGUS_BACKLOG_REQUEST_TEAM_ID", "") }
+
+// BacklogDeleteAllowed is the gate on the one irreversible write the
+// backlog tool can make. It sits on top of ARGUS_SPRINT_ALLOW_WRITES:
+// both have to be on before a ticket can be deleted, and this one is
+// off by default even where the other is on.
+func BacklogDeleteAllowed() bool { return Bool("ARGUS_BACKLOG_ALLOW_DELETE", false) }

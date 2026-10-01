@@ -5,6 +5,7 @@ import {
   type SprintPerson, type SprintReport,
 } from "../api";
 import { Badge } from "./Badge";
+import { Button } from "./Button";
 import { NumberField, SaveBar, SidePanel, parse, stateOf } from "./Panel";
 import { formatDay } from "../dates";
 
@@ -233,13 +234,7 @@ export function CapacityPanel({
             Capacity is a baseline less planned leave, so it needs somebody on the roster, opted in,
             with a baseline set. Delivery is still reported for everyone either way.
           </p>
-          <button
-            onClick={onOpenSettings}
-            className="mt-3 rounded-lg px-3 py-1.5 text-[13px] font-medium"
-            style={{ background: "var(--accent)", color: "#fff" }}
-          >
-            Open settings
-          </button>
+          <Button variant="filled" className="mt-3" onClick={onOpenSettings}>Open settings</Button>
         </div>
       ) : (
         <>

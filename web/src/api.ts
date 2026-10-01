@@ -8,6 +8,44 @@ export type RuleResult = {
   duration_ms: number;
 };
 
+/** The review leaderboard, counted by /api/leaderboard over the two
+ *  periods asked for: the rolling fortnight by default, or a sprint and
+ *  the one before it. The sweep keeps the reviews; the counting is on
+ *  demand, so a change of period costs nothing from GitHub. */
+export type Leaderboard = {
+  /** The rolling period length the page opens on, in days. */
+  days: number;
+  /** How far back the sweep read, and the moment that is. */
+  lookback_days: number;
+  since: string;
+  current: LeaderboardPeriod;
+  previous: LeaderboardPeriod;
+  truncated: boolean;
+};
+
+export type LeaderboardPeriod = {
+  from: string;
+  to: string;
+  prs: number;
+  reviews: number;
+  rows: Reviewer[];
+  /** The period starts before the sweep's lookback, so its oldest
+   *  reviews were never read. */
+  partial: boolean;
+};
+
+export type Reviewer = {
+  login: string;
+  rank: number;
+  reviews: number;
+  prs: number;
+  approvals: number;
+  changes_requested: number;
+  comments: number;
+  previous_rank: number;
+  previous_reviews: number;
+};
+
 export type Snapshot = {
   org: string;
   user: string;
@@ -50,6 +88,8 @@ export type PRRow = {
   labels?: string[];
   draft?: boolean;
   review_decision?: string;
+  /** Review threads nobody has resolved: comments the author still owes an answer. */
+  unresolved_threads?: number;
   has_qa_label?: boolean;
   qa_label_used?: boolean;
   real_failures?: string[];
@@ -88,6 +128,17 @@ async function getJSON<T>(path: string): Promise<T> {
 }
 
 export const fetchSnapshot = () => getJSON<Snapshot>("/api/snapshot");
+
+/** The leaderboard over a period and its comparison. Both pairs are
+ *  RFC 3339; leaving them out gives the rolling default ending at the
+ *  sweep, and leaving out the comparison gives the same length again
+ *  before `from`. */
+export type LeaderboardQuery = { from: string; to: string; prev_from?: string; prev_to?: string };
+export const fetchLeaderboard = (q?: LeaderboardQuery) => {
+  const set = Object.entries(q ?? {}).filter((e): e is [string, string] => typeof e[1] === "string");
+  const qs = new URLSearchParams(set).toString();
+  return getJSON<Leaderboard>(`/api/leaderboard${qs ? "?" + qs : ""}`);
+};
 export const fetchRules = () => getJSON<{ rules: RuleInfo[] }>("/api/rules");
 
 export async function requestRefresh(): Promise<void> {
@@ -836,3 +887,234 @@ export const previewPublish = (sprint: number, sections: string[]) =>
  *  matches what would be written is refused rather than sent. */
 export const publishPage = (id: string, digest: string) =>
   postJSON<PublishResult>("/api/sprint/publish", { id, digest });
+
+
+// ---- the backlog -----------------------------------------------------------
+
+/* The backlog tool reads one sweep of the open tickets and offers to tidy
+ * them in batches. Every list below may be missing from an older server
+ * or null from a Go encoder, and every reader treats that as empty. */
+
+export type BacklogPerson = { account_id: string; label: string };
+export type BacklogRef = { key: string; summary: string };
+export type BacklogSprintRef = { id: number; name: string; state: string };
+
+export type BacklogRow = {
+  key: string;
+  summary: string;
+  type: string;
+  status: string;
+  status_category: string;
+  created: string;
+  updated: string;
+  reporter: BacklogPerson;
+  assignee: BacklogPerson | null;
+  labels: string[];
+  epic: BacklogRef | null;
+  story: BacklogRef | null;
+  points: number | null;
+  estimate: number | null;
+  sprint: BacklogSprintRef | null;
+  url: string;
+  priority: string;
+  /** Created or changed since it was last acknowledged. Acknowledging is a
+   *  local watermark on `updated`: the row hides until it changes again. */
+  new: boolean;
+  acknowledged: boolean;
+  stale_days: number;
+  /** A request from outside the team, whether by label, legacy label or
+   *  a requester as reporter. The flags after it say which fix it needs. */
+  request: boolean;
+  request_missing_label: boolean;
+  legacy_label: boolean;
+  /** A requester's ticket carrying a label that marks engineering work. */
+  request_work_label: boolean;
+};
+
+/** One of the fixed groups: the tickets the sweep put in it, the sentence
+ *  saying why, and the JQL that reproduces the list in Jira. `jql_url` is
+ *  the link ready-made when the server sends one; otherwise it is built
+ *  from a row's URL. */
+export type BacklogGroup = {
+  id: string;
+  label: string;
+  why: string;
+  keys: string[];
+  jql: string;
+  jql_url?: string;
+};
+
+/** An epic with open work under it. `keys` are the tickets still to be
+ *  refined, which is what "Select unrefined" selects. */
+export type BacklogEpic = {
+  key: string;
+  summary: string;
+  class: string;
+  open: number;
+  unrefined: number;
+  keys: string[];
+};
+
+export type BacklogRequests = {
+  all_keys: string[];
+  missing_label_keys: string[];
+  legacy_label_keys: string[];
+  work_label_keys: string[];
+  requesters: BacklogPerson[];
+};
+
+export type BacklogSettings = {
+  request_label: string;
+  legacy_labels: string[];
+  work_labels: string[];
+  allow_delete: boolean;
+  writes_allowed: boolean;
+};
+
+export type Backlog = {
+  swept_at: string;
+  building: boolean;
+  warnings: string[];
+  rows: BacklogRow[];
+  groups: BacklogGroup[];
+  epics: BacklogEpic[];
+  sprints: BacklogSprintRef[];
+  epics_all: BacklogRef[];
+  stories: (BacklogRef & { epic_key: string })[];
+  requests: BacklogRequests;
+  settings: BacklogSettings;
+};
+
+export type InboxItem = {
+  id: string;
+  source: "jira" | "confluence";
+  kind: "mentioned" | "assigned" | "watching";
+  title: string;
+  summary: string;
+  url: string;
+  updated: string;
+  dismissed: boolean;
+};
+
+export type Inbox = { items: InboxItem[]; warnings: string[] };
+
+/** Someone whose tickets count as requests from outside the team even
+ *  without the label: typically an operations or support team's people,
+ *  though nothing assumes so. */
+export type Requester = { account_id: string; name: string };
+
+export type Requesters = {
+  requesters: Requester[];
+  /** Everyone who reported an open ticket, with how many, so the list
+   *  can be built from who actually asks rather than typed from memory. */
+  candidates: { account_id: string; label: string; reported: number }[];
+};
+
+export type BatchAction =
+  | "sprint.assign"
+  | "epic.set"
+  | "story.link"
+  | "labels.add"
+  | "labels.remove"
+  | "labels.migrate"
+  | "request.label"
+  | "issue.delete";
+
+/** One ticket in a preview: what the field holds and what it would hold,
+ *  or why nothing will be written to it. */
+export type BatchPreviewRow = {
+  key: string;
+  summary: string;
+  type: string;
+  before: string;
+  after: string;
+  skipped: string;
+};
+
+export type BatchPreview = {
+  id: string;
+  digest: string;
+  action: BatchAction;
+  rows: BatchPreviewRow[];
+  changes: number;
+  skipped: number;
+  expires_at: string;
+  /** The writes switch, and the second switch a delete is behind. */
+  allowed: boolean;
+  delete_allowed: boolean;
+  /** True for a delete: there are no audit rows to build a reverse from. */
+  irreversible: boolean;
+};
+
+export type BatchRowResult = {
+  key: string;
+  outcome: "applied" | "skipped" | "failed";
+  reason: string;
+};
+
+export type BatchResult = {
+  rows: BatchRowResult[];
+  applied: number;
+  skipped: number;
+  failed: number;
+  stopped: string;
+};
+
+/* A DELETE with a body, for the two watermarks that are withdrawn by
+ * naming what to withdraw. The bodiless deleteJSON above stays as it is. */
+async function deleteJSONWith(path: string, body: unknown): Promise<void> {
+  const res = await fetch(path, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(detail.error ?? res.statusText);
+  }
+}
+
+export const fetchBacklog = () => getJSON<Backlog>("/api/backlog");
+export const refreshBacklog = () => postJSON<unknown>("/api/backlog/refresh", {});
+export const acknowledgeBacklog = (keys: string[]) => postJSON<unknown>("/api/backlog/ack", { keys });
+export const unacknowledgeBacklog = (keys: string[]) => deleteJSONWith("/api/backlog/ack", { keys });
+
+export const fetchInbox = () => getJSON<Inbox>("/api/backlog/inbox");
+export const dismissInbox = (ids: string[]) => postJSON<unknown>("/api/backlog/inbox/dismiss", { ids });
+export const undismissInbox = (ids: string[]) => deleteJSONWith("/api/backlog/inbox/dismiss", { ids });
+
+export type BacklogLabels = {
+  /** The labels the bulk bar offers, chosen behind the gear. */
+  labels: { name: string; updated_at: string }[];
+  /** Every label on the open backlog with how many tickets carry it,
+   *  so the list is picked from what the team actually applies. */
+  in_use: { name: string; count: number }[];
+};
+
+export const fetchLabels = () => getJSON<BacklogLabels>("/api/backlog/labels");
+export const saveLabels = (labels: string[]) => putJSON("/api/backlog/labels", { labels });
+
+export const fetchRequesters = () => getJSON<Requesters>("/api/backlog/requesters");
+export const saveRequesters = (requesters: Requester[]) => putJSON("/api/backlog/requesters", { requesters });
+
+export const previewBatch = (action: BatchAction, keys: string[], params: Record<string, unknown>) =>
+  postJSON<BatchPreview>("/api/backlog/batch/preview", { action, keys, params });
+/** The digest travels with the apply so a preview edited under the
+ *  viewer's feet is refused. `confirm` is the agreement a delete demands,
+ *  sent as true only once the count has been typed. */
+export const applyBatch = (id: string, digest: string, confirm: string) =>
+  postJSON<BatchResult>(`/api/backlog/batch/${encodeURIComponent(id)}/apply`, { digest, confirm });
+/** A new preview that undoes what a batch wrote. Applied like any other;
+ *  refused for a delete, which has nothing to undo from. */
+export const reverseBatch = (batch: string) =>
+  postJSON<BatchPreview>("/api/backlog/batch/reverse", { batch });
+
+/** What the requesters' Atlassian team proposes for the list; the same
+ *  shape the sprint roster's import answers with. */
+export type RequestTeamImport = {
+  configured: boolean;
+  reason?: string;
+  team_name?: string;
+  candidates: { account_id: string; name: string; state: string }[];
+};
+export const fetchRequestTeam = () => getJSON<RequestTeamImport>("/api/backlog/request-team");

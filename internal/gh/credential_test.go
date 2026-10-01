@@ -2,6 +2,7 @@ package gh
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -42,18 +43,9 @@ func TestNoTokenPointsAtLogin(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when nothing is configured")
 	}
-	if !contains(err.Error(), "argus login") {
+	if !strings.Contains(err.Error(), "argus login") {
 		t.Errorf("error should point at `argus login`, got: %v", err)
 	}
-}
-
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
 
 // A sign-in is a deliberate act; GITHUB_TOKEN in the environment usually

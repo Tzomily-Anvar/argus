@@ -191,7 +191,9 @@ func TestWritePathIsExact(t *testing.T) {
 	for _, p := range []string{entry, entry + "/x", "/rest/api/3/issue/ABC-123/worklog/", issue} {
 		mustRefuse(t, assertPermitted(http.MethodPost, p, worklogQuery, logged(), on), "POST "+p)
 	}
-	for _, p := range []string{worklog, entry + "/x", issue} {
+	// The issue itself is not here: DELETE on it is listed, for the
+	// backlog tool, and permit_backlog_test.go holds its shape.
+	for _, p := range []string{worklog, entry + "/x"} {
 		mustRefuse(t, assertPermitted(http.MethodDelete, p, worklogQuery, nil, on), "DELETE "+p)
 	}
 }

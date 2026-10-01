@@ -74,6 +74,13 @@ type WriteAttemptError struct{ msg string }
 
 func (e *WriteAttemptError) Error() string { return e.msg }
 
+// DeletesDisabledError means the request would delete an issue, writes
+// are on, and this deployment has not also switched deletes on. Its own
+// type because the answer is a second setting, not the first.
+type DeletesDisabledError struct{ msg string }
+
+func (e *DeletesDisabledError) Error() string { return e.msg }
+
 // Client talks to one Jira site. Safe for concurrent use once set up;
 // AllowWrites is part of setting up.
 type Client struct {
@@ -121,7 +128,21 @@ func (c *Client) BaseURL() string { return c.baseURL }
 // this runs was judged under the old policy, which for a read changes
 // nothing.
 func (c *Client) AllowWrites(pointsField string) {
-	c.policy.Store(&writePolicy{Allowed: true, PointsField: pointsField})
+	// Delete is carried over: the two settings are opened by different
+	// tools at different moments, and whichever runs second must not
+	// undo the first.
+	c.policy.Store(&writePolicy{Allowed: true, PointsField: pointsField, Delete: c.currentPolicy().Delete})
+}
+
+// AllowDeletes lets the one destructive write on the list through, on
+// top of AllowWrites; without that it still permits nothing. The backlog
+// tool calls this once at startup from ARGUS_BACKLOG_ALLOW_DELETE, the
+// way the sprint tool opens the gate, so the setting is never consulted
+// at a call site.
+func (c *Client) AllowDeletes() {
+	p := c.currentPolicy()
+	p.Delete = true
+	c.policy.Store(&p)
 }
 
 // currentPolicy is what the gate judges against right now.

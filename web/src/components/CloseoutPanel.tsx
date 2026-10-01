@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchCloseout, fetchConventions, fetchPeople, type SprintReport } from "../api";
 import { useChangeDraft } from "../changes";
 import { Badge } from "./Badge";
+import { Button } from "./Button";
+import { Notice } from "./Notice";
 import { SizeStep, sizeSkipID } from "./closeout/SizeStep";
 import { AssignStep, assignSkipID } from "./closeout/AssignStep";
 import { EffortStep, effortSkipID } from "./closeout/EffortStep";
@@ -79,13 +81,7 @@ function AvailabilityStep({ report, onOpenCapacity }: { report: SprintReport; on
         <span className="flex-1 text-[12.5px]" style={{ color: "var(--muted)" }}>
           {reviewed ? `Confirmed ${formatDay(r.reviewed_at)}.` : "Nobody has confirmed this sprint's availability yet."}
         </span>
-        <button
-          onClick={onOpenCapacity}
-          className="rounded-lg px-3 py-1.5 text-[13px] font-medium"
-          style={{ background: "var(--accent)", color: "#fff" }}
-        >
-          Open Capacity
-        </button>
+        <Button variant="filled" onClick={onOpenCapacity}>Open Capacity</Button>
       </div>
     </>
   );
@@ -179,9 +175,9 @@ export function CloseoutPanel({
     if (model.isLoading) return <p className="text-[13px]" style={{ color: "var(--muted)" }}>Working out what needs closing…</p>;
     if (model.error || !m) {
       return (
-        <p className="rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
+        <Notice layout="panel">
           {model.error ? String(model.error) : "The closeout could not be built."}
-        </p>
+        </Notice>
       );
     }
     switch (step) {

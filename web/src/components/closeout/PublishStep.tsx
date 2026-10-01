@@ -6,6 +6,7 @@ import {
 } from "../../api";
 import { Badge } from "../Badge";
 import { expiry } from "../ChangePreview";
+import { Notice, errorText } from "../Notice";
 import { filled, outlined, small } from "./Table";
 
 /* Publishing the report to Confluence, from the foot of step 7.
@@ -21,8 +22,6 @@ import { filled, outlined, small } from "./Table";
  * what the button would do. The publish sends the preview's id and
  * digest, and the server sends the version the preview read, so a page
  * edited in between is refused by Confluence rather than overwritten. */
-
-const box = "rounded-lg px-3 py-2 text-[13px]";
 
 /** The checkboxes as the person has left them; null until touched, so
  *  the standing choice shows through until there is something to keep. */
@@ -83,14 +82,14 @@ function Plan({ p }: { p: PublishPreview }) {
         )}
       </div>
       {p.how === "migrated" && (
-        <p className={`mt-2 ${box}`} style={{ background: "var(--info-bg)", color: "var(--info)" }}>
+        <Notice tone="info" layout="panel" className="mt-2">
           The old tool's markers on this page will be replaced by Argus's, so the block stays in one place.
-        </p>
+        </Notice>
       )}
       {p.how === "appended" && (
-        <p className={`mt-2 ${box}`} style={{ background: "var(--info-bg)", color: "var(--info)" }}>
+        <Notice tone="info" layout="panel" className="mt-2">
           This page has no markers; the block will be added at the end and your prose kept.
-        </p>
+        </Notice>
       )}
       <p className="mt-2 text-[12.5px]" style={{ color: "var(--faint)" }}>
         Preview expires at {expiry(p.expires_at)}.
@@ -189,7 +188,6 @@ export function PublishStep({ sprintNumber }: { sprintNumber: number }) {
     publish.reset();
   };
 
-  const err = (m: { error: unknown }) => (m.error instanceof Error ? m.error.message : m.error ? String(m.error) : "");
   const expired = preview ? new Date(preview.expires_at).getTime() <= Date.now() : false;
   const allowed = s?.allowed ?? false;
   const canPublish = allowed && !!preview && !result && !publish.isPending && !expired;
@@ -205,9 +203,7 @@ export function PublishStep({ sprintNumber }: { sprintNumber: number }) {
       </p>
 
       {status.isLoading && <p className="text-[13px]" style={{ color: "var(--muted)" }}>Checking whether publishing is set up…</p>}
-      {status.error && (
-        <p className={box} style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>{String(status.error)}</p>
-      )}
+      {status.error && <Notice layout="panel">{String(status.error)}</Notice>}
 
       {s && !s.configured && (
         <div className="rounded-lg px-4 py-4" style={{ background: "var(--surface-2)" }}>
@@ -236,7 +232,7 @@ export function PublishStep({ sprintNumber }: { sprintNumber: number }) {
             {ask.isPending && <span>Rendering the page and reading the current one…</span>}
           </div>
           {ask.error && (
-            <p className={`mb-3 ${box}`} style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>{err(ask)}</p>
+            <Notice layout="panel" className="mb-3">{errorText(ask.error)}</Notice>
           )}
 
           {preview && (
@@ -277,7 +273,7 @@ export function PublishStep({ sprintNumber }: { sprintNumber: number }) {
               </div>
 
               {publish.error && (
-                <p className={`mt-2 ${box}`} style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>{err(publish)}</p>
+                <Notice layout="panel" className="mt-2">{errorText(publish.error)}</Notice>
               )}
               {result && <Outcome r={result} />}
             </>

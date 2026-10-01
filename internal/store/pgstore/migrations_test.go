@@ -218,7 +218,7 @@ func TestMigrateFromEmpty(t *testing.T) {
 		t.Errorf("applied version %d, want %d: a migration on disk was not applied", got, want)
 	}
 
-	for _, table := range []string{"people", "sprints", "capacity", "sprint_stats", "write_log", "drafts"} {
+	for _, table := range []string{"people", "sprints", "capacity", "sprint_stats", "write_log", "drafts", "acks", "requesters"} {
 		var n int
 		if err := s.db.QueryRowContext(ctx, `
 			SELECT count(*) FROM information_schema.tables
@@ -242,6 +242,9 @@ func TestMigrateFromEmpty(t *testing.T) {
 	}
 	if !hasColumn(t, s, "sprints", "confluence_page_id") {
 		t.Error("sprints.confluence_page_id missing: 005 was not applied")
+	}
+	if !hasIndex(t, s, "acks_by_at") {
+		t.Error("acks_by_at index missing: 006 was not applied")
 	}
 
 	// Startup runs this every time, so running it twice must be a no-op.
@@ -450,6 +453,26 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	if got := dbVersion(t, s); got != latestMigration(t)-1 {
 		t.Errorf("after one rollback the version is %d, want %d", got, latestMigration(t)-1)
 	}
+	if hasTable(t, s, "backlog_labels") {
+		t.Error("rolling back 007 left its table behind")
+	}
+	if !hasTable(t, s, "acks") || !hasTable(t, s, "requesters") {
+		t.Error("rolling back 007 took 006's tables with it")
+	}
+
+	if err := goose.DownContext(ctx, s.db, "migrations"); err != nil {
+		t.Fatalf("rolling back 006: %v", err)
+	}
+	if hasTable(t, s, "acks") || hasTable(t, s, "requesters") {
+		t.Error("rolling back 006 left its tables behind")
+	}
+	if !hasColumn(t, s, "sprints", "confluence_page_id") {
+		t.Error("rolling back 006 took 005's column with it")
+	}
+
+	if err := goose.DownContext(ctx, s.db, "migrations"); err != nil {
+		t.Fatalf("rolling back 005: %v", err)
+	}
 	if hasColumn(t, s, "sprints", "confluence_page_id") {
 		t.Error("rolling back 005 left its column behind")
 	}
@@ -513,6 +536,9 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	}
 	if !hasColumn(t, s, "sprints", "confluence_page_id") {
 		t.Error("re-applying did not restore 005's column")
+	}
+	if !hasTable(t, s, "acks") || !hasTable(t, s, "requesters") {
+		t.Error("re-applying did not restore 006's tables")
 	}
 }
 

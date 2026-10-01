@@ -85,3 +85,21 @@ export function formatDateRange(
 function thisYear(): number {
   return new Date().getFullYear();
 }
+
+/** ago is how long since a timestamp, in the short form the headers of
+ *  every tool use beside "as of". An unreadable timestamp reads as
+ *  nothing rather than as "NaNd ago". */
+export function ago(iso: string): string {
+  return agoSeconds((Date.now() - new Date(iso).getTime()) / 1000);
+}
+
+/** agoSeconds is the same, from an age the server has already worked
+ *  out, which is how the pull request snapshot reports its own. */
+export function agoSeconds(secs: number): string {
+  if (Number.isNaN(secs)) return "";
+  if (secs < 60) return "just now";
+  const m = Math.floor(secs / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
+}

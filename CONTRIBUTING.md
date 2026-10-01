@@ -73,19 +73,64 @@ That is the whole job. You now automatically get:
 - **Return `[]`, never `nil`.** Use the helpers; `Rows()` exists for this.
 - **Keep organisation-specific values out of defaults.** A default should
   make sense to a stranger. Label names, check names and repository
-  conventions belong in `.env`, not in the code.
+  conventions belong in `.env`, not in the code — see
+  [Team-specific values go in configuration](#team-specific-values-go-in-configuration).
 
 ### Before opening a pull request
 
 ```bash
-gofmt -l .        # must print nothing
-go vet ./...
-go test ./...
+gofmt -l .                          # must print nothing
+go build ./... && go vet ./...
+go test ./... && go test -race ./...  # CI runs -race; it has caught real races
+cd web && npm run build             # includes the type check
+./scripts/private-check.sh --staged # nothing private, and not "no pattern file"
 ```
 
 `registry_test.go` checks that every rule has a title, a description, a
 `Why`, uniquely named parameters, and supported parameter types — so a
 rule missing its help text fails the build rather than shipping blank.
+The pull request template repeats this list as checkboxes.
+
+## Adding a tool
+
+A tool is a whole content area in the rail — pull requests, the sprint
+report, the Backlog, the Leaderboard — with its own sections rendered as
+tabs inside it. Two registries know about it, and nothing else in the
+shell needs to change:
+
+- `web/src/tools.ts` lists every tool with its id, label and icon. Add an
+  entry there and give it a component.
+- `GET /api/tools` in `internal/server/server.go` says which tools are
+  actually live. The frontend merges the two, so a tool the server does
+  not list never appears in the rail.
+
+That second half is the important one. **A tool's backend sits behind
+configuration** — an `ARGUS_TOOLS` entry, credentials, storage, or
+whatever it needs — and the server lists it only when that is in place.
+An unconfigured tool is absent, never a tab that fails when clicked. A
+tool that costs nothing beyond what another already has (the Leaderboard
+needs only the pull request sweep) can be on whenever that one is, but
+it still goes through `/api/tools`.
+
+If the tool reads Jira, every request goes through the client's
+`assertPermitted` gate, and if it writes, each write is a new entry on
+the gate's closed list with an exact path, its own body check and its
+own tests — never a relaxation of an existing entry. If it reads GitHub,
+it only reads; there is no second route and no exception.
+
+## Team-specific values go in configuration
+
+Argus was extracted from one team's scripts, and the pull most changes
+feel is to write that team's habits back in. Resist it. A label name, a
+status name, a link type, a project key, an epic naming pattern, a
+check name: these are settings, documented in `.env.example` with a
+default a stranger would recognise, and never constants in code. A
+default that only makes sense once you know the team is a default for
+nobody.
+
+The same goes for tests and fixtures: `ABC-123`, `your-org`, `Person A`.
+The private-strings check below exists because this rule has been
+broken before and will be again; it is the backstop, not the rule.
 
 ## Adding a convention
 

@@ -54,7 +54,7 @@ func TestWritesAreRefused(t *testing.T) {
 		{http.MethodPut, "/rest/api/3/issue/ABC-1", points, true},                    // set points
 		{http.MethodPost, "/rest/api/3/issue/ABC-1/worklog", map[string]any{}, true}, // log work
 		{http.MethodDelete, "/rest/api/3/issue/ABC-1/worklog/45", nil, true},
-		{http.MethodDelete, "/rest/api/3/issue/ABC-1", nil, false},
+		{http.MethodDelete, "/rest/api/3/issue/ABC-1", nil, true}, // delete an issue: listed, behind a second setting
 		{http.MethodPost, "/rest/api/3/issue", points, false},
 		{http.MethodPost, "/wiki/rest/api/content", nil, false}, // publish a page
 		{http.MethodPut, "/wiki/rest/api/content/123", nil, false},

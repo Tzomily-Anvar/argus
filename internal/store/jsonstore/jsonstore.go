@@ -547,7 +547,10 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (store.PruneResult,
 			return res, err
 		}
 	}
-	return res, nil
+
+	// Acknowledgements age on their own clock, not the sprint cutoff.
+	res.Acks, err = s.pruneAcks(time.Now().UTC().Add(-store.AckRetention))
+	return res, err
 }
 
 // Migrate brings the data directory up to the layout this build writes.

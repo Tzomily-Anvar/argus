@@ -4,27 +4,6 @@ Argus authenticates with **your own** token, so everything it shows is
 scoped to what you can already see. Nothing here is shared, and no token
 is ever written to disk by Argus itself.
 
-Either kind of token works. The differences are real but small:
-
-| | Fine-grained | Classic |
-|---|---|---|
-| Read-only enforced by GitHub | **yes** | no (`repo` is read-write) |
-| CI check status | via workflow runs | direct |
-| Checks from other apps (CodeQL) | not visible | visible |
-| Needs org-owner approval | **yes** | no |
-| Maximum lifetime | 366 days | unlimited |
-
-Whichever you pick, check it before wondering why something is missing:
-
-```bash
-./scripts/check-token.sh
-```
-
-That calls every endpoint Argus uses and names the permission behind any
-failure. It checks by *result* rather than status code, because the most
-confusing failure here returns `200` with an empty list rather than a
-`403`.
-
 ## Creating the token
 
 Argus needs a token that can read pull requests, teams, and (optionally)

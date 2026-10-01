@@ -1,0 +1,44 @@
+name: Feature request
+description: Something Argus could show, check or do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Argus never writes to GitHub, and anything it writes to Jira is a
+        named list behind a switch - requests that would change either are
+        unlikely to land, but a question about where a line sits is welcome.
+
+        **Please do not paste tokens or your organisation's data.** Use
+        `ABC-123`, `your-org` and "Person A" where an example needs a name.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `argus version`, so we know what you have seen.
+      placeholder: argus 0.2.0 (abc1234)
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Which tool
+      options:
+        - Pull requests
+        - Sprint report
+        - Backlog
+        - Leaderboard
+        - Setup, login or the CLI
+        - A new tool
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The question you are trying to answer
+      description: What you look up by hand today, and how often. The need matters more than the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What Argus could do about it
+      description: If you have a shape in mind - a rule, a section, a setting - sketch it. Thresholds and names should be configurable; somebody else's organisation is not shaped like yours.

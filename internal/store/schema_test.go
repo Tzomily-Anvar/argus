@@ -127,6 +127,33 @@ func TestPersistedJSONShape(t *testing.T) {
 		})
 	})
 
+	// The backlog tool's acknowledgements: a watermark per item, kept as
+	// the opaque string Jira gave, because it is only ever compared for
+	// equality with the next reading.
+	t.Run("Ack", func(t *testing.T) {
+		storetest.CheckJSONFields(t, "store.Ack", store.Ack{}, map[string]string{
+			"key":       "string",
+			"kind":      "string",
+			"watermark": "string",
+			"at":        "time.Time",
+		})
+	})
+
+	t.Run("Requester", func(t *testing.T) {
+		storetest.CheckJSONFields(t, "store.Requester", store.Requester{}, map[string]string{
+			"account_id": "string",
+			"name":       "string",
+			"updated_at": "time.Time",
+		})
+	})
+
+	t.Run("Label", func(t *testing.T) {
+		storetest.CheckJSONFields(t, "store.Label", store.Label{}, map[string]string{
+			"name":       "string",
+			"updated_at": "time.Time",
+		})
+	})
+
 	// PruneResult is never written to disk, but it is returned over the
 	// HTTP API, so a rename here breaks the frontend instead of the data.
 	// Cheap to hold still, so it is held still.
@@ -137,6 +164,8 @@ func TestPersistedJSONShape(t *testing.T) {
 			// Added with the close-out draft. Additive: an older answer
 			// simply lacks the key.
 			"drafts": "int",
+			// Added with the backlog tool, additive in the same way.
+			"acks": "int",
 		})
 	})
 }
@@ -150,6 +179,7 @@ func TestEveryPersistedTypeIsRegistered(t *testing.T) {
 		"Person": true, "Sprint": true, "Capacity": true,
 		"SprintStats": true, "WriteRecord": true, "PruneResult": true,
 		"Draft": true, "DraftRequest": true,
+		"Ack": true, "Requester": true, "Label": true,
 	}
 
 	fset := token.NewFileSet()

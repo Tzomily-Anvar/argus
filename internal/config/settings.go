@@ -102,7 +102,7 @@ func Core() Catalogue {
 
 		{
 			Key: "ARGUS_TOOLS", Section: "Which tools run", Kind: KindList, Default: "pr",
-			Desc: "Tools to run: pr (pull request triage), sprint (sprint reports).",
+			Desc: "Tools to run: pr (pull request triage), sprint (sprint reports), backlog (backlog grooming and the inbox).",
 		},
 
 		{
@@ -212,7 +212,7 @@ func Core() Catalogue {
 		},
 		{
 			Key: "ARGUS_JIRA_STORY_LINK_TYPES", Section: "Jira", Kind: KindList,
-			Default: "Blocks,migration_parent,Relates",
+			Default: "Blocks,Relates",
 			Desc:    "Issue link types that tie a container to the work beneath it, when parent points at the Epic.",
 		},
 		{
@@ -256,6 +256,53 @@ func Core() Catalogue {
 		{
 			Key: "ARGUS_SPRINT_RETAIN_YEARS", Section: "Sprint report", Kind: KindInt, Default: "3",
 			Desc: "How long per-person records are kept. Aggregates carry no personal data and are never pruned.",
+		},
+
+		{
+			Key: "ARGUS_BACKLOG_STALE_DAYS", Section: "Backlog", Kind: KindInt, Default: "14",
+			Desc: "A ticket with no update in this many days is stale.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_NEW_DAYS", Section: "Backlog", Kind: KindInt, Default: "3",
+			Desc: "A ticket created within this many days is new, until acknowledged.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_REQUEST_LABEL", Section: "Backlog", Kind: KindString,
+			Default: "Request",
+			Desc:    "The label that marks a request from outside the team. The one label the request views ever add.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_LEGACY_LABELS", Section: "Backlog", Kind: KindList,
+			Desc: "Older spellings of the request label, read as the same thing and offered for replacement. Never added.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_WORK_LABELS", Section: "Backlog", Kind: KindList,
+			Desc: "Labels that mark a kind of engineering work, not a request. A request carrying one is flagged.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_UNREFINED_STATUSES", Section: "Backlog", Kind: KindList,
+			Desc: "Status names that count as unrefined, on top of Jira's own new category.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_INBOX_DAYS", Section: "Backlog", Kind: KindInt, Default: "3",
+			Desc: "How far back the inbox looks for mentions, assignments and watched changes, in Jira and Confluence.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_EPIC_PROJECTS", Section: "Backlog", Kind: KindList,
+			Desc: "Other project keys whose open Epics the bulk bar offers when setting an Epic. Empty means this project only.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_REQUEST_TEAM_ID", Section: "Backlog", Kind: KindString,
+			Desc: "The Atlassian team id the requesters can be imported from, under ARGUS_ATLASSIAN_ORG_ID. Optional.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_ALLOW_DELETE", Section: "Backlog", Kind: KindBool, Default: "false",
+			Desc: "Let the backlog tool delete tickets: the one irreversible write, on top of ARGUS_SPRINT_ALLOW_WRITES. Off until you ask for it.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_STORY_LINK_CHILD", Section: "Backlog", Kind: KindEnum,
+			Values: []string{LinkChildInward, LinkChildOutward}, Default: LinkChildInward,
+			Desc: "Which end of a story link the child sits at when the backlog tool links a ticket to a Story: inward or outward.",
 		},
 
 		{
