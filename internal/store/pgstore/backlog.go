@@ -1,7 +1,8 @@
 package pgstore
 
-// The backlog tool's tables: acks, one row per acknowledged item, and
-// ops_roster. See migration 006 for why each exists.
+// The backlog tool's tables: acks, one row per acknowledged item,
+// ops_roster, and backlog_labels. See migrations 006 and 007 for why
+// each exists.
 
 import (
 	"context"
@@ -118,6 +119,53 @@ func (s *Store) PutOps(ctx context.Context, members []store.OpsMember) error {
 			INSERT INTO ops_roster (account_id, name, updated_at)
 			VALUES ($1, $2, now())
 			ON CONFLICT (account_id) DO NOTHING`, m.AccountID, m.Name); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ListLabels(ctx context.Context) ([]store.Label, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT name, updated_at FROM backlog_labels ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []store.Label{}
+	for rows.Next() {
+		var l store.Label
+		if err := rows.Scan(&l.Name, &l.UpdatedAt); err != nil {
+			return nil, err
+		}
+		l.UpdatedAt = l.UpdatedAt.UTC()
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+// PutLabels replaces the list whole, in one transaction, as PutOps does.
+func (s *Store) PutLabels(ctx context.Context, labels []store.Label) error {
+	for _, l := range labels {
+		if err := store.CheckLabel(l.Name); err != nil {
+			return err
+		}
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM backlog_labels`); err != nil {
+		return err
+	}
+	for _, l := range labels {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO backlog_labels (name, updated_at)
+			VALUES ($1, now())
+			ON CONFLICT (name) DO NOTHING`, l.Name); err != nil {
 			return err
 		}
 	}

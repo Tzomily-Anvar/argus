@@ -63,6 +63,12 @@ func (s *Server) backlogBatchRoutes(b *backlog.Batch) {
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 			return
 		}
+		// The views are drawn over the last sweep, which now shows the
+		// tickets as they were. Queue the next one so the page catches
+		// up on its own rather than at the interval.
+		if s.backlog != nil && res.Applied > 0 {
+			s.backlog.Refresh()
+		}
 		writeJSON(w, http.StatusOK, res)
 	})
 

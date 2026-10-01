@@ -11,11 +11,17 @@ import (
 // reviewRequests is here for the unreviewed rule, which used to fetch the
 // whole pull request over REST for nothing but this count. It costs a
 // field on a query two other rules were already making.
+//
+// reviewThreads is for the "unresolved" badge: a review comment nobody
+// has answered or resolved is work the author owes, and GitHub shows it
+// only inside the conversation tab. A hundred threads is more than any
+// pull request should have; past that the count reads as "100+".
 const pullRequestQuery = `
 query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){ pullRequest(number:$number){
     reviewDecision
     reviewRequests(first:1){totalCount}
+    reviewThreads(first:100){nodes{isResolved}}
     labels(first:30){nodes{name}}
     commits(last:1){nodes{commit{oid statusCheckRollup{ state
       contexts(first:100){nodes{
@@ -116,15 +122,27 @@ func prChecks(c *Context, repo string, number int, qaLabel string, ignoreChecks 
 	}
 
 	return map[string]any{
-		"review_decision": decision,
-		"has_qa_label":    qaLabel != "" && contains(labels, qaLabel),
-		"qa_label_used":   qaLabel != "",
-		"labels":          strs(labels),
-		"real_failures":   strs(realFail),
-		"policy_failures": strs(policyFail),
-		"checks_green":    len(realFail) == 0,
-		"checks_from":     checksFrom,
+		"review_decision":    decision,
+		"unresolved_threads": unresolvedThreads(pr),
+		"has_qa_label":       qaLabel != "" && contains(labels, qaLabel),
+		"qa_label_used":      qaLabel != "",
+		"labels":             strs(labels),
+		"real_failures":      strs(realFail),
+		"policy_failures":    strs(policyFail),
+		"checks_green":       len(realFail) == 0,
+		"checks_from":        checksFrom,
 	}, nil
+}
+
+// unresolvedThreads counts the review threads nobody has resolved.
+func unresolvedThreads(pr map[string]any) int {
+	n := 0
+	for _, raw := range gh.List(gh.Map(pr["reviewThreads"])["nodes"]) {
+		if t := gh.Map(raw); t != nil && !gh.Bool(t["isResolved"]) {
+			n++
+		}
+	}
+	return n
 }
 
 // ReviewRequested reports whether anyone - a person or a team - has been
@@ -138,13 +156,14 @@ func reviewRequested(pr map[string]any) bool {
 // so a row still renders instead of vanishing.
 func noChecks() map[string]any {
 	return map[string]any{
-		"review_decision": "NONE",
-		"has_qa_label":    false,
-		"qa_label_used":   false,
-		"labels":          []string{},
-		"real_failures":   []string{},
-		"policy_failures": []string{},
-		"checks_green":    true,
+		"review_decision":    "NONE",
+		"unresolved_threads": 0,
+		"has_qa_label":       false,
+		"qa_label_used":      false,
+		"labels":             []string{},
+		"real_failures":      []string{},
+		"policy_failures":    []string{},
+		"checks_green":       true,
 	}
 }
 

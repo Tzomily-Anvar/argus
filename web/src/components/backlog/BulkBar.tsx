@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { Backlog } from "../../api";
+import { useQuery } from "@tanstack/react-query";
+import { fetchLabels, type Backlog } from "../../api";
 import { Badge } from "../Badge";
 import { outlined, small } from "../closeout/Table";
 import type { BatchRequest } from "./BatchPanel";
@@ -23,8 +24,19 @@ export function BulkBar({
   base: string;
   onBatch: (req: BatchRequest) => void;
 }) {
-  const [labelling, setLabelling] = useState(false);
+  // One input serves both label actions; which verb it was opened with
+  // decides what the preview asks for.
+  const [labelling, setLabelling] = useState<"add" | "remove" | null>(null);
   const [labels, setLabels] = useState("");
+  // The labels chosen behind the gear. With any chosen, the two label
+  // buttons are pickers over them with "Other…" at the end for a typed
+  // one; with none, they open the input straight away.
+  const chosen = useQuery({ queryKey: ["labels"], queryFn: fetchLabels, staleTime: 60_000 });
+  const shelf = (chosen.data?.labels ?? []).map((l) => l.name);
+  // The selection is one set across every view and section, so the
+  // count can be larger than the ticks on screen. Opening the badge
+  // lists every key, each with its own untick.
+  const [listing, setListing] = useState(false);
   const keys = selection.keys;
   const n = keys.length;
   if (n === 0) return null;
@@ -37,20 +49,41 @@ export function BulkBar({
   const epics = (data.epics_all ?? []).map((e) => ({ id: e.key, label: `${e.key} · ${e.summary}` }));
   const stories = (data.stories ?? []).map((s) => ({ id: s.key, label: `${s.key} · ${s.summary}`, hint: s.epic_key || undefined }));
 
-  const addLabels = () => {
-    const list = labels.split(/[\s,]+/).map((l) => l.trim()).filter(Boolean);
+  const sendLabelList = (verb: "add" | "remove", list: string[]) => {
     if (list.length === 0) return;
-    ask("labels.add", { labels: list }, `Add ${list.length === 1 ? "label" : "labels"} ${list.join(", ")}`);
-    setLabelling(false);
+    ask(verb === "add" ? "labels.add" : "labels.remove", { labels: list },
+      `${verb === "add" ? "Add" : "Remove"} ${list.length === 1 ? "label" : "labels"} ${list.join(", ")}`);
+    setLabelling(null);
     setLabels("");
   };
+  const sendLabels = () => {
+    if (!labelling) return;
+    sendLabelList(labelling, labels.split(/[\s,]+/).map((l) => l.trim()).filter(Boolean));
+  };
+  const OTHER = "\u0000other";
+  const labelPicker = (verb: "add" | "remove") => (
+    <Picker
+      label={verb === "add" ? "Add label" : "Remove label"}
+      items={[...shelf.map((l) => ({ id: l, label: l })), { id: OTHER, label: "Other…", hint: "type one" }]}
+      up
+      placeholder="Find a label…"
+      onPick={(id) => (id === OTHER ? setLabelling(verb) : sendLabelList(verb, [id]))}
+    />
+  );
 
   return (
     <div
       className="card sticky bottom-4 z-30 mt-4 flex flex-wrap items-center gap-2 px-4 py-2.5"
       style={{ background: "var(--surface)" }}
     >
-      <Badge tone="info" label={`${n} selected`} />
+      <button
+        onClick={() => setListing((v) => !v)}
+        className="rounded-md"
+        aria-expanded={listing}
+        title={listing ? "Hide the selection" : "Show which tickets are selected, across every view"}
+      >
+        <Badge tone="info" label={`${n} selected${listing ? " ▴" : " ▾"}`} />
+      </button>
       {base && (
         <a href={jqlURL(base, keysJQL(keys))} target="_blank" rel="noreferrer" className="lnk text-xs" title={keysJQL(keys)}>
           Open in Jira →
@@ -89,23 +122,39 @@ export function BulkBar({
             autoFocus
             value={labels}
             onChange={(e) => setLabels(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") addLabels(); if (e.key === "Escape") setLabelling(false); }}
+            onKeyDown={(e) => { if (e.key === "Enter") sendLabels(); if (e.key === "Escape") setLabelling(null); }}
             placeholder="label, another"
-            aria-label="Labels to add"
+            aria-label={labelling === "add" ? "Labels to add" : "Labels to remove"}
             className="w-40 rounded-lg px-2.5 py-1.5 text-[13px] outline-none"
             style={{ background: "var(--surface-2)", border: "1px solid var(--line)", color: "var(--ink)" }}
           />
-          <button onClick={addLabels} disabled={!labels.trim()} className={small} style={outlined}>Add</button>
-          <button onClick={() => setLabelling(false)} className={small} style={outlined}>Cancel</button>
+          <button onClick={sendLabels} disabled={!labels.trim()} className={small} style={outlined}>
+            {labelling === "add" ? "Add" : "Remove"}
+          </button>
+          <button onClick={() => setLabelling(null)} className={small} style={outlined}>Cancel</button>
         </span>
+      ) : shelf.length > 0 ? (
+        <>
+          {labelPicker("add")}
+          {labelPicker("remove")}
+        </>
       ) : (
-        <button
-          onClick={() => setLabelling(true)}
-          className="rounded-lg px-3 py-1.5 text-[13px] font-medium"
-          style={{ background: "var(--surface)", border: "1px solid var(--line)", color: "var(--ink)" }}
-        >
-          Add label…
-        </button>
+        <>
+          <button
+            onClick={() => setLabelling("add")}
+            className="rounded-lg px-3 py-1.5 text-[13px] font-medium"
+            style={{ background: "var(--surface)", border: "1px solid var(--line)", color: "var(--ink)" }}
+          >
+            Add label…
+          </button>
+          <button
+            onClick={() => setLabelling("remove")}
+            className="rounded-lg px-3 py-1.5 text-[13px] font-medium"
+            style={{ background: "var(--surface)", border: "1px solid var(--line)", color: "var(--ink)" }}
+          >
+            Remove label…
+          </button>
+        </>
       )}
       <button
         onClick={() => ask("operations.label", {}, `Add ${ops}`)}
@@ -115,16 +164,37 @@ export function BulkBar({
         Add {ops}
       </button>
       {/* Named in the alert colour with its word, and never the default:
-          it is the one action here that cannot be reversed. */}
+          it is the one action here that cannot be reversed. Behind its
+          own switch, and shown greyed with the reason rather than hidden,
+          so a deployment with it off still says the tool can do it. */}
       <button
         onClick={() => ask("issue.delete", {}, `Delete ${n} ${n === 1 ? "ticket" : "tickets"}`)}
-        className="rounded-lg px-3 py-1.5 text-[13px] font-medium"
+        disabled={!data.settings?.allow_delete}
+        title={data.settings?.allow_delete
+          ? "Delete the selected tickets from Jira, after a preview and a typed count"
+          : "Deleting is off for this deployment: ARGUS_BACKLOG_ALLOW_DELETE is unset"}
+        className="rounded-lg px-3 py-1.5 text-[13px] font-medium disabled:opacity-40"
         style={{ background: "var(--surface)", border: "1px solid var(--crit)", color: "var(--crit)" }}
       >
-        Delete…
+        Delete…{data.settings?.allow_delete ? "" : " (off)"}
       </button>
 
       <button onClick={selection.clear} className={`${small} ml-auto`} style={outlined}>Clear</button>
+
+      {listing && (
+        <div className="flex w-full flex-wrap gap-1.5 border-t pt-2" style={{ borderColor: "var(--line)" }}>
+          {keys.map((k) => (
+            <span
+              key={k}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[11.5px]"
+              style={{ background: "var(--surface-2)", color: "var(--ink)" }}
+            >
+              {k}
+              <button onClick={() => selection.toggle(k)} aria-label={`Unselect ${k}`} title="Unselect" style={{ color: "var(--faint)" }}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

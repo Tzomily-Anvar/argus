@@ -82,6 +82,7 @@ function Flags({ row, stale }: { row: BacklogRow; stale: boolean }) {
       {row.operations && <Badge tone="info" label="operations" title="An Operations request: by label, legacy label or roster reporter" />}
       {row.operations_missing_label && <Badge tone="warning" label="missing label" title="Reported by the Operations roster but not labelled as such" />}
       {row.legacy_label && <Badge tone="warning" label="legacy label" title="Carries the old label rather than the current one" />}
+      {row.operations_work_label && <Badge tone="warning" label="work label" title="A request from the operations roster labelled as a kind of engineering work, which names the fix rather than the need" />}
     </span>
   );
 }

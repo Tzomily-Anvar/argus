@@ -45,6 +45,7 @@ func Run(t *testing.T, fresh func(t *testing.T) store.Store) {
 		"acks are withdrawn by kind":       testAcksWithdrawn,
 		"old acks are pruned":              testAcksPruned,
 		"the ops roster is replaced whole": testOpsRoster,
+		"the labels are replaced whole":    testLabels,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) { fn(t, fresh(t)) })
@@ -443,6 +444,9 @@ func testEmptyStore(t *testing.T, s store.Store) {
 	if ops, err := s.ListOps(ctx()); err != nil || len(ops) != 0 {
 		t.Errorf("ListOps on an empty store: %+v, err %v", ops, err)
 	}
+	if labels, err := s.ListLabels(ctx()); err != nil || len(labels) != 0 {
+		t.Errorf("ListLabels on an empty store: %+v, err %v", labels, err)
+	}
 }
 
 // An acknowledgement is a watermark per item: writing one again for the
@@ -577,6 +581,39 @@ func testOpsRoster(t *testing.T, s store.Store) {
 	}
 	if members, _ := s.ListOps(ctx()); len(members) != 0 {
 		t.Errorf("an empty save should empty the roster, got %+v", members)
+	}
+}
+
+func testLabels(t *testing.T, s store.Store) {
+	if err := s.PutLabels(ctx(), []store.Label{{Name: "triage"}, {Name: "Operations"}, {Name: "triage"}}); err != nil {
+		t.Fatalf("PutLabels: %v", err)
+	}
+	labels, err := s.ListLabels(ctx())
+	if err != nil {
+		t.Fatalf("ListLabels: %v", err)
+	}
+	if len(labels) != 2 || labels[0].Name != "Operations" || labels[1].Name != "triage" {
+		t.Errorf("labels = %+v, want two by name with the duplicate folded", labels)
+	}
+	if labels[0].UpdatedAt.IsZero() {
+		t.Error("UpdatedAt should be stamped on write")
+	}
+	if err := s.PutLabels(ctx(), []store.Label{{Name: "triage"}}); err != nil {
+		t.Fatalf("second PutLabels: %v", err)
+	}
+	if labels, _ = s.ListLabels(ctx()); len(labels) != 1 || labels[0].Name != "triage" {
+		t.Errorf("the second save should replace the first: %+v", labels)
+	}
+	for _, bad := range []string{"", "two words"} {
+		if err := s.PutLabels(ctx(), []store.Label{{Name: bad}}); err == nil {
+			t.Errorf("a label of %q should be refused", bad)
+		}
+	}
+	if err := s.PutLabels(ctx(), nil); err != nil {
+		t.Fatalf("emptying the labels: %v", err)
+	}
+	if labels, _ := s.ListLabels(ctx()); len(labels) != 0 {
+		t.Errorf("an empty save should empty the list, got %+v", labels)
 	}
 }
 

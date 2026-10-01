@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Tzomily-Anvar/argus/internal/backlog"
 	"github.com/Tzomily-Anvar/argus/internal/jira"
@@ -27,11 +28,19 @@ const backlogPointsField = "customfield_10016"
 // told apart by its JQL.
 func fakeBacklogJira(t *testing.T) *httptest.Server {
 	t.Helper()
+	// The sweep judges "new" and the inbox window against the real clock,
+	// so the fresh fixtures are dated relative to it rather than pinned
+	// to a day that quietly ages out of the window.
+	yesterday := time.Now().UTC().Add(-24 * time.Hour)
+	jiraStamp := func(t time.Time) string { return t.Format("2006-01-02T15:04:05.000-0700") }
+	freshCreated := jiraStamp(yesterday.Truncate(time.Hour))
+	freshMention := jiraStamp(yesterday.Truncate(time.Hour).Add(3 * time.Hour))
+	freshPage := yesterday.Truncate(time.Hour).Add(-time.Hour).Format("2006-01-02T15:04:05.000Z")
 	backlogIssues := []map[string]any{
 		{"id": "10001", "key": "ABC-1", "fields": map[string]any{
 			"summary": "Fresh and bare", "issuetype": map[string]any{"name": "Task"},
 			"status":  map[string]any{"name": "To Refine", "statusCategory": map[string]any{"key": "new"}},
-			"created": "2026-09-27T09:00:00.000+0000", "updated": "2026-09-27T09:00:00.000+0000",
+			"created": freshCreated, "updated": freshCreated,
 			"reporter": map[string]any{"accountId": "acc-r1", "displayName": "Reporter One"},
 			"labels":   []string{},
 		}},
@@ -48,7 +57,7 @@ func fakeBacklogJira(t *testing.T) *httptest.Server {
 	}
 	epics := []map[string]any{{"id": "10100", "key": "ABC-100", "fields": map[string]any{"summary": "[Build] Platform"}}}
 	mentioned := []map[string]any{{"id": "10009", "key": "XYZ-9", "fields": map[string]any{
-		"summary": "Named you", "updated": "2026-09-27T12:00:00.000+0000"}}}
+		"summary": "Named you", "updated": freshMention}}}
 	answer := func(w http.ResponseWriter, v any) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(v)
@@ -98,7 +107,7 @@ func fakeBacklogJira(t *testing.T) *httptest.Server {
 			}
 			answer(w, map[string]any{"results": []map[string]any{{
 				"id": "4242", "type": "page", "title": "Runbook", "space": map[string]any{"name": "Docs"},
-				"version": map[string]any{"when": "2026-09-27T08:00:00.000Z"},
+				"version": map[string]any{"when": freshPage},
 				"_links":  map[string]any{"webui": "/spaces/DOCS/pages/4242"}}}})
 		default:
 			t.Errorf("the stand-in Jira got %s %s, which the backlog's read side must never make", r.Method, r.URL)
@@ -335,6 +344,33 @@ func TestOpsRoster(t *testing.T) {
 
 	if rec := call(t, srv, http.MethodPut, "/api/backlog/ops-roster", `{"members":[{"name":"nobody"}]}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("a member without an account id: status = %d, want 400", rec.Code)
+	}
+}
+
+func TestLabelsAreChosenFromThoseInUse(t *testing.T) {
+	srv := backlogServer(t, true)
+	type labels struct {
+		Labels []map[string]any     `json:"labels"`
+		InUse  []backlog.LabelCount `json:"in_use"`
+	}
+	read := func(rec *httptest.ResponseRecorder) labels {
+		if rec.Code != http.StatusOK {
+			t.Fatalf("labels: %d %s", rec.Code, rec.Body.String())
+		}
+		var l labels
+		_ = json.Unmarshal(rec.Body.Bytes(), &l)
+		return l
+	}
+	l := read(call(t, srv, http.MethodGet, "/api/backlog/labels", ""))
+	if l.Labels == nil || len(l.Labels) != 0 || len(l.InUse) != 1 || l.InUse[0].Name != "Ops" || l.InUse[0].Count != 1 {
+		t.Errorf("before choosing: %+v", l)
+	}
+	l = read(call(t, srv, http.MethodPut, "/api/backlog/labels", `{"labels":["triage","Ops","triage"]}`))
+	if len(l.Labels) != 2 || l.Labels[0]["name"] != "Ops" || l.Labels[1]["name"] != "triage" {
+		t.Errorf("after saving: %+v", l.Labels)
+	}
+	if rec := call(t, srv, http.MethodPut, "/api/backlog/labels", `{"labels":["two words"]}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("a label with a space: status = %d, want 400", rec.Code)
 	}
 }
 

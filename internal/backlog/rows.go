@@ -62,6 +62,10 @@ type Row struct {
 	Operations             bool `json:"operations"`
 	OperationsMissingLabel bool `json:"operations_missing_label"`
 	LegacyLabel            bool `json:"legacy_label"`
+	// WorkLabel is a request from the roster carrying a label that marks
+	// engineering work. Judged on the reporter alone: an engineer may
+	// label their own ticket however the team labels work.
+	WorkLabel bool `json:"operations_work_label"`
 }
 
 // Rows turns a sweep's issues into rows, judged against now, the
@@ -122,6 +126,7 @@ func rowOf(is jira.Issue, f Fields, cfg Config, acks map[string]string, roster m
 	labelled := hasFold(r.Labels, cfg.OperationsLabel)
 	r.Operations = labelled || r.LegacyLabel || roster[r.Reporter.AccountID]
 	r.OperationsMissingLabel = r.Operations && !labelled
+	r.WorkLabel = roster[r.Reporter.AccountID] && hasAnyFold(r.Labels, cfg.WorkLabels)
 	return r
 }
 

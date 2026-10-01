@@ -147,6 +147,13 @@ func TestPersistedJSONShape(t *testing.T) {
 		})
 	})
 
+	t.Run("Label", func(t *testing.T) {
+		storetest.CheckJSONFields(t, "store.Label", store.Label{}, map[string]string{
+			"name":       "string",
+			"updated_at": "time.Time",
+		})
+	})
+
 	// PruneResult is never written to disk, but it is returned over the
 	// HTTP API, so a rename here breaks the frontend instead of the data.
 	// Cheap to hold still, so it is held still.
@@ -172,7 +179,7 @@ func TestEveryPersistedTypeIsRegistered(t *testing.T) {
 		"Person": true, "Sprint": true, "Capacity": true,
 		"SprintStats": true, "WriteRecord": true, "PruneResult": true,
 		"Draft": true, "DraftRequest": true,
-		"Ack": true, "OpsMember": true,
+		"Ack": true, "OpsMember": true, "Label": true,
 	}
 
 	fset := token.NewFileSet()

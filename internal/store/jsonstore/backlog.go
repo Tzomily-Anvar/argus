@@ -1,9 +1,10 @@
 package jsonstore
 
-// The backlog tool's two files: acks.json, one entry per acknowledged
-// item, and ops.json, the operations roster. Both are small - a few
-// hundred acknowledgements at the very most, a handful of people - so
-// each is read and rewritten whole like everything else here.
+// The backlog tool's three files: acks.json, one entry per acknowledged
+// item; ops.json, the operations roster; and labels.json, the labels the
+// bulk bar offers. All are small - a few hundred acknowledgements at the
+// very most, a handful of people, a dozen labels - so each is read and
+// rewritten whole like everything else here.
 
 import (
 	"context"
@@ -15,8 +16,9 @@ import (
 )
 
 const (
-	acksFile = "acks"
-	opsFile  = "ops"
+	acksFile   = "acks"
+	opsFile    = "ops"
+	labelsFile = "labels"
 )
 
 func (s *Store) PutAcks(_ context.Context, acks []store.Ack) error {
@@ -160,4 +162,40 @@ func (s *Store) pruneAcks(before time.Time) (int, error) {
 		return 0, nil
 	}
 	return dropped, s.write(acksFile, kept)
+}
+
+func (s *Store) ListLabels(_ context.Context) ([]store.Label, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var all []store.Label
+	if err := s.readInto(labelsFile, &all); err != nil {
+		return nil, err
+	}
+	if all == nil {
+		all = []store.Label{}
+	}
+	return all, nil
+}
+
+func (s *Store) PutLabels(_ context.Context, labels []store.Label) error {
+	now := time.Now().UTC()
+	out := make([]store.Label, 0, len(labels))
+	seen := map[string]bool{}
+	for _, l := range labels {
+		if err := store.CheckLabel(l.Name); err != nil {
+			return err
+		}
+		if seen[l.Name] {
+			continue
+		}
+		seen[l.Name] = true
+		l.UpdatedAt = now
+		out = append(out, l)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.write(labelsFile, out)
 }

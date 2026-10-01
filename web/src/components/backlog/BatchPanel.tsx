@@ -250,17 +250,27 @@ export function BatchPanel({
               <p className="mt-1 text-[12.5px]" style={{ color: "var(--crit)" }}>
                 There is no reverse for a delete. An audit row is kept per ticket, but the ticket itself is gone.
               </p>
-              <label className="mt-2 flex flex-wrap items-center gap-2 text-[12.5px]" style={{ color: "var(--ink)" }}>
-                Type {count} to enable the button
-                <input
-                  value={typed}
-                  onChange={(e) => setTyped(e.target.value)}
-                  inputMode="numeric"
-                  disabled={!cs.delete_allowed || count === 0}
-                  className="tnum w-20 rounded px-2 py-1 text-[13px] outline-none disabled:opacity-50"
-                  style={{ background: "var(--surface)", border: "1px solid var(--line)", color: "var(--ink)" }}
-                />
-              </label>
+              {/* The typed count only when it can lead anywhere: a dead
+                  input beside "type 1" reads as a broken page, not a
+                  switch that is off. */}
+              {cs.delete_allowed && count > 0 ? (
+                <label className="mt-2 flex flex-wrap items-center gap-2 text-[12.5px]" style={{ color: "var(--ink)" }}>
+                  Type {count} to enable the button
+                  <input
+                    value={typed}
+                    onChange={(e) => setTyped(e.target.value)}
+                    inputMode="numeric"
+                    autoFocus
+                    className="tnum w-20 rounded px-2 py-1 text-[13px] outline-none"
+                    style={{ background: "var(--surface)", border: "1px solid var(--line)", color: "var(--ink)" }}
+                  />
+                </label>
+              ) : !cs.delete_allowed ? (
+                <p className="mt-2 text-[12.5px]" style={{ color: "var(--ink)" }}>
+                  Deleting is off for this deployment. Set <code className="font-mono text-[12px]">{DELETES}</code> on top of
+                  the writes switch to turn it on; until then this preview is all there is.
+                </p>
+              ) : null}
             </div>
           )}
 

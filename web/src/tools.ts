@@ -32,6 +32,7 @@ export const TOOLS: Tool[] = [
   // each backend before listing it.
   { id: "sprint", label: "Sprint reports", icon: Icon.clock, available: false },
   { id: "backlog", label: "Backlog", icon: Icon.inbox, available: true },
+  { id: "leaderboard", label: "Leaderboard", icon: Icon.trophy, available: true },
   { id: "notifications", label: "Atlassian", icon: Icon.bell, available: false },
 ];
 

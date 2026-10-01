@@ -464,7 +464,13 @@ func BacklogOperationsLabel() string { return String("ARGUS_BACKLOG_OPERATIONS_L
 
 // BacklogLegacyLabels are older spellings of the same label. They are read
 // as meaning operations and offered for replacement; none is ever added.
-func BacklogLegacyLabels() []string { return Strings("ARGUS_BACKLOG_LEGACY_LABELS", []string{"Ops"}) }
+// No default: which spelling a team used to use is the team's to say.
+func BacklogLegacyLabels() []string { return Strings("ARGUS_BACKLOG_LEGACY_LABELS", nil) }
+
+// BacklogWorkLabels mark a kind of engineering work rather than a
+// request. An operations request carrying one is flagged, because the
+// person asking has described the fix instead of the need.
+func BacklogWorkLabels() []string { return Strings("ARGUS_BACKLOG_WORK_LABELS", nil) }
 
 // BacklogInboxDays is how far back the inbox looks for mentions,
 // assignments and watched changes.

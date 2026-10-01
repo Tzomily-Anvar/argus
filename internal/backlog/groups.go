@@ -87,6 +87,9 @@ func Groups(rows []Row, cfg Config, f Fields, roster map[string]bool) []Group {
 			Why:  fmt.Sprintf("Carries an older spelling of the operations label, to be replaced with %s.", cfg.OperationsLabel),
 			Keys: pick(rows, func(r Row) bool { return r.LegacyLabel }),
 			JQL:  legacyJQL(base, cfg)},
+		Group{ID: "operations_work_label", Label: "Requests carrying a work label",
+			Why:  "Reported by the operations roster but labelled as a kind of engineering work, which names the fix rather than the need.",
+			Keys: pick(rows, func(r Row) bool { return r.WorkLabel })},
 	)
 	for i := range out {
 		if out[i].JQL == "" {
@@ -236,6 +239,7 @@ type OperationsView struct {
 	AllKeys          []string `json:"all_keys"`
 	MissingLabelKeys []string `json:"missing_label_keys"`
 	LegacyLabelKeys  []string `json:"legacy_label_keys"`
+	WorkLabelKeys    []string `json:"work_label_keys"`
 	Roster           []Ref    `json:"roster"`
 }
 
@@ -245,6 +249,7 @@ func Operations(rows []Row) OperationsView {
 		AllKeys:          pick(rows, func(r Row) bool { return r.Operations }),
 		MissingLabelKeys: pick(rows, func(r Row) bool { return r.OperationsMissingLabel }),
 		LegacyLabelKeys:  pick(rows, func(r Row) bool { return r.LegacyLabel }),
+		WorkLabelKeys:    pick(rows, func(r Row) bool { return r.WorkLabel }),
 		Roster:           []Ref{},
 	}
 }

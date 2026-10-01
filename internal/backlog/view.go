@@ -38,6 +38,7 @@ type Story struct {
 type Settings struct {
 	OperationsLabel string   `json:"operations_label"`
 	LegacyLabels    []string `json:"legacy_labels"`
+	WorkLabels      []string `json:"work_labels"`
 	AllowDelete     bool     `json:"allow_delete"`
 	WritesAllowed   bool     `json:"writes_allowed"`
 }
@@ -47,6 +48,13 @@ type Candidate struct {
 	AccountID string `json:"account_id"`
 	Label     string `json:"label"`
 	Reported  int    `json:"reported"`
+}
+
+// LabelCount is a label seen on the open backlog and how many tickets
+// carry it, offered for the bulk bar's list.
+type LabelCount struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
 }
 
 // View draws every view over the cached sweep and what the store holds.
@@ -88,6 +96,7 @@ func (s *Service) View(ctx context.Context) (View, error) {
 		Settings: Settings{
 			OperationsLabel: s.cfg.OperationsLabel,
 			LegacyLabels:    append([]string{}, s.cfg.LegacyLabels...),
+			WorkLabels:      append([]string{}, s.cfg.WorkLabels...),
 			AllowDelete:     config.BacklogDeleteAllowed(),
 			WritesAllowed:   config.SprintWritesAllowed(),
 		},
@@ -164,6 +173,31 @@ func (s *Service) InboxWatermarks(ids []string) map[string]string {
 			out[id] = w
 		}
 	}
+	return out
+}
+
+// LabelsInUse lists every label on the open backlog, most frequent
+// first, as candidates for the bulk bar's list. Read off the sweep
+// rather than Jira's label endpoint, which returns every label the site
+// has ever seen: what a team applies is what its open tickets carry.
+func (s *Service) LabelsInUse() []LabelCount {
+	snap := s.Snapshot()
+	counts := map[string]int{}
+	for _, is := range snap.Issues {
+		for _, l := range is.Fields.Labels {
+			counts[l]++
+		}
+	}
+	out := make([]LabelCount, 0, len(counts))
+	for name, n := range counts {
+		out = append(out, LabelCount{Name: name, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Name < out[j].Name
+	})
 	return out
 }
 

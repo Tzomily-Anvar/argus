@@ -111,6 +111,9 @@ func (s *Server) routes() {
 			{"id": "pr", "label": "Pull requests", "available": config.ToolEnabled("pr")},
 			{"id": "sprint", "label": "Sprint reports", "available": s.sprint != nil},
 			{"id": "backlog", "label": "Backlog", "available": s.backlog != nil},
+			// Drawn from the pull request sweep, so it needs that tool on
+			// as well as being asked for by name.
+			{"id": "leaderboard", "label": "Leaderboard", "available": config.ToolEnabled("pr") && config.ToolEnabled("leaderboard")},
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"tools": tools})
 	})

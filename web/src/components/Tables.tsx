@@ -101,6 +101,13 @@ export function PRTable({ rows, showAuthor = true }: { rows: PRRow[]; showAuthor
           <td className="px-4 py-2.5 align-top">
             <div className="flex flex-wrap items-center gap-1">
               {reviewBadge(row)}
+              {(row.unresolved_threads ?? 0) > 0 && (
+                <Badge
+                  tone="warning"
+                  label={`${row.unresolved_threads} unresolved`}
+                  title={`${row.unresolved_threads} review ${row.unresolved_threads === 1 ? "thread" : "threads"} not yet resolved`}
+                />
+              )}
               {row.real_failures && row.real_failures.length > 0 && (
                 <Badge
                   tone="critical"

@@ -174,6 +174,46 @@ func (s *Server) BacklogRoutes(svc *backlog.Service, st store.Store, b *backlog.
 		writeJSON(w, http.StatusOK, imported)
 	})
 
+	// The labels the bulk bar offers, beside every label the open
+	// backlog carries so the list is picked rather than typed. Saved
+	// whole, like the roster.
+	handle("GET /api/backlog/labels", func(w http.ResponseWriter, r *http.Request) {
+		labels, err := st.ListLabels(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"labels": labels, "in_use": svc.LabelsInUse()})
+	})
+
+	handle("PUT /api/backlog/labels", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Labels []string `json:"labels"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not read those labels"})
+			return
+		}
+		labels := make([]store.Label, 0, len(body.Labels))
+		for _, name := range body.Labels {
+			if err := store.CheckLabel(name); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			labels = append(labels, store.Label{Name: name})
+		}
+		if err := st.PutLabels(r.Context(), labels); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		saved, err := st.ListLabels(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"labels": saved, "in_use": svc.LabelsInUse()})
+	})
+
 	handle("GET /api/backlog/ops-roster", func(w http.ResponseWriter, r *http.Request) {
 		members, err := st.ListOps(r.Context())
 		if err != nil {

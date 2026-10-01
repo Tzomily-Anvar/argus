@@ -65,6 +65,7 @@ func TestParseRefusesWhatItCannotPreview(t *testing.T) {
 		"a story with no key":       {Action: ActionStoryLink, Keys: []string{"PRJ-1"}},
 		"no labels":                 {Action: ActionLabelsAdd, Keys: []string{"PRJ-1"}, Params: map[string]any{"labels": []any{}}},
 		"a label with a space":      {Action: ActionLabelsAdd, Keys: []string{"PRJ-1"}, Params: map[string]any{"labels": []any{"two words"}}},
+		"nothing to remove":         {Action: ActionLabelsRemove, Keys: []string{"PRJ-1"}, Params: map[string]any{"labels": []any{}}},
 	} {
 		_, err := b.parse(req)
 		if err == nil {
@@ -109,6 +110,33 @@ func TestLabelsAreAddedWhereAbsentAndRemovedWherePresent(t *testing.T) {
 	}
 	if r.Guard.IssueID != "13" || r.Guard.Updated.IsZero() {
 		t.Errorf("guard = %+v", r.Guard)
+	}
+}
+
+func TestLabelsAreRemovedOnlyWherePresent(t *testing.T) {
+	b := service()
+	sp, err := b.parse(BatchRequest{Action: ActionLabelsRemove, Keys: []string{"PRJ-1"}, Params: map[string]any{"labels": []any{"Ops", "stale"}}})
+	if err != nil || len(sp.add) != 0 || strings.Join(sp.remove, ",") != "Ops,stale" {
+		t.Fatalf("parse = %+v, %v", sp, err)
+	}
+	r := b.row(sp, ticket(t, "PRJ-1", "Task", map[string]any{"labels": []string{"Ops", "keep"}}), batchSprintField)
+	if r.Skipped != "" || r.Before != "Ops, keep" || r.After != "keep" ||
+		encoded(request(r)) != `{"update":{"labels":[{"remove":"Ops"}]}}` {
+		t.Errorf("carries one of them: %+v %s", r, encoded(request(r)))
+	}
+	r = b.row(sp, ticket(t, "PRJ-2", "Task", map[string]any{"labels": []string{"keep"}}), batchSprintField)
+	if r.Skipped != "does not carry Ops, stale" || r.After != "keep" {
+		t.Errorf("carries neither: %+v", r)
+	}
+	// Reversing a removal adds the label back, unless it is back already.
+	w := store.WriteRecord{Operation: ActionLabelsRemove, Target: "PRJ-1", Before: "Ops, keep", After: "keep"}
+	inv := b.inverse(w, nil, ticket(t, "PRJ-1", "Task", map[string]any{"labels": []string{"keep"}}), batchSprintField)
+	if inv.Skipped != "" || inv.After != "keep, Ops" || encoded(request(inv)) != `{"update":{"labels":[{"add":"Ops"}]}}` {
+		t.Errorf("reverse: %+v", inv)
+	}
+	inv = b.inverse(w, nil, ticket(t, "PRJ-1", "Task", map[string]any{"labels": []string{"keep", "Ops"}}), batchSprintField)
+	if inv.Skipped == "" {
+		t.Errorf("reverse of what is back already: %+v", inv)
 	}
 }
 

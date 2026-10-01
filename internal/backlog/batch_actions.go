@@ -80,9 +80,18 @@ func (b *Batch) parse(req BatchRequest) (spec, error) {
 			return sp, err
 		}
 		sp.add = labels
+	case ActionLabelsRemove:
+		labels, err := labelList(req.Params["labels"])
+		if err != nil {
+			return sp, err
+		}
+		sp.remove = labels
 	case ActionOperationsLabel:
 		sp.add = []string{b.cfg.OperationsLabel}
 	case ActionOperationsMigrate:
+		if len(b.cfg.LegacyLabels) == 0 {
+			return sp, invalid("no legacy label is configured; set ARGUS_BACKLOG_LEGACY_LABELS")
+		}
 		sp.add, sp.remove = []string{b.cfg.OperationsLabel}, b.cfg.LegacyLabels
 	case ActionIssueDelete:
 	default:
@@ -123,7 +132,7 @@ func number(v any) (int64, bool) {
 	return 0, false
 }
 
-// labelList reads the labels to add: non-empty, and without spaces,
+// labelList reads the labels to add or remove: non-empty, and without spaces,
 // which Jira refuses with a message about the field rather than the
 // label.
 func labelList(v any) ([]string, error) {
@@ -150,7 +159,7 @@ func (b *Batch) row(sp spec, is jira.Issue, sprintField string) BatchRow {
 		Guard: Guard{IssueID: is.ID, Updated: is.Fields.Updated.Time},
 	}
 	switch sp.action {
-	case ActionLabelsAdd, ActionOperationsLabel, ActionOperationsMigrate:
+	case ActionLabelsAdd, ActionLabelsRemove, ActionOperationsLabel, ActionOperationsMigrate:
 		labelsRow(&r, is.Fields.Labels, sp.add, sp.remove)
 	case ActionEpicSet:
 		switch current := parentKey(is); {
@@ -220,7 +229,11 @@ func labelsRow(r *BatchRow, have []string, add, remove []string) {
 	}
 	r.After = joinLabels(after)
 	if len(r.plan.add)+len(r.plan.remove) == 0 {
-		r.Skipped = "already carries " + joinLabels(add)
+		if len(add) == 0 {
+			r.Skipped = "does not carry " + joinLabels(remove)
+		} else {
+			r.Skipped = "already carries " + joinLabels(add)
+		}
 	}
 }
 

@@ -38,6 +38,7 @@ in Jira's issue navigator.
 | `build_epic_no_story` | Under a Build epic but linked to no story |
 | `operations_missing_label` | An operations request without the label |
 | `legacy_label` | Carrying an older spelling of the operations label |
+| `operations_work_label` | A request from the roster labelled as a kind of engineering work |
 
 "A task or bug" means any work type: everything that is not a
 container, an epic or a sub-task, which on a standard project is Task
@@ -65,14 +66,21 @@ signals: it carries `ARGUS_BACKLOG_OPERATIONS_LABEL`; it carries one of
 `ARGUS_BACKLOG_LEGACY_LABELS`; or its reporter is on the operations
 roster, a list of account ids kept in the app. The roster exists
 because the label is applied by hand and forgotten, and the reporter is
-the one signal that is never forgotten. Candidates for it are the
-reporters seen in the backlog, most frequent first, so a person is
-ticked rather than an account id copied about.
+the one signal that is never forgotten. It lives behind the gear, like
+the sprint report's team. Candidates for it are the reporters seen in
+the backlog, most frequent first, so a person is ticked rather than an
+account id copied about; with `ARGUS_BACKLOG_OPS_TEAM_ID` set, the
+Atlassian team's members are proposed too.
 
-The legacy labels are read as meaning the same thing and are never
-added; the tool offers to replace them so they die out. Only the
-current label is ever written, and only by the other side of the tool,
-behind `ARGUS_SPRINT_ALLOW_WRITES`.
+The legacy labels, if a team names any, are read as meaning the same
+thing and are never added; the tool offers to replace them so they die
+out. Work labels are the opposite kind: they mark engineering work -
+`DevOps`, say, or a repository's name - and a request from someone on
+the roster carrying one is flagged, because the person asking has named
+the fix rather than the need. The same label on an engineer's own ticket
+is nobody's mistake and is left alone. Only the operations label is ever
+written, and only by the other side of the tool, behind
+`ARGUS_SPRINT_ALLOW_WRITES`.
 
 **Inbox.** A personal feed, across every project and space: issues
 that mention you, are assigned to you, or that you watch, changed in
@@ -112,7 +120,8 @@ no bad thing.
 | `ARGUS_BACKLOG_STALE_DAYS` | 14 | No update in this many days is stale |
 | `ARGUS_BACKLOG_NEW_DAYS` | 3 | Created within this many days is new |
 | `ARGUS_BACKLOG_OPERATIONS_LABEL` | `Operations` | The label that marks an operations request; the only label the tool ever adds |
-| `ARGUS_BACKLOG_LEGACY_LABELS` | `Ops` | Older spellings, read as the same thing and never added |
+| `ARGUS_BACKLOG_LEGACY_LABELS` | none | Older spellings, read as the same thing and never added |
+| `ARGUS_BACKLOG_WORK_LABELS` | none | Labels that mark engineering work; a roster request carrying one is flagged |
 | `ARGUS_BACKLOG_INBOX_DAYS` | 3 | How far back the inbox looks |
 | `ARGUS_BACKLOG_ALLOW_DELETE` | `false` | The one irreversible write, on top of `ARGUS_SPRINT_ALLOW_WRITES` |
 
@@ -142,7 +151,7 @@ the preview can be applied. Off - the default - the preview still
 renders, so you can see what the tool would do, and the button is the
 line naming the setting.
 
-**What it can do.** Seven things, and nothing else:
+**What it can do.** Eight things, and nothing else:
 
 | Action | What is written | Skipped when |
 |---|---|---|
@@ -150,12 +159,17 @@ line naming the setting.
 | set the Epic | the parent field | already under that Epic; the ticket is an Epic |
 | link to a Story | one link, of the first type in `ARGUS_JIRA_STORY_LINK_TYPES` | already linked to it; the ticket is a Story or an Epic |
 | add labels | the labels you type, added to whatever is there | already carries them all |
+| remove labels | the labels you type, taken off where present | carries none of them |
 | add `Operations` | the configured operations label | already carries it |
 | replace `Ops` with `Operations` | the operations label added, each legacy label removed | nothing to add or remove |
 | delete | the ticket, subtasks included | the ticket is an Epic |
 
 Labels are added and removed one at a time, never set as a whole list,
 so a label somebody adds between the preview and the write survives.
+The labels the bulk bar offers are chosen behind the gear, picked from
+what the open backlog carries (most used first) or typed for one not in
+use yet; with none chosen the bar asks for a spelling each time. The
+list is the team's own and creates or deletes nothing in Jira.
 A story link is made the way the team makes them: the child at the end
 `ARGUS_BACKLOG_STORY_LINK_CHILD` names (`inward` by default), the Story
 at the other. It does not transition status, comment, edit summaries,

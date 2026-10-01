@@ -11,6 +11,7 @@ import { InboxView } from "./components/backlog/InboxView";
 import { NewView } from "./components/backlog/NewView";
 import { OperationsView } from "./components/backlog/OperationsView";
 import { jiraBase, type Selection } from "./components/backlog/Rows";
+import { BacklogSettingsPanel } from "./components/backlog/BacklogSettingsPanel";
 import { ago } from "./components/backlog/Section";
 
 /* The backlog tool.
@@ -73,6 +74,7 @@ export function BacklogTool() {
   }), [selected]);
 
   const [batch, setBatch] = useState<BatchRequest | null>(null);
+  const [settings, setSettings] = useState(false);
 
   const data = backlog.data;
   const rows = data?.rows ?? [];
@@ -109,6 +111,17 @@ export function BacklogTool() {
           <span className="text-xs" style={{ color: "var(--faint)" }}>
             {refresh.isPending || data?.building ? "sweeping…" : data ? `as of ${ago(data.swept_at)}` : ""}
           </span>
+          {/* The operations roster: about the team rather than the
+              sweep, so it lives behind the gear as the sprint roster does. */}
+          <button
+            onClick={() => setSettings(true)}
+            aria-label="Settings"
+            title="The operations roster, and the labels the bulk bar offers"
+            className="flex items-center rounded-lg px-2.5 py-2 text-sm font-medium"
+            style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
+          >
+            <Icon.gear />
+          </button>
           <button
             onClick={() => refresh.mutate()}
             disabled={refresh.isPending || data?.building}
@@ -170,12 +183,18 @@ export function BacklogTool() {
         </>
       )}
 
+      {settings && <BacklogSettingsPanel onClose={() => setSettings(false)} />}
+
       {batch && (
         <BatchPanel
           request={batch}
           onClose={() => setBatch(null)}
           onApplied={() => {
+            // The server queues a sweep after a write. Ask once now and
+            // once after it has had a moment to start, so the page sees
+            // "sweeping" and keeps polling until the new picture lands.
             qc.invalidateQueries({ queryKey: ["backlog"] });
+            setTimeout(() => qc.invalidateQueries({ queryKey: ["backlog"] }), 2_000);
             selection.clear();
           }}
         />

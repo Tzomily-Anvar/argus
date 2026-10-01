@@ -272,8 +272,12 @@ func Core() Catalogue {
 			Desc:    "The label that marks an operations request. The only label the tool ever adds.",
 		},
 		{
-			Key: "ARGUS_BACKLOG_LEGACY_LABELS", Section: "Backlog", Kind: KindList, Default: "Ops",
+			Key: "ARGUS_BACKLOG_LEGACY_LABELS", Section: "Backlog", Kind: KindList,
 			Desc: "Older spellings of the operations label, read as the same thing and offered for replacement. Never added.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_WORK_LABELS", Section: "Backlog", Kind: KindList,
+			Desc: "Labels that mark a kind of engineering work, not a request. An operations request carrying one is flagged.",
 		},
 		{
 			Key: "ARGUS_BACKLOG_INBOX_DAYS", Section: "Backlog", Kind: KindInt, Default: "3",

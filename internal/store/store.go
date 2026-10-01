@@ -28,6 +28,8 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -297,6 +299,18 @@ type OpsMember struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Label is one label the team applies from the backlog tool's bulk bar.
+//
+// A Jira site holds hundreds of labels, most typed once and never again;
+// the bulk bar offers the few chosen behind the gear so adding or
+// removing one is a pick rather than a spelling. The list is the team's
+// choice of what to offer and says nothing about what Jira holds, and
+// like the roster it is replaced whole on every save.
+type Label struct {
+	Name      string    `json:"name"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Store is the whole persistence surface. Kept deliberately small: every
 // method here has to be implemented twice and tested twice.
 type Store interface {
@@ -358,6 +372,12 @@ type Store interface {
 	ListOps(ctx context.Context) ([]OpsMember, error)
 	PutOps(ctx context.Context, members []OpsMember) error
 
+	// The labels offered by the bulk bar, replaced whole like the roster.
+	// A label is one word; PutLabels refuses an empty one and folds a
+	// repeat.
+	ListLabels(ctx context.Context) ([]Label, error)
+	PutLabels(ctx context.Context, labels []Label) error
+
 	// Retention
 	//
 	// Trends need years of aggregates, but per-person absence records do
@@ -393,4 +413,17 @@ type PruneResult struct {
 	// Acks is how many acknowledgements older than AckRetention were
 	// dropped.
 	Acks int `json:"acks"`
+}
+
+// CheckLabel says whether a label can be stored and written to Jira: not
+// empty, and one word, because Jira refuses a label with whitespace
+// with a message about the field rather than the label.
+func CheckLabel(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("a label needs a name")
+	}
+	if strings.ContainsAny(name, " \t\n") {
+		return fmt.Errorf("a label is one word, not %q", name)
+	}
+	return nil
 }

@@ -47,6 +47,7 @@ type Config struct {
 	NewDays         int
 	OperationsLabel string
 	LegacyLabels    []string
+	WorkLabels      []string
 	InboxDays       int
 
 	// StoryLinkTypes tie a Task to its Story where Jira's parent field
@@ -118,6 +119,9 @@ func NewService(client *jira.Client, st store.Store, cfg Config, interval time.D
 	}
 	if cfg.LegacyLabels == nil {
 		cfg.LegacyLabels = config.BacklogLegacyLabels()
+	}
+	if cfg.WorkLabels == nil {
+		cfg.WorkLabels = config.BacklogWorkLabels()
 	}
 	if cfg.InboxDays <= 0 {
 		cfg.InboxDays = config.BacklogInboxDays()

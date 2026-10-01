@@ -69,6 +69,7 @@ func TestGroupsFireOnTheRightRows(t *testing.T) {
 		"build_epic_no_story":      {"ABC-3"},
 		"operations_missing_label": {"ABC-2", "ABC-4"},
 		"legacy_label":             {"ABC-2"},
+		"operations_work_label":    {},
 	}
 	if len(groups) != len(want) {
 		t.Errorf("groups = %v, want %d of them", groupIDs(groups), len(want))
@@ -98,8 +99,8 @@ func TestStoryGroupsNeedAContainerType(t *testing.T) {
 			}
 		}
 	}
-	if len(groups) != 8 {
-		t.Errorf("groups = %v, want the eight that remain", groupIDs(groups))
+	if len(groups) != 9 {
+		t.Errorf("groups = %v, want the nine that remain", groupIDs(groups))
 	}
 }
 
@@ -122,6 +123,27 @@ func TestAcknowledgementHidesUntilTheTicketMoves(t *testing.T) {
 	g = groupByID(t, Groups(rows, testConfig(), testFields(), roster), "new_unacknowledged")
 	if !sameKeys(g.Keys, []string{"ABC-1", "ABC-4", "ABC-6"}) {
 		t.Errorf("a changed ticket should return: %v", g.Keys)
+	}
+}
+
+// A work label on a request is judged on the reporter: the same label
+// on an engineer's own ticket is not a flag.
+func TestWorkLabelOnARequest(t *testing.T) {
+	cfg := testConfig()
+	cfg.LegacyLabels, cfg.WorkLabels = nil, []string{"Ops"}
+	flagged := func(roster map[string]bool) []string {
+		return pick(Rows(fixture(t), cfg, nil, roster, now), func(r Row) bool { return r.WorkLabel })
+	}
+	// ABC-2 carries Ops and is reported by acc-r1.
+	if got := flagged(map[string]bool{"acc-r1": true}); !sameKeys(got, []string{"ABC-2"}) {
+		t.Errorf("flagged with the reporter on the roster = %v, want ABC-2", got)
+	}
+	if got := flagged(roster); len(got) != 0 {
+		t.Errorf("flagged with the reporter off the roster = %v, want none", got)
+	}
+	ops := Operations(Rows(fixture(t), cfg, nil, map[string]bool{"acc-r1": true}, now))
+	if !sameKeys(ops.WorkLabelKeys, []string{"ABC-2"}) || len(ops.LegacyLabelKeys) != 0 {
+		t.Errorf("view = %+v: want ABC-2 under work labels and nothing legacy", ops)
 	}
 }
 

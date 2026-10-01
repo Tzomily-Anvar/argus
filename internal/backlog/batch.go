@@ -32,6 +32,7 @@ const (
 	ActionEpicSet           = "epic.set"
 	ActionStoryLink         = "story.link"
 	ActionLabelsAdd         = "labels.add"
+	ActionLabelsRemove      = "labels.remove"
 	ActionOperationsLabel   = "operations.label"
 	ActionOperationsMigrate = "operations.migrate"
 	ActionIssueDelete       = "issue.delete"
@@ -70,7 +71,7 @@ type BatchConfig struct {
 
 	// OperationsLabel is the one label ever added for the operations
 	// team, and LegacyLabels the ones a migration removes. Left empty,
-	// NewBatch uses Operations and Ops.
+	// the label is Operations and there is nothing to migrate.
 	OperationsLabel string
 	LegacyLabels    []string
 
@@ -164,9 +165,6 @@ type Batch struct {
 func NewBatch(client *jira.Client, st store.Store, cfg BatchConfig) *Batch {
 	if cfg.OperationsLabel == "" {
 		cfg.OperationsLabel = "Operations"
-	}
-	if len(cfg.LegacyLabels) == 0 {
-		cfg.LegacyLabels = []string{"Ops"}
 	}
 	if len(cfg.StoryLinkTypes) == 0 {
 		cfg.StoryLinkTypes = config.JiraStoryLinkTypes()

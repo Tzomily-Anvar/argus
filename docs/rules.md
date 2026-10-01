@@ -14,6 +14,7 @@ knob. It reports configuration; it does not change it.
 | `stale_prs` | PRs older than a threshold, with bot PRs counted separately. |
 | `stale_branches` | Branches with no commit in a long time. |
 | `security` | Dependabot and code-scanning alerts, plus open Dependabot PRs. |
+| `review_leaderboard` | Code reviews per person this fortnight and last, for the Leaderboard tool. |
 
 The dashboard's sections are not one-to-one with these rules. Some are a
 filtered view of one — **Ready to merge** and **Ready to QA** split the

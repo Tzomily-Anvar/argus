@@ -1,10 +1,6 @@
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchOpsRoster, fetchOpsTeam, saveOpsRoster, type Backlog, type BacklogRow, type OpsMember } from "../../api";
+import type { Backlog, BacklogRow } from "../../api";
 import { outlined, small } from "../closeout/Table";
-import { SaveBar, stateOf } from "../Panel";
 import type { BatchRequest } from "./BatchPanel";
-import { Picker } from "./Picker";
 import { Rows, type Selection } from "./Rows";
 import { Section } from "./Section";
 
@@ -13,106 +9,10 @@ import { Section } from "./Section";
  *
  * A request is one of three things: labelled with the current label,
  * labelled with a legacy one, or reported by somebody on the roster.
- * The roster is kept here, like the sprint roster, and edited the same
- * way - typing does not save, Save saves. Under it, the two fixes each
- * with a one-click batch, then every request together. Only the current
- * label is ever added; the legacy label is replaced, never written, so
- * it dies out. */
-
-function Roster() {
-  const qc = useQueryClient();
-  const roster = useQuery({ queryKey: ["ops-roster"], queryFn: fetchOpsRoster });
-  // Null means "as the server has it"; a list means edits not yet saved.
-  const [draft, setDraft] = useState<OpsMember[] | null>(null);
-  const members = draft ?? roster.data?.members ?? [];
-  const save = useMutation({
-    mutationFn: () => saveOpsRoster(members),
-    onSuccess: () => {
-      setDraft(null);
-      qc.invalidateQueries({ queryKey: ["ops-roster"] });
-      // The roster decides which reporters count, so the rows move too.
-      qc.invalidateQueries({ queryKey: ["backlog"] });
-    },
-  });
-
-  const onRoster = new Set(members.map((m) => m.account_id));
-  const candidates = (roster.data?.candidates ?? [])
-    .filter((c) => !onRoster.has(c.account_id))
-    .map((c) => ({ id: c.account_id, label: c.label, hint: `${c.reported} reported` }));
-  const add = (id: string) => {
-    const c = (roster.data?.candidates ?? []).find((x) => x.account_id === id);
-    if (c) setDraft([...members, { account_id: c.account_id, name: c.label }]);
-  };
-  const remove = (id: string) => setDraft(members.filter((m) => m.account_id !== id));
-
-  // The Atlassian team, when one is configured. It proposes; nothing is
-  // saved until Save, the same as adding a reporter by hand.
-  const team = useQuery({ queryKey: ["ops-team"], queryFn: fetchOpsTeam, staleTime: 60_000 });
-  const proposed = (team.data?.candidates ?? []).filter((c) => !onRoster.has(c.account_id));
-  const importTeam = () => {
-    if (proposed.length === 0) return;
-    setDraft([...members, ...proposed.map((c) => ({ account_id: c.account_id, name: c.name }))]);
-  };
-
-  // Unsaved changes, counted as people added plus people removed, so the
-  // note under the list says how many rather than only that there are some.
-  const saved = roster.data?.members ?? [];
-  const dirty = draft === null ? 0
-    : draft.filter((m) => !saved.some((s) => s.account_id === m.account_id)).length
-      + saved.filter((s) => !draft.some((m) => m.account_id === s.account_id)).length;
-
-  return (
-    <Section
-      title="Operations roster"
-      hint="Whose tickets count as requests even without the label. Add people from whoever has reported open tickets; nothing is saved until Save."
-      right={
-        <span className="flex items-center gap-2">
-          {team.data?.configured && (
-            <button
-              onClick={importTeam}
-              disabled={proposed.length === 0}
-              title={proposed.length === 0
-                ? `Everyone on ${team.data.team_name ?? "the team"} is already on the roster.`
-                : `Add the ${proposed.length} on ${team.data.team_name ?? "the team"} who are not on the roster yet.`}
-              className={small}
-              style={outlined}
-            >
-              Import from {team.data.team_name ?? "Atlassian team"}{proposed.length > 0 ? ` (${proposed.length})` : ""}
-            </button>
-          )}
-          <Picker label="Add from reporters" items={candidates} onPick={add} placeholder="Find a reporter…" disabled={roster.isLoading} />
-        </span>
-      }
-    >
-      {roster.error && (
-        <p className="px-4 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
-          {roster.error instanceof Error ? roster.error.message : String(roster.error)}
-        </p>
-      )}
-      {members.length === 0 ? (
-        <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>
-          {roster.isLoading ? "Reading the roster…" : "Nobody on the roster. Requests are then found by label alone."}
-        </p>
-      ) : (
-        <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
-          {members.map((m) => (
-            <li key={m.account_id} className="flex items-center gap-2 px-4 py-2 text-[13px]">
-              <span className="flex-1">{m.name}</span>
-              <button onClick={() => remove(m.account_id)} className={small} style={outlined}>Remove</button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <SaveBar
-        dirty={dirty}
-        invalid={false}
-        state={stateOf(save)}
-        error={save.error instanceof Error ? save.error.message : undefined}
-        onSave={() => save.mutate()}
-      />
-    </Section>
-  );
-}
+ * The roster is kept behind the gear (OpsSettingsPanel), like the sprint
+ * roster. Here, the two fixes each with a one-click batch, then every
+ * request together. Only the current label is ever added; the legacy
+ * label is replaced or removed, never written, so it dies out. */
 
 export function OperationsView({
   data, selection, staleKeys, onBatch,
@@ -128,47 +28,96 @@ export function OperationsView({
   const ops = data.operations;
   const label = data.settings?.operations_label || "Operations";
   const legacy = (data.settings?.legacy_labels ?? []).join(", ") || "the legacy label";
-  const missing = ops?.missing_label_keys ?? [];
-  const old = ops?.legacy_label_keys ?? [];
   const all = ops?.all_keys ?? [];
+  // A section's button acts on the rows ticked in that section, or on
+  // the whole section when none are, and says which. The bulk bar is
+  // for a selection spanning sections; these are the one-click paths.
+  const scope = (all: string[]) => {
+    const ticked = all.filter((k) => selection.has(k));
+    return ticked.length > 0
+      ? { all, keys: ticked, count: `${ticked.length} selected` }
+      : { all, keys: all, count: `all ${all.length}` };
+  };
+  const missing = scope(ops?.missing_label_keys ?? []);
+  const old = scope(ops?.legacy_label_keys ?? []);
+  const work = scope(ops?.work_label_keys ?? []);
+  const workLabels = data.settings?.work_labels ?? [];
+  const workNames = workLabels.join(", ") || "a work label";
 
   return (
     <>
-      <Roster />
-
       <Section
-        title={`Missing the label · ${missing.length}`}
-        hint={`Reported by somebody on the roster but not labelled ${label}. One click previews adding it to all of them.`}
+        title={`Missing the label · ${missing.all.length}`}
+        hint={`Counted as a request, by the legacy label or by a reporter on the roster (under the gear), but not labelled ${label}. One click previews adding it to all of them.`}
         right={
           <button
-            onClick={() => onBatch({ action: "operations.label", keys: missing, params: {}, label: `Add ${label}` })}
-            disabled={missing.length === 0}
+            onClick={() => onBatch({ action: "operations.label", keys: missing.keys, params: {}, label: `Add ${label}` })}
+            disabled={missing.keys.length === 0}
             className={`${small} font-medium`}
             style={{ background: "var(--accent)", color: "#fff" }}
           >
-            Add {label} to these
+            Add {label} · {missing.count}
           </button>
         }
       >
-        <Rows rows={pick(missing)} selection={selection} staleKeys={staleKeys} empty="Every roster request carries the label." />
+        <Rows rows={pick(missing.all)} selection={selection} staleKeys={staleKeys} empty="Every roster request carries the label." />
       </Section>
 
-      <Section
-        title={`Legacy label · ${old.length}`}
-        hint={`Labelled ${legacy} rather than ${label}. Replacing it is how the old label dies out; it is read as the same thing until then.`}
-        right={
-          <button
-            onClick={() => onBatch({ action: "operations.migrate", keys: old, params: {}, label: `Replace ${legacy} with ${label}` })}
-            disabled={old.length === 0}
-            className={`${small} font-medium`}
-            style={{ background: "var(--accent)", color: "#fff" }}
-          >
-            Replace {legacy} with {label}
-          </button>
-        }
-      >
-        <Rows rows={pick(old)} selection={selection} staleKeys={staleKeys} empty="Nothing carries the legacy label." />
-      </Section>
+      {/* A transitional section: once the old label is gone from every
+          open ticket it has nothing to say, and disappears until the
+          label creeps back. */}
+      {old.all.length > 0 && (
+        <Section
+          title={`Legacy label · ${old.all.length}`}
+          hint={`Labelled ${legacy} rather than ${label}. Replace it where the ticket is a request, or drop it where it was only marking the kind of work; it is read as the same thing until it is gone.`}
+          right={
+            <span className="flex items-center gap-2">
+              <button
+                onClick={() => onBatch({ action: "operations.migrate", keys: old.keys, params: {}, label: `Replace ${legacy} with ${label}` })}
+                disabled={old.keys.length === 0}
+                className={`${small} font-medium`}
+                style={{ background: "var(--accent)", color: "#fff" }}
+              >
+                Replace {legacy} with {label} · {old.count}
+              </button>
+              <button
+                onClick={() => onBatch({
+                  action: "labels.remove", keys: old.keys, params: { labels: data.settings?.legacy_labels ?? [] }, label: `Remove ${legacy}`,
+                })}
+                disabled={old.keys.length === 0 || !(data.settings?.legacy_labels ?? []).length}
+                className={small}
+                style={outlined}
+              >
+                Remove {legacy} · {old.count}
+              </button>
+            </span>
+          }
+        >
+          <Rows rows={pick(old.all)} selection={selection} staleKeys={staleKeys} empty="Nothing carries the legacy label." />
+        </Section>
+      )}
+
+      {/* Also transitional in spirit: it lists mistakes, and is quiet
+          when there are none to show. Judged on the reporter, so an
+          engineer's own ticket carrying the same label is not here. */}
+      {work.all.length > 0 && (
+        <Section
+          title={`Carrying a work label · ${work.all.length}`}
+          hint={`Reported by someone on the roster but labelled ${workNames}, which marks a kind of engineering work rather than a request. Remove it; the Missing-the-label list above adds ${label} where that is wanted.`}
+          right={
+            <button
+              onClick={() => onBatch({ action: "labels.remove", keys: work.keys, params: { labels: workLabels }, label: `Remove ${workNames}` })}
+              disabled={work.keys.length === 0 || workLabels.length === 0}
+              className={`${small} font-medium`}
+              style={{ background: "var(--accent)", color: "#fff" }}
+            >
+              Remove {workNames} · {work.count}
+            </button>
+          }
+        >
+          <Rows rows={pick(work.all)} selection={selection} staleKeys={staleKeys} empty="No request carries a work label." />
+        </Section>
+      )}
 
       <Section
         title={`All requests · ${all.length}`}

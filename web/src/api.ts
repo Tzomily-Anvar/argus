@@ -8,6 +8,34 @@ export type RuleResult = {
   duration_ms: number;
 };
 
+/** The review leaderboard rule's answer: two periods of the same length. */
+export type Leaderboard = {
+  days: number;
+  current: LeaderboardPeriod;
+  previous: LeaderboardPeriod;
+  truncated: boolean;
+};
+
+export type LeaderboardPeriod = {
+  from: string;
+  to: string;
+  prs: number;
+  reviews: number;
+  rows: Reviewer[];
+};
+
+export type Reviewer = {
+  login: string;
+  rank: number;
+  reviews: number;
+  prs: number;
+  approvals: number;
+  changes_requested: number;
+  comments: number;
+  previous_rank: number;
+  previous_reviews: number;
+};
+
 export type Snapshot = {
   org: string;
   user: string;
@@ -50,6 +78,8 @@ export type PRRow = {
   labels?: string[];
   draft?: boolean;
   review_decision?: string;
+  /** Review threads nobody has resolved: comments the author still owes an answer. */
+  unresolved_threads?: number;
   has_qa_label?: boolean;
   qa_label_used?: boolean;
   real_failures?: string[];
@@ -876,6 +906,8 @@ export type BacklogRow = {
   operations: boolean;
   operations_missing_label: boolean;
   legacy_label: boolean;
+  /** A request from the roster carrying a label that marks engineering work. */
+  operations_work_label: boolean;
 };
 
 /** One of the fixed groups: the tickets the sweep put in it, the sentence
@@ -906,12 +938,14 @@ export type BacklogOperations = {
   all_keys: string[];
   missing_label_keys: string[];
   legacy_label_keys: string[];
+  work_label_keys: string[];
   roster: BacklogPerson[];
 };
 
 export type BacklogSettings = {
   operations_label: string;
   legacy_labels: string[];
+  work_labels: string[];
   allow_delete: boolean;
   writes_allowed: boolean;
 };
@@ -957,6 +991,7 @@ export type BatchAction =
   | "epic.set"
   | "story.link"
   | "labels.add"
+  | "labels.remove"
   | "operations.label"
   | "operations.migrate"
   | "issue.delete";
@@ -1023,6 +1058,17 @@ export const unacknowledgeBacklog = (keys: string[]) => deleteJSONWith("/api/bac
 export const fetchInbox = () => getJSON<Inbox>("/api/backlog/inbox");
 export const dismissInbox = (ids: string[]) => postJSON<unknown>("/api/backlog/inbox/dismiss", { ids });
 export const undismissInbox = (ids: string[]) => deleteJSONWith("/api/backlog/inbox/dismiss", { ids });
+
+export type BacklogLabels = {
+  /** The labels the bulk bar offers, chosen behind the gear. */
+  labels: { name: string; updated_at: string }[];
+  /** Every label on the open backlog with how many tickets carry it,
+   *  so the list is picked from what the team actually applies. */
+  in_use: { name: string; count: number }[];
+};
+
+export const fetchLabels = () => getJSON<BacklogLabels>("/api/backlog/labels");
+export const saveLabels = (labels: string[]) => putJSON("/api/backlog/labels", { labels });
 
 export const fetchOpsRoster = () => getJSON<OpsRoster>("/api/backlog/ops-roster");
 export const saveOpsRoster = (members: OpsMember[]) => putJSON("/api/backlog/ops-roster", { members });
