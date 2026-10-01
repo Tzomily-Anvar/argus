@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -98,7 +99,7 @@ func (b *Batch) parse(req BatchRequest) (spec, error) {
 		if to = strings.TrimSpace(to); to == "" || strings.ContainsAny(to, " \t\n") {
 			return sp, invalid("to must be one label, not %q", to)
 		}
-		if contains(from, to) {
+		if slices.Contains(from, to) {
 			return sp, invalid("to must not be one of the labels being replaced")
 		}
 		sp.add, sp.remove, sp.migrate = []string{to}, from, true
@@ -198,7 +199,7 @@ func (b *Batch) row(sp spec, is jira.Issue, sprintField string) BatchRow {
 			r.Skipped = "is the Story itself"
 		case b.isContainer(is):
 			r.Skipped = fmt.Sprintf("a %s is a container, not work under a Story", is.Fields.IssueType.Name)
-		case contains(linked, sp.story):
+		case slices.Contains(linked, sp.story):
 			r.After, r.Skipped = r.Before, "already linked to "+sp.story
 		default:
 			r.After = sp.story
@@ -233,14 +234,14 @@ func labelsRow(r *BatchRow, have []string, add, remove []string) {
 	r.Before = joinLabels(have)
 	after := make([]string, 0, len(have)+len(add))
 	for _, l := range have {
-		if contains(remove, l) {
+		if slices.Contains(remove, l) {
 			r.plan.remove = append(r.plan.remove, l)
 		} else {
 			after = append(after, l)
 		}
 	}
 	for _, l := range add {
-		if !contains(have, l) {
+		if !slices.Contains(have, l) {
 			r.plan.add = append(r.plan.add, l)
 			after = append(after, l)
 		}
@@ -271,7 +272,7 @@ func (b *Batch) linkFor(child, story string) *linkPlan {
 func (b *Batch) storyLinks(is jira.Issue) []string {
 	var keys []string
 	for _, l := range is.Fields.Links {
-		if other := l.Other(); other != nil && contains(b.cfg.StoryLinkTypes, l.Type.Name) {
+		if other := l.Other(); other != nil && slices.Contains(b.cfg.StoryLinkTypes, l.Type.Name) {
 			keys = append(keys, other.Key)
 		}
 	}
@@ -279,7 +280,7 @@ func (b *Batch) storyLinks(is jira.Issue) []string {
 }
 
 func (b *Batch) isContainer(is jira.Issue) bool {
-	return isEpic(is) || contains(b.cfg.ContainerTypes, is.Fields.IssueType.Name)
+	return isEpic(is) || slices.Contains(b.cfg.ContainerTypes, is.Fields.IssueType.Name)
 }
 
 func isEpic(is jira.Issue) bool { return strings.EqualFold(is.Fields.IssueType.Name, "Epic") }
@@ -339,18 +340,9 @@ func request(r BatchRow) (method, path, query string, body any) {
 	return http.MethodPut, issue, notifyQuery, map[string]any{"update": map[string]any{"labels": ops}}
 }
 
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
-
 func hasAny(list, any []string) bool {
 	for _, s := range any {
-		if contains(list, s) {
+		if slices.Contains(list, s) {
 			return true
 		}
 	}

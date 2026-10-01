@@ -8,16 +8,9 @@ import { Icon } from "./components/Icons";
 import { CapacityPanel } from "./components/CapacityPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { CloseoutGlyph, CloseoutPanel } from "./components/CloseoutPanel";
-import { formatDateRange } from "./dates";
-
-function ago(iso: string): string {
-  const secs = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (secs < 60) return "just now";
-  const m = Math.floor(secs / 60);
-  if (m < 60) return `${m} min ago`;
-  const h = Math.floor(m / 60);
-  return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
-}
+import { ago, formatDateRange } from "./dates";
+import { HeaderButton, ToolHeader } from "./components/ToolHeader";
+import { Notice } from "./components/Notice";
 
 export function SprintTool() {
   const qc = useQueryClient();
@@ -95,70 +88,49 @@ export function SprintTool() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 pt-6 pb-20">
-      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">
-            {res ? `Sprint ${res.report.sprint.number} report` : "Sprint reports"}
-          </h1>
-          {res && (
-            <p className="mt-0.5 text-[13px]" style={{ color: "var(--muted)" }}>
-              {formatDateRange(res.report.sprint.starts, res.report.sprint.ends, true)}
-              {res.report.sprint.provisional && " · still open, so delivery is measured against today"}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs" style={{ color: "var(--faint)" }}>
-            {refresh.isPending || res?.building
-              ? "rebuilding…"
-              : res
-                ? `as of ${ago(res.built_at)}`
-                : ""}
-          </span>
-          <button
-            onClick={() => setPanel("capacity")}
-            disabled={!res}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-            style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
-          >
-            <Icon.sliders />
-            Capacity
-          </button>
-          {/* The close-out is built from the report, so it waits for one
-              the same way Capacity does. */}
-          <button
-            onClick={() => setPanel("closeout")}
-            disabled={!res}
-            title="Walk the sprint's close: size, assign, log effort, roll up stories, then write it back"
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-            style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
-          >
-            <CloseoutGlyph />
-            Close out
-          </button>
-          {/* The roster and the baselines. Not disabled with no report:
-              they are about the team rather than about a sprint, so there
-              is nothing to wait for. */}
-          <button
-            onClick={() => setPanel("settings")}
-            aria-label="Settings"
-            title="The team, their baselines, and importing the roster"
-            className="flex items-center rounded-lg px-2.5 py-2 text-sm font-medium"
-            style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
-          >
-            <Icon.gear />
-          </button>
-          <button
-            onClick={() => refresh.mutate()}
-            disabled={picked === null || refresh.isPending}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-            style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
-          >
-            <Icon.refresh />
-            Refresh
-          </button>
-        </div>
-      </header>
+      <ToolHeader
+        title={res ? `Sprint ${res.report.sprint.number} report` : "Sprint reports"}
+        subtitle={res && (
+          <>
+            {formatDateRange(res.report.sprint.starts, res.report.sprint.ends, true)}
+            {res.report.sprint.provisional && " · still open, so delivery is measured against today"}
+          </>
+        )}
+        note={refresh.isPending || res?.building ? "rebuilding…" : res ? `as of ${ago(res.built_at)}` : ""}
+        actions={
+          <>
+            <HeaderButton onClick={() => setPanel("capacity")} disabled={!res}>
+              <Icon.sliders />
+              Capacity
+            </HeaderButton>
+            {/* The close-out is built from the report, so it waits for one
+                the same way Capacity does. */}
+            <HeaderButton
+              onClick={() => setPanel("closeout")}
+              disabled={!res}
+              title="Walk the sprint's close: size, assign, log effort, roll up stories, then write it back"
+            >
+              <CloseoutGlyph />
+              Close out
+            </HeaderButton>
+            {/* The roster and the baselines. Not disabled with no report:
+                they are about the team rather than about a sprint, so there
+                is nothing to wait for. */}
+            <HeaderButton
+              iconOnly
+              onClick={() => setPanel("settings")}
+              aria-label="Settings"
+              title="The team, their baselines, and importing the roster"
+            >
+              <Icon.gear />
+            </HeaderButton>
+            <HeaderButton onClick={() => refresh.mutate()} disabled={picked === null || refresh.isPending}>
+              <Icon.refresh />
+              Refresh
+            </HeaderButton>
+          </>
+        }
+      />
 
       <SprintPicker
         sprints={sprints.data?.sprints ?? []}
@@ -170,17 +142,9 @@ export function SprintTool() {
         loadingAll={allSprints.isLoading}
       />
 
-      {sprints.error && (
-        <p className="rounded-xl px-3.5 py-2.5 text-sm" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
-          Could not reach Jira: {String(sprints.error)}
-        </p>
-      )}
+      {sprints.error && <Notice>Could not reach Jira: {String(sprints.error)}</Notice>}
 
-      {report.error && (
-        <p className="rounded-xl px-3.5 py-2.5 text-sm" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
-          {String(report.error)}
-        </p>
-      )}
+      {report.error && <Notice>{String(report.error)}</Notice>}
 
       {report.isLoading && picked !== null && (
         <div className="card p-8 text-center">

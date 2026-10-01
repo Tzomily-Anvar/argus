@@ -7,6 +7,7 @@ import {
 import { opLabel, type ChangeDraft } from "../../changes";
 import { Badge, type Tone } from "../Badge";
 import { PreviewBody, WritesOffNote } from "../ChangePreview";
+import { Notice, errorText } from "../Notice";
 import { Empty, StepIntro, filled, outlined, small, th } from "./Table";
 import { WritesLog } from "./WritesLog";
 
@@ -33,9 +34,9 @@ function Results({ r }: { r: ApplyResult }) {
         {r.failed > 0 && <Badge tone="critical" label={`${r.failed} failed`} />}
       </div>
       {r.stopped && (
-        <p className="mb-2 rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--warn-bg)", color: "var(--warn)" }}>
+        <Notice tone="warn" layout="panel" className="mb-2">
           Stopped early: {r.stopped}
-        </p>
+        </Notice>
       )}
       <table className="w-full border-collapse text-[13px]">
         <thead>
@@ -118,7 +119,6 @@ export function ReviewStep({
   const expired = cs ? new Date(cs.expires_at).getTime() <= Date.now() : false;
   const allowed = writes.data?.allowed ?? false;
   const canApply = allowed && !!cs && count > 0 && !result && !apply.isPending && !expired;
-  const err = (m: { error: unknown }) => (m.error instanceof Error ? m.error.message : m.error ? String(m.error) : "");
 
   return (
     <>
@@ -144,15 +144,15 @@ export function ReviewStep({
 
       {preview.isPending && <p className="text-[13px]" style={{ color: "var(--muted)" }}>Asking the server what it would do…</p>}
       {preview.error && (
-        <p className="rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>{err(preview)}</p>
+        <Notice layout="panel">{errorText(preview.error)}</Notice>
       )}
 
       {cs && (
         <>
           {reversed && (
-            <p className="mb-3 rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--info-bg)", color: "var(--info)" }}>
+            <Notice tone="info" layout="panel" className="mb-3">
               This is the reverse of the batch just applied. Applying it puts the fields back.
-            </p>
+            </Notice>
           )}
           <PreviewBody cs={cs} />
 
@@ -198,10 +198,10 @@ export function ReviewStep({
           </div>
 
           {apply.error && (
-            <p className="mt-2 rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>{err(apply)}</p>
+            <Notice layout="panel" className="mt-2">{errorText(apply.error)}</Notice>
           )}
           {reverse.error && (
-            <p className="mt-2 rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>{err(reverse)}</p>
+            <Notice layout="panel" className="mt-2">{errorText(reverse.error)}</Notice>
           )}
           {result && <Results r={result} />}
         </>

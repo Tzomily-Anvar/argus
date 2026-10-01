@@ -2,6 +2,7 @@ package sprint
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -51,7 +52,7 @@ func conflict(c Change, is jira.Issue, points string, rules Rules, touched bool,
 		}
 		var now []string
 		for _, w := range is.Fields.Worklog.Entries {
-			if !contains(added, w.ID) {
+			if !slices.Contains(added, w.ID) {
 				now = append(now, w.ID)
 			}
 		}
@@ -156,13 +157,4 @@ func idList(v any) (ids []string, known bool) {
 		return ids, true
 	}
 	return nil, false
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }

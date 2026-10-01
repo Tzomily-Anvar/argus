@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchLabels, type Backlog } from "../../api";
 import { outlined, small } from "../closeout/Table";
+import { errorText } from "../Notice";
 import type { BatchRequest } from "./BatchPanel";
 import { Picker } from "./Picker";
 import { Rows, type Selection } from "./Rows";
@@ -84,7 +85,7 @@ export function LabelsView({
     >
       {labels.error && (
         <p className="px-4 py-3 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
-          {labels.error instanceof Error ? labels.error.message : String(labels.error)}
+          {errorText(labels.error)}
         </p>
       )}
       {label ? (

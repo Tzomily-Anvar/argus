@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/Tzomily-Anvar/argus/internal/gh"
@@ -124,7 +125,7 @@ func prChecks(c *Context, repo string, number int, qaLabel string, ignoreChecks 
 	return map[string]any{
 		"review_decision":    decision,
 		"unresolved_threads": unresolvedThreads(pr),
-		"has_qa_label":       qaLabel != "" && contains(labels, qaLabel),
+		"has_qa_label":       qaLabel != "" && slices.Contains(labels, qaLabel),
 		"qa_label_used":      qaLabel != "",
 		"labels":             strs(labels),
 		"real_failures":      strs(realFail),
@@ -170,15 +171,6 @@ func noChecks() map[string]any {
 func matchesAny(name string, needles []string) bool {
 	for _, n := range needles {
 		if n != "" && strings.Contains(name, n) {
-			return true
-		}
-	}
-	return false
-}
-
-func contains(haystack []string, needle string) bool {
-	for _, h := range haystack {
-		if h == needle {
 			return true
 		}
 	}

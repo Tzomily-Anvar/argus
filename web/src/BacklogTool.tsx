@@ -13,7 +13,9 @@ import { NewView } from "./components/backlog/NewView";
 import { RequestsView } from "./components/backlog/RequestsView";
 import { jiraBase, type Selection } from "./components/backlog/Rows";
 import { BacklogSettingsPanel } from "./components/backlog/BacklogSettingsPanel";
-import { ago } from "./components/backlog/Section";
+import { ago } from "./dates";
+import { HeaderButton, ToolHeader } from "./components/ToolHeader";
+import { Notice, errorText } from "./components/Notice";
 
 /* The backlog tool.
  *
@@ -101,60 +103,36 @@ export function BacklogTool() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 pt-6 pb-20">
-      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Backlog</h1>
-          {data && (
-            <p className="mt-0.5 text-[13px]" style={{ color: "var(--muted)" }}>
-              {rows.length} open {rows.length === 1 ? "ticket" : "tickets"} in the sweep
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs" style={{ color: "var(--faint)" }}>
-            {refresh.isPending || data?.building ? "sweeping…" : data ? `as of ${ago(data.swept_at)}` : ""}
-          </span>
-          {/* The requesters: about the team rather than the sweep, so
-              they live behind the gear as the sprint roster does. */}
-          <button
-            onClick={() => setSettings(true)}
-            aria-label="Settings"
-            title="The requesters, and the labels the bulk bar offers"
-            className="flex items-center rounded-lg px-2.5 py-2 text-sm font-medium"
-            style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
-          >
-            <Icon.gear />
-          </button>
-          <button
-            onClick={() => refresh.mutate()}
-            disabled={refresh.isPending || data?.building}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-            style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
-          >
-            <Icon.refresh />
-            Refresh
-          </button>
-        </div>
-      </header>
+      <ToolHeader
+        title="Backlog"
+        subtitle={data && `${rows.length} open ${rows.length === 1 ? "ticket" : "tickets"} in the sweep`}
+        note={refresh.isPending || data?.building ? "sweeping…" : data ? `as of ${ago(data.swept_at)}` : ""}
+        actions={
+          <>
+            {/* The requesters: about the team rather than the sweep, so
+                they live behind the gear as the sprint roster does. */}
+            <HeaderButton
+              iconOnly
+              onClick={() => setSettings(true)}
+              aria-label="Settings"
+              title="The requesters, and the labels the bulk bar offers"
+            >
+              <Icon.gear />
+            </HeaderButton>
+            <HeaderButton onClick={() => refresh.mutate()} disabled={refresh.isPending || data?.building}>
+              <Icon.refresh />
+              Refresh
+            </HeaderButton>
+          </>
+        }
+      />
 
-      {backlog.error && (
-        <p className="mb-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
-          {backlog.error instanceof Error ? backlog.error.message : String(backlog.error)}
-        </p>
-      )}
-      {refresh.error && (
-        <p className="mb-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
-          {refresh.error instanceof Error ? refresh.error.message : String(refresh.error)}
-        </p>
-      )}
+      {backlog.error && <Notice className="mb-4">{errorText(backlog.error)}</Notice>}
+      {refresh.error && <Notice className="mb-4">{errorText(refresh.error)}</Notice>}
 
       {/* What the sweep could not do, said above the figures it affects:
           a count built from a partial read is a count to doubt. */}
-      {warnings.length > 0 && (
-        <p className="mb-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ background: "var(--warn-bg)", color: "var(--warn)" }}>
-          {warnings.join(" · ")}
-        </p>
-      )}
+      {warnings.length > 0 && <Notice tone="warn" className="mb-4">{warnings.join(" · ")}</Notice>}
 
       {backlog.isLoading && (
         <p className="text-sm" style={{ color: "var(--muted)" }}>

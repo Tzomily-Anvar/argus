@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchLabels, type Backlog } from "../../api";
 import { Badge } from "../Badge";
+import { Button } from "../Button";
 import { outlined, small } from "../closeout/Table";
 import type { BatchRequest } from "./BatchPanel";
 import { Picker } from "./Picker";
@@ -72,11 +73,17 @@ export function BulkBar({
     if (!labelling) return;
     sendLabelList(labelling, labels.split(/[\s,]+/).map((l) => l.trim()).filter(Boolean));
   };
+  // The label pickers' items: the labels themselves, and where a typed
+  // one is allowed, "Other…" at the end to open the input instead.
   const OTHER = "\u0000other";
+  const labelItems = (list: string[], other = false) => [
+    ...list.map((l) => ({ id: l, label: l })),
+    ...(other ? [{ id: OTHER, label: "Other…", hint: "type one" }] : []),
+  ];
   const labelPicker = (verb: "add" | "remove") => (
     <Picker
       label={verb === "add" ? "Add label" : "Remove label"}
-      items={[...shelf.map((l) => ({ id: l, label: l })), { id: OTHER, label: "Other…", hint: "type one" }]}
+      items={labelItems(shelf, true)}
       up
       placeholder="Find a label…"
       onPick={(id) => (id === OTHER ? setLabelling(verb) : sendLabelList(verb, [id]))}
@@ -88,7 +95,7 @@ export function BulkBar({
     <span className="flex items-center gap-1">
       <Picker
         label={`Migrate ${migrating} to`}
-        items={[...known.filter((l) => l !== migrating).map((l) => ({ id: l, label: l })), { id: OTHER, label: "Other…", hint: "type one" }]}
+        items={labelItems(known.filter((l) => l !== migrating), true)}
         up
         placeholder="Find the new label…"
         onPick={(id) => (id === OTHER ? setLabelling("migrate") : sendLabelList("migrate", [id]))}
@@ -98,7 +105,7 @@ export function BulkBar({
   ) : (
     <Picker
       label="Migrate label"
-      items={known.map((l) => ({ id: l, label: l }))}
+      items={labelItems(known)}
       up
       placeholder="Find the label to replace…"
       onPick={setMigrating}
@@ -178,45 +185,26 @@ export function BulkBar({
         </>
       ) : (
         <>
-          <button
-            onClick={() => setLabelling("add")}
-            className="rounded-lg px-3 py-1.5 text-[13px] font-medium"
-            style={{ background: "var(--surface)", border: "1px solid var(--line)", color: "var(--ink)" }}
-          >
-            Add label…
-          </button>
-          <button
-            onClick={() => setLabelling("remove")}
-            className="rounded-lg px-3 py-1.5 text-[13px] font-medium"
-            style={{ background: "var(--surface)", border: "1px solid var(--line)", color: "var(--ink)" }}
-          >
-            Remove label…
-          </button>
+          <Button onClick={() => setLabelling("add")}>Add label…</Button>
+          <Button onClick={() => setLabelling("remove")}>Remove label…</Button>
           {migratePicker}
         </>
       )}
-      <button
-        onClick={() => ask("request.label", {}, `Add ${requestLabel}`)}
-        className="rounded-lg px-3 py-1.5 text-[13px] font-medium"
-        style={{ background: "var(--surface)", border: "1px solid var(--line)", color: "var(--ink)" }}
-      >
-        Add {requestLabel}
-      </button>
+      <Button onClick={() => ask("request.label", {}, `Add ${requestLabel}`)}>Add {requestLabel}</Button>
       {/* Named in the alert colour with its word, and never the default:
           it is the one action here that cannot be reversed. Behind its
           own switch, and shown greyed with the reason rather than hidden,
           so a deployment with it off still says the tool can do it. */}
-      <button
+      <Button
+        variant="danger"
         onClick={() => ask("issue.delete", {}, `Delete ${n} ${n === 1 ? "ticket" : "tickets"}`)}
         disabled={!data.settings?.allow_delete}
         title={data.settings?.allow_delete
           ? "Delete the selected tickets from Jira, after a preview and a typed count"
           : "Deleting is off for this deployment: ARGUS_BACKLOG_ALLOW_DELETE is unset"}
-        className="rounded-lg px-3 py-1.5 text-[13px] font-medium disabled:opacity-40"
-        style={{ background: "var(--surface)", border: "1px solid var(--crit)", color: "var(--crit)" }}
       >
         Delete…{data.settings?.allow_delete ? "" : " (off)"}
-      </button>
+      </Button>
 
       <button onClick={selection.clear} className={`${small} ml-auto`} style={outlined}>Clear</button>
 

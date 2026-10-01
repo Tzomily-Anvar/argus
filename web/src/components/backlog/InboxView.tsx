@@ -3,7 +3,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { dismissInbox, undismissInbox, type Inbox, type InboxItem } from "../../api";
 import { Badge } from "../Badge";
 import { outlined, small } from "../closeout/Table";
-import { Section, ago } from "./Section";
+import { ago } from "../../dates";
+import { errorText } from "../Notice";
+import { Section } from "./Section";
 
 /* Inbox: the personal feed, across projects.
  *
@@ -55,7 +57,7 @@ export function InboxView({ inbox, loading, error }: { inbox?: Inbox; loading: b
       )}
       {err ? (
         <p className="px-4 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
-          {err instanceof Error ? err.message : String(err)}
+          {errorText(err)}
         </p>
       ) : null}
       {loading && <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--muted)" }}>Reading the feed…</p>}

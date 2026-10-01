@@ -1,5 +1,5 @@
 import type { Backlog, BacklogRow } from "../../api";
-import { outlined, small } from "../closeout/Table";
+import { filled, outlined, small } from "../closeout/Table";
 import type { BatchRequest } from "./BatchPanel";
 import { Rows, type Selection } from "./Rows";
 import { Section, scopeOf } from "./Section";
@@ -48,7 +48,7 @@ export function RequestsView({
             onClick={() => onBatch({ action: "request.label", keys: missing.keys, params: {}, label: `Add ${label}` })}
             disabled={missing.keys.length === 0}
             className={`${small} font-medium`}
-            style={{ background: "var(--accent)", color: "#fff" }}
+            style={filled}
           >
             Add {label} · {missing.count}
           </button>
@@ -74,7 +74,7 @@ export function RequestsView({
                 })}
                 disabled={old.keys.length === 0 || legacyLabels.length === 0}
                 className={`${small} font-medium`}
-                style={{ background: "var(--accent)", color: "#fff" }}
+                style={filled}
               >
                 Replace {legacy} with {label} · {old.count}
               </button>
@@ -107,7 +107,7 @@ export function RequestsView({
               onClick={() => onBatch({ action: "labels.remove", keys: work.keys, params: { labels: workLabels }, label: `Remove ${workNames}` })}
               disabled={work.keys.length === 0 || workLabels.length === 0}
               className={`${small} font-medium`}
-              style={{ background: "var(--accent)", color: "#fff" }}
+              style={filled}
             >
               Remove {workNames} · {work.count}
             </button>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { acknowledgeBacklog, unacknowledgeBacklog, type BacklogRow } from "../../api";
 import { outlined, small } from "../closeout/Table";
+import { errorText } from "../Notice";
 import { Rows, type Selection } from "./Rows";
 import { Section } from "./Section";
 
@@ -58,7 +59,7 @@ export function NewView({
     >
       {err && (
         <p className="px-4 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
-          {err instanceof Error ? err.message : String(err)}
+          {errorText(err)}
         </p>
       )}
       <Rows

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -122,7 +123,7 @@ func splitLabels(s string) []string {
 func except(a, b []string) []string {
 	var out []string
 	for _, x := range a {
-		if !contains(b, x) {
+		if !slices.Contains(b, x) {
 			out = append(out, x)
 		}
 	}

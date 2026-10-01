@@ -22,14 +22,9 @@ import { SecuritySummary } from "./components/SecuritySummary";
 import { RulesPanel } from "./components/RulesPanel";
 import { PolicyHintBanner } from "./components/PolicyHint";
 import { Overview, preview, type Block } from "./components/Overview";
-
-function ago(seconds: number): string {
-  if (seconds < 60) return "just now";
-  const m = Math.floor(seconds / 60);
-  if (m < 60) return `${m} min ago`;
-  const h = Math.floor(m / 60);
-  return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
-}
+import { HeaderButton, ToolHeader } from "./components/ToolHeader";
+import { Notice } from "./components/Notice";
+import { agoSeconds } from "./dates";
 
 function useThemePrefs() {
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
@@ -252,44 +247,37 @@ export default function App() {
           <LeaderboardTool />
         ) : (
         <div className="mx-auto max-w-5xl px-6 pt-6 pb-20">
-          <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-lg font-semibold tracking-tight">Pull requests</h1>
-            <div className="flex items-center gap-2">
-              <span className="mr-0.5 text-xs" style={{ color: "var(--faint)" }}>
-                {data?.sweeping ? "sweeping…" : data?.ready ? `as of ${ago(data.age_seconds)}` : "first sweep…"}
-              </span>
-              <button
-                onClick={() => refresh.mutate()}
-                disabled={data?.sweeping}
-                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-                style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
-              >
-                <Icon.refresh />
-                Refresh
-              </button>
-              <button
-                onClick={() => setActive(active === "__rules" ? "overview" : "__rules")}
-                aria-pressed={active === "__rules"}
-                title="How each check is defined. Read-only - changes are made in your configuration file"
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium"
-                style={{
-                  background: active === "__rules" ? "var(--surface-2)" : "var(--surface)",
-                  border: "1px solid var(--line)",
-                  boxShadow: "var(--shadow)",
-                  color: active === "__rules" ? "var(--ink)" : "var(--muted)",
-                }}
-              >
-                <Icon.info />
-                Rules
-              </button>
-            </div>
-          </header>
+          <ToolHeader
+            title="Pull requests"
+            note={data?.sweeping ? "sweeping…" : data?.ready ? `as of ${agoSeconds(data.age_seconds)}` : "first sweep…"}
+            actions={
+              <>
+                <HeaderButton onClick={() => refresh.mutate()} disabled={data?.sweeping}>
+                  <Icon.refresh />
+                  Refresh
+                </HeaderButton>
+                {/* A toggle rather than a button, with its own pressed
+                    look, so it stays hand-built. */}
+                <button
+                  onClick={() => setActive(active === "__rules" ? "overview" : "__rules")}
+                  aria-pressed={active === "__rules"}
+                  title="How each check is defined. Read-only - changes are made in your configuration file"
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium"
+                  style={{
+                    background: active === "__rules" ? "var(--surface-2)" : "var(--surface)",
+                    border: "1px solid var(--line)",
+                    boxShadow: "var(--shadow)",
+                    color: active === "__rules" ? "var(--ink)" : "var(--muted)",
+                  }}
+                >
+                  <Icon.info />
+                  Rules
+                </button>
+              </>
+            }
+          />
 
-          {data?.error && (
-            <p className="mb-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
-              {data.error}
-            </p>
-          )}
+          {data?.error && <Notice className="mb-4">{data.error}</Notice>}
 
           {!data?.ready && !data?.error && (
             <p className="text-sm" style={{ color: "var(--muted)" }}>
@@ -330,9 +318,7 @@ export default function App() {
                   )}
 
                   {result?.error ? (
-                    <p className="rounded-xl px-3.5 py-2.5 text-sm" style={{ background: "var(--warn-bg)", color: "var(--warn)" }}>
-                      {result.error}
-                    </p>
+                    <Notice tone="warn">{result.error}</Notice>
                   ) : (
                     <div className="card overflow-hidden">{def ? def.body() : <Empty />}</div>
                   )}

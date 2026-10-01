@@ -5,6 +5,7 @@ import {
   type Provenance, type SprintReport, type StoredPerson, type TeamCandidate,
 } from "../api";
 import { NumberField, SaveBar, SidePanel, parse, stateOf } from "./Panel";
+import { Button } from "./Button";
 
 /* Settings: the half of the sprint report that is not about a sprint.
  *
@@ -382,13 +383,7 @@ export function SettingsPanel({
                 : `Everyone on ${imported.team_name || "the Atlassian team"} is already on the roster.`}
             </span>
             {newMembers.length > 0 && (
-              <button
-                onClick={tickNewMembers}
-                className="rounded-lg px-3 py-1.5 text-[13px] font-medium"
-                style={{ background: "var(--surface)", border: "1px solid var(--line)", color: "var(--ink)" }}
-              >
-                Import {newMembers.length}
-              </button>
+              <Button onClick={tickNewMembers}>Import {newMembers.length}</Button>
             )}
             <button
               onClick={() => team.refetch()}

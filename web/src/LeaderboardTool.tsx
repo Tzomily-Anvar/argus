@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchLeaderboard, fetchSnapshot, fetchSprints, fetchTools, type LeaderboardQuery, type SprintOption } from "./api";
 import { Board } from "./components/leaderboard/Board";
+import { ToolHeader } from "./components/ToolHeader";
+import { Notice } from "./components/Notice";
 
 /* The Leaderboard: who is reviewing.
  *
@@ -69,15 +71,11 @@ export function LeaderboardTool() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 pt-6 pb-20">
-      <header className="mb-5">
-        <h1 className="text-lg font-semibold tracking-tight">Who is reviewing</h1>
-        <p className="mt-0.5 text-[13px]" style={{ color: "var(--ink)" }}>
-          For fun. Review is teamwork, and this board is a thank-you to the people doing it, not a target for anyone.
-        </p>
-        <p className="mt-0.5 text-[13px]" style={{ color: "var(--muted)" }}>
-          Code reviews per person, from every pull request in the organisation. Your own pull requests and bots do not count.
-        </p>
-      </header>
+      <ToolHeader
+        title="Who is reviewing"
+        lede="For fun. Review is teamwork, and this board is a thank-you to the people doing it, not a target for anyone."
+        subtitle="Code reviews per person, from every pull request in the organisation. Your own pull requests and bots do not count."
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         {sprintTool && (
@@ -106,9 +104,7 @@ export function LeaderboardTool() {
         </span>
       </div>
 
-      {result?.error && (
-        <p className="mb-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>{result.error}</p>
-      )}
+      {result?.error && <Notice className="mb-4">{result.error}</Notice>}
       {!snapshot.data?.ready && !result && (
         <p className="text-sm" style={{ color: "var(--muted)" }}>First sweep running. The board appears when it lands.</p>
       )}
@@ -117,9 +113,7 @@ export function LeaderboardTool() {
           The review_leaderboard rule is off. Set ARGUS_RULE_REVIEW_LEADERBOARD_ENABLED=true to turn it on.
         </p>
       )}
-      {result && !result.error && board.error && (
-        <p className="mb-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>{String(board.error)}</p>
-      )}
+      {result && !result.error && board.error && <Notice className="mb-4">{String(board.error)}</Notice>}
       {effectiveMode === "sprint" && sprints.error && (
         <p className="mb-4 text-sm" style={{ color: "var(--muted)" }}>The sprint list could not be read: {String(sprints.error)}</p>
       )}

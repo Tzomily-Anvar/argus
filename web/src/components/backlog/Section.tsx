@@ -41,15 +41,3 @@ export function scopeOf(all: string[], selection: Selection): Scope {
     ? { all, keys: ticked, count: `${ticked.length} selected` }
     : { all, keys: all, count: `all ${all.length}` };
 }
-
-/** ago is how long since a timestamp, in the short form the headers of
- *  every tool use beside "as of". */
-export function ago(iso: string): string {
-  const secs = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (Number.isNaN(secs)) return "";
-  if (secs < 60) return "just now";
-  const m = Math.floor(secs / 60);
-  if (m < 60) return `${m} min ago`;
-  const h = Math.floor(m / 60);
-  return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
-}

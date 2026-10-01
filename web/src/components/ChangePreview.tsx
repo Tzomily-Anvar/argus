@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchWritesStatus, proposeChanges, type Change, type ChangeRequest, type ChangeSet } from "../api";
 import { figure, opLabel } from "../changes";
 import { Badge } from "./Badge";
+import { Notice, errorText } from "./Notice";
 import { SidePanel } from "./Panel";
 
 /* The preview: what the server would write, and what it would not.
@@ -176,11 +177,7 @@ export function ChangePreview({
       {preview.isPending && (
         <p className="text-[13px]" style={{ color: "var(--muted)" }}>Asking the server what it would do…</p>
       )}
-      {preview.error && (
-        <p className="rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
-          {preview.error instanceof Error ? preview.error.message : String(preview.error)}
-        </p>
-      )}
+      {preview.error && <Notice layout="panel">{errorText(preview.error)}</Notice>}
       {cs && <PreviewBody cs={cs} />}
     </SidePanel>
   );

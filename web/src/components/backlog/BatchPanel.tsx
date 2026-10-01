@@ -6,6 +6,7 @@ import {
 } from "../../api";
 import { Badge, type Tone } from "../Badge";
 import { expiry, WritesOffNote } from "../ChangePreview";
+import { Notice, errorText } from "../Notice";
 import { filled, th } from "../closeout/Table";
 import { SidePanel } from "../Panel";
 
@@ -92,9 +93,9 @@ function Results({ r }: { r: BatchResult }) {
         {r.failed > 0 && <Badge tone="critical" label={`${r.failed} failed`} />}
       </div>
       {r.stopped && (
-        <p className="mb-2 rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--warn-bg)", color: "var(--warn)" }}>
+        <Notice tone="warn" layout="panel" className="mb-2">
           Stopped early: {r.stopped}
-        </p>
+        </Notice>
       )}
       <table className="w-full border-collapse text-[13px]">
         <thead>
@@ -117,8 +118,6 @@ function Results({ r }: { r: BatchResult }) {
     </div>
   );
 }
-
-const errText = (e: unknown) => (e instanceof Error ? e.message : e ? String(e) : "");
 
 export function BatchPanel({
   request, onClose, onApplied,
@@ -227,15 +226,15 @@ export function BatchPanel({
     >
       {preview.isPending && <p className="text-[13px]" style={{ color: "var(--muted)" }}>Asking the server what it would do…</p>}
       {preview.error && (
-        <p className="rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>{errText(preview.error)}</p>
+        <Notice layout="panel">{errorText(preview.error)}</Notice>
       )}
 
       {cs && (
         <>
           {reversed && (
-            <p className="mb-3 rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--info-bg)", color: "var(--info)" }}>
+            <Notice tone="info" layout="panel" className="mb-3">
               This is the reverse of the batch just applied. Applying it puts the fields back.
-            </p>
+            </Notice>
           )}
           <Preview cs={cs} />
 
@@ -275,10 +274,10 @@ export function BatchPanel({
           )}
 
           {apply.error && (
-            <p className="mt-2 rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>{errText(apply.error)}</p>
+            <Notice layout="panel" className="mt-2">{errorText(apply.error)}</Notice>
           )}
           {reverse.error && (
-            <p className="mt-2 rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>{errText(reverse.error)}</p>
+            <Notice layout="panel" className="mt-2">{errorText(reverse.error)}</Notice>
           )}
           {result && <Results r={result} />}
         </>
