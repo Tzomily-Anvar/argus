@@ -13,7 +13,9 @@ const starter = `# Argus configuration.
 
 # The GitHub account to sweep: an organisation, or your own username if
 # your repositories live under your personal account. Argus works out
-# which it is on its own.
+# which it is on its own. It is the name in github.com/<name>, so for
+# github.com/orgs/acme-widgets it is acme-widgets - though pasting the
+# page's address here works too, and Argus takes the name out of it.
 ARGUS_GITHUB_ORG=your-org-here
 
 # How to authenticate. Pick one:
