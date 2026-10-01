@@ -13,17 +13,17 @@ import (
 // never null: this crosses to a browser as JSON, and a null where an
 // array was promised is a crash in the panel rather than an empty one.
 type View struct {
-	SweptAt    string         `json:"swept_at"`
-	Building   bool           `json:"building"`
-	Warnings   []string       `json:"warnings"`
-	Rows       []Row          `json:"rows"`
-	Groups     []Group        `json:"groups"`
-	Epics      []Epic         `json:"epics"`
-	Sprints    []SprintRef    `json:"sprints"`
-	EpicsAll   []IssueRef     `json:"epics_all"`
-	Stories    []Story        `json:"stories"`
-	Operations OperationsView `json:"operations"`
-	Settings   Settings       `json:"settings"`
+	SweptAt  string       `json:"swept_at"`
+	Building bool         `json:"building"`
+	Warnings []string     `json:"warnings"`
+	Rows     []Row        `json:"rows"`
+	Groups   []Group      `json:"groups"`
+	Epics    []Epic       `json:"epics"`
+	Sprints  []SprintRef  `json:"sprints"`
+	EpicsAll []IssueRef   `json:"epics_all"`
+	Stories  []Story      `json:"stories"`
+	Requests RequestsView `json:"requests"`
+	Settings Settings     `json:"settings"`
 }
 
 // Story is one open container-type issue, for linking work beneath it.
@@ -36,14 +36,14 @@ type Story struct {
 // Settings is what the panel needs to know about the deployment: the
 // label spellings, and which writes the other side of the tool may make.
 type Settings struct {
-	OperationsLabel string   `json:"operations_label"`
-	LegacyLabels    []string `json:"legacy_labels"`
-	WorkLabels      []string `json:"work_labels"`
-	AllowDelete     bool     `json:"allow_delete"`
-	WritesAllowed   bool     `json:"writes_allowed"`
+	RequestLabel  string   `json:"request_label"`
+	LegacyLabels  []string `json:"legacy_labels"`
+	WorkLabels    []string `json:"work_labels"`
+	AllowDelete   bool     `json:"allow_delete"`
+	WritesAllowed bool     `json:"writes_allowed"`
 }
 
-// Candidate is a reporter seen in the backlog, offered for the roster.
+// Candidate is a reporter seen in the backlog, offered as a requester.
 type Candidate struct {
 	AccountID string `json:"account_id"`
 	Label     string `json:"label"`
@@ -64,7 +64,7 @@ func (s *Service) View(ctx context.Context) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	members, err := s.store.ListOps(ctx)
+	members, err := s.store.ListRequesters(ctx)
 	if err != nil {
 		return View{}, err
 	}
@@ -72,14 +72,14 @@ func (s *Service) View(ctx context.Context) (View, error) {
 	for _, a := range acks {
 		watermarks[a.Key] = a.Watermark
 	}
-	roster := make(map[string]bool, len(members))
-	rosterRefs := make([]Ref, 0, len(members))
+	requesters := make(map[string]bool, len(members))
+	requesterRefs := make([]Ref, 0, len(members))
 	for _, m := range members {
-		roster[m.AccountID] = true
-		rosterRefs = append(rosterRefs, Ref{AccountID: m.AccountID, Label: m.Name})
+		requesters[m.AccountID] = true
+		requesterRefs = append(requesterRefs, Ref{AccountID: m.AccountID, Label: m.Name})
 	}
 
-	rows := Rows(snap, s.cfg, watermarks, roster, time.Now())
+	rows := Rows(snap, s.cfg, watermarks, requesters, time.Now())
 	epicsAll := make([]IssueRef, 0, len(snap.Epics))
 	for _, e := range snap.Epics {
 		epicsAll = append(epicsAll, IssueRef{Key: e.Key, Summary: e.Fields.Summary})
@@ -88,17 +88,17 @@ func (s *Service) View(ctx context.Context) (View, error) {
 		Building: snap.Building,
 		Warnings: append([]string{}, snap.Warnings...),
 		Rows:     rows,
-		Groups:   Groups(rows, s.cfg, snap.Fields, roster),
+		Groups:   Groups(rows, s.cfg, snap.Fields, requesters),
 		Epics:    Epics(rows, epicsAll, s.cfg),
 		Sprints:  make([]SprintRef, 0, len(snap.Sprints)),
 		EpicsAll: epicsAll,
 		Stories:  []Story{},
 		Settings: Settings{
-			OperationsLabel: s.cfg.OperationsLabel,
-			LegacyLabels:    append([]string{}, s.cfg.LegacyLabels...),
-			WorkLabels:      append([]string{}, s.cfg.WorkLabels...),
-			AllowDelete:     config.BacklogDeleteAllowed(),
-			WritesAllowed:   config.SprintWritesAllowed(),
+			RequestLabel:  s.cfg.RequestLabel,
+			LegacyLabels:  append([]string{}, s.cfg.LegacyLabels...),
+			WorkLabels:    append([]string{}, s.cfg.WorkLabels...),
+			AllowDelete:   config.BacklogDeleteAllowed(),
+			WritesAllowed: config.SprintWritesAllowed(),
 		},
 	}
 	if snap.Error != "" {
@@ -119,8 +119,8 @@ func (s *Service) View(ctx context.Context) (View, error) {
 			v.Stories = append(v.Stories, st)
 		}
 	}
-	v.Operations = Operations(rows)
-	v.Operations.Roster = rosterRefs
+	v.Requests = Requests(rows)
+	v.Requests.Requesters = requesterRefs
 	return v, nil
 }
 
@@ -202,7 +202,7 @@ func (s *Service) LabelsInUse() []LabelCount {
 }
 
 // Reporters lists who reported the open backlog, most frequent first,
-// as candidates for the operations roster.
+// as candidates for the requesters.
 func (s *Service) Reporters() []Candidate {
 	snap := s.Snapshot()
 	counts := map[string]*Candidate{}

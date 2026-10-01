@@ -21,31 +21,31 @@ import (
 func Run(t *testing.T, fresh func(t *testing.T) store.Store) {
 	t.Helper()
 	tests := map[string]func(*testing.T, store.Store){
-		"people round-trip":                testPeople,
-		"person upsert replaces":           testPersonUpsert,
-		"inactive people are filterable":   testInactivePeople,
-		"missing person is ErrNotFound":    testMissingPerson,
-		"sprints keyed by Jira id":         testSprints,
-		"a page id survives a re-sweep":    testPageIDSurvivesSweep,
-		"capacity is isolated per sprint":  testCapacityIsolation,
-		"absence splits planned/unplanned": testAbsenceSplit,
-		"capacity needs known references":  testUnknownReference,
-		"a sprint can be reviewed":         testCapacityReview,
-		"a review survives a re-sweep":     testReviewSurvivesSweep,
-		"retention keeps aggregates":       testRetention,
-		"stats round-trip":                 testStats,
-		"writes are append-only":           testWriteAudit,
-		"a draft round-trips":              testDraft,
-		"a draft is replaced whole":        testDraftReplaced,
-		"a draft can be discarded":         testDraftDiscarded,
-		"a draft needs a known sprint":     testDraftUnknownSprint,
-		"empty store reads as empty":       testEmptyStore,
-		"migrate is repeatable":            testMigrateIsRepeatable,
-		"acks round-trip by kind and key":  testAcks,
-		"acks are withdrawn by kind":       testAcksWithdrawn,
-		"old acks are pruned":              testAcksPruned,
-		"the ops roster is replaced whole": testOpsRoster,
-		"the labels are replaced whole":    testLabels,
+		"people round-trip":                 testPeople,
+		"person upsert replaces":            testPersonUpsert,
+		"inactive people are filterable":    testInactivePeople,
+		"missing person is ErrNotFound":     testMissingPerson,
+		"sprints keyed by Jira id":          testSprints,
+		"a page id survives a re-sweep":     testPageIDSurvivesSweep,
+		"capacity is isolated per sprint":   testCapacityIsolation,
+		"absence splits planned/unplanned":  testAbsenceSplit,
+		"capacity needs known references":   testUnknownReference,
+		"a sprint can be reviewed":          testCapacityReview,
+		"a review survives a re-sweep":      testReviewSurvivesSweep,
+		"retention keeps aggregates":        testRetention,
+		"stats round-trip":                  testStats,
+		"writes are append-only":            testWriteAudit,
+		"a draft round-trips":               testDraft,
+		"a draft is replaced whole":         testDraftReplaced,
+		"a draft can be discarded":          testDraftDiscarded,
+		"a draft needs a known sprint":      testDraftUnknownSprint,
+		"empty store reads as empty":        testEmptyStore,
+		"migrate is repeatable":             testMigrateIsRepeatable,
+		"acks round-trip by kind and key":   testAcks,
+		"acks are withdrawn by kind":        testAcksWithdrawn,
+		"old acks are pruned":               testAcksPruned,
+		"the requesters are replaced whole": testRequesters,
+		"the labels are replaced whole":     testLabels,
 	}
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) { fn(t, fresh(t)) })
@@ -441,8 +441,8 @@ func testEmptyStore(t *testing.T, s store.Store) {
 	if acks, err := s.ListAcks(ctx(), store.AckTicket); err != nil || len(acks) != 0 {
 		t.Errorf("ListAcks on an empty store: %+v, err %v", acks, err)
 	}
-	if ops, err := s.ListOps(ctx()); err != nil || len(ops) != 0 {
-		t.Errorf("ListOps on an empty store: %+v, err %v", ops, err)
+	if people, err := s.ListRequesters(ctx()); err != nil || len(people) != 0 {
+		t.Errorf("ListRequesters on an empty store: %+v, err %v", people, err)
 	}
 	if labels, err := s.ListLabels(ctx()); err != nil || len(labels) != 0 {
 		t.Errorf("ListLabels on an empty store: %+v, err %v", labels, err)
@@ -544,43 +544,43 @@ func testAcksPruned(t *testing.T, s store.Store) {
 	}
 }
 
-// The panel saves the whole roster, so a save is the roster: a member
+// The panel saves the whole list, so a save is the list: a requester
 // left out is gone, and an empty save empties it.
-func testOpsRoster(t *testing.T, s store.Store) {
-	if err := s.PutOps(ctx(), []store.OpsMember{
+func testRequesters(t *testing.T, s store.Store) {
+	if err := s.PutRequesters(ctx(), []store.Requester{
 		{AccountID: "acc-b", Name: "Person B"},
 		{AccountID: "acc-a", Name: "Person A"},
 		{AccountID: "acc-a", Name: "Person A again"},
 	}); err != nil {
-		t.Fatalf("PutOps: %v", err)
+		t.Fatalf("PutRequesters: %v", err)
 	}
-	members, err := s.ListOps(ctx())
+	members, err := s.ListRequesters(ctx())
 	if err != nil {
-		t.Fatalf("ListOps: %v", err)
+		t.Fatalf("ListRequesters: %v", err)
 	}
 	if len(members) != 2 || members[0].AccountID != "acc-a" || members[1].AccountID != "acc-b" {
-		t.Errorf("roster = %+v, want two people by name with the duplicate folded", members)
+		t.Errorf("requesters = %+v, want two people by name with the duplicate folded", members)
 	}
 	if members[0].UpdatedAt.IsZero() {
 		t.Error("UpdatedAt should be stamped on write")
 	}
 
-	if err := s.PutOps(ctx(), []store.OpsMember{{AccountID: "acc-b", Name: "Person B"}}); err != nil {
-		t.Fatalf("second PutOps: %v", err)
+	if err := s.PutRequesters(ctx(), []store.Requester{{AccountID: "acc-b", Name: "Person B"}}); err != nil {
+		t.Fatalf("second PutRequesters: %v", err)
 	}
-	members, _ = s.ListOps(ctx())
+	members, _ = s.ListRequesters(ctx())
 	if len(members) != 1 || members[0].AccountID != "acc-b" {
 		t.Errorf("the second save should replace the first: %+v", members)
 	}
 
-	if err := s.PutOps(ctx(), []store.OpsMember{{Name: "nobody"}}); err == nil {
+	if err := s.PutRequesters(ctx(), []store.Requester{{Name: "nobody"}}); err == nil {
 		t.Error("a member without an account id should be refused")
 	}
-	if err := s.PutOps(ctx(), nil); err != nil {
-		t.Fatalf("emptying the roster: %v", err)
+	if err := s.PutRequesters(ctx(), nil); err != nil {
+		t.Fatalf("emptying the list: %v", err)
 	}
-	if members, _ := s.ListOps(ctx()); len(members) != 0 {
-		t.Errorf("an empty save should empty the roster, got %+v", members)
+	if members, _ := s.ListRequesters(ctx()); len(members) != 0 {
+		t.Errorf("an empty save should empty the list, got %+v", members)
 	}
 }
 

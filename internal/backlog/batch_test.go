@@ -22,7 +22,7 @@ const batchSprintField = "customfield_10020"
 func service() *Batch {
 	return &Batch{
 		cfg: BatchConfig{
-			OperationsLabel: "Operations", LegacyLabels: []string{"Ops"},
+			RequestLabel:   "Operations",
 			StoryLinkTypes: []string{"Blocks", "Relates"}, StoryLinkChild: "inward",
 			ContainerTypes: []string{"Story"},
 		},
@@ -66,6 +66,10 @@ func TestParseRefusesWhatItCannotPreview(t *testing.T) {
 		"no labels":                 {Action: ActionLabelsAdd, Keys: []string{"PRJ-1"}, Params: map[string]any{"labels": []any{}}},
 		"a label with a space":      {Action: ActionLabelsAdd, Keys: []string{"PRJ-1"}, Params: map[string]any{"labels": []any{"two words"}}},
 		"nothing to remove":         {Action: ActionLabelsRemove, Keys: []string{"PRJ-1"}, Params: map[string]any{"labels": []any{}}},
+		"a migration from nothing":  {Action: ActionLabelsMigrate, Keys: []string{"PRJ-1"}, Params: map[string]any{"from": []any{}, "to": "x"}},
+		"a migration to nothing":    {Action: ActionLabelsMigrate, Keys: []string{"PRJ-1"}, Params: map[string]any{"from": []any{"a"}}},
+		"a migration to two words":  {Action: ActionLabelsMigrate, Keys: []string{"PRJ-1"}, Params: map[string]any{"from": []any{"a"}, "to": "two words"}},
+		"a migration onto itself":   {Action: ActionLabelsMigrate, Keys: []string{"PRJ-1"}, Params: map[string]any{"from": []any{"a", "b"}, "to": "a"}},
 	} {
 		_, err := b.parse(req)
 		if err == nil {
@@ -83,14 +87,29 @@ func TestParseRefusesWhatItCannotPreview(t *testing.T) {
 	if err != nil || sp.sprintID != 9 {
 		t.Errorf("a JSON number for the sprint: %+v, %v", sp, err)
 	}
-	if sp, _ = b.parse(BatchRequest{Action: ActionOperationsMigrate, Keys: []string{"PRJ-1"}}); strings.Join(sp.add, ",") != "Operations" || strings.Join(sp.remove, ",") != "Ops" {
+	if sp, _ = b.parse(migrate("Operations", "Ops", "ops")); strings.Join(sp.add, ",") != "Operations" || strings.Join(sp.remove, ",") != "Ops,ops" || !sp.migrate {
 		t.Errorf("migrate = %+v", sp)
+	}
+	if sp, _ = b.parse(BatchRequest{Action: ActionRequestLabel, Keys: []string{"PRJ-1"}}); strings.Join(sp.add, ",") != "Operations" || sp.migrate {
+		t.Errorf("request label = %+v", sp)
 	}
 }
 
-func TestLabelsAreAddedWhereAbsentAndRemovedWherePresent(t *testing.T) {
+// migrate is a labels.migrate request as the browser sends it.
+func migrate(to string, from ...string) BatchRequest {
+	list := make([]any, 0, len(from))
+	for _, f := range from {
+		list = append(list, f)
+	}
+	return BatchRequest{Action: ActionLabelsMigrate, Keys: []string{"PRJ-1"}, Params: map[string]any{"from": list, "to": to}}
+}
+
+// A migration replaces the old spellings with the new one in one edit,
+// and leaves alone a ticket that carries none of the old ones - even one
+// already carrying the new label, which was never on the old.
+func TestLabelsAreMigratedWhereTheOldOneIsCarried(t *testing.T) {
 	b := service()
-	sp, _ := b.parse(BatchRequest{Action: ActionOperationsMigrate, Keys: []string{"PRJ-1"}})
+	sp, _ := b.parse(migrate("Operations", "Ops", "ops"))
 
 	r := b.row(sp, ticket(t, "PRJ-1", "Task", map[string]any{"labels": []string{"Ops", "keep"}}), batchSprintField)
 	if r.Skipped != "" || r.Before != "Ops, keep" || r.After != "keep, Operations" {
@@ -101,8 +120,8 @@ func TestLabelsAreAddedWhereAbsentAndRemovedWherePresent(t *testing.T) {
 		t.Errorf("request = %s %s %s", path, query, encoded(body))
 	}
 	r = b.row(sp, ticket(t, "PRJ-2", "Task", map[string]any{"labels": []string{"Operations"}}), batchSprintField)
-	if r.Skipped != "already carries Operations" || r.After != "Operations" {
-		t.Errorf("already migrated: %+v", r)
+	if r.Skipped != "does not carry Ops, ops" || r.After != "Operations" || r.Before != "Operations" {
+		t.Errorf("already on the new label: %+v", r)
 	}
 	r = b.row(sp, ticket(t, "PRJ-3", "Task", map[string]any{"labels": []string{"Operations", "Ops"}}), batchSprintField)
 	if r.Skipped != "" || encoded(request(r)) != `{"update":{"labels":[{"remove":"Ops"}]}}` {
@@ -110,6 +129,13 @@ func TestLabelsAreAddedWhereAbsentAndRemovedWherePresent(t *testing.T) {
 	}
 	if r.Guard.IssueID != "13" || r.Guard.Updated.IsZero() {
 		t.Errorf("guard = %+v", r.Guard)
+	}
+	// Adding the request label alone is the plain add, skipped where the
+	// label is already there.
+	sp, _ = b.parse(BatchRequest{Action: ActionRequestLabel, Keys: []string{"PRJ-1"}})
+	r = b.row(sp, ticket(t, "PRJ-2", "Task", map[string]any{"labels": []string{"Operations"}}), batchSprintField)
+	if r.Skipped != "already carries Operations" {
+		t.Errorf("request label already there: %+v", r)
 	}
 }
 
@@ -233,7 +259,7 @@ func TestInverseUndoesWhatTheLogSays(t *testing.T) {
 		t.Fatalf("facts = %v", facts)
 	}
 
-	labels := store.WriteRecord{Operation: ActionOperationsMigrate, Target: "PRJ-1", Before: "Ops, keep", After: "keep, Operations"}
+	labels := store.WriteRecord{Operation: ActionLabelsMigrate, Target: "PRJ-1", Before: "Ops, keep", After: "keep, Operations"}
 	r := b.inverse(labels, nil, ticket(t, "PRJ-1", "Task", map[string]any{"labels": []string{"keep", "Operations"}}), batchSprintField)
 	if r.Skipped != "" || encoded(request(r)) != `{"update":{"labels":[{"add":"Ops"},{"remove":"Operations"}]}}` {
 		t.Errorf("labels back: %+v %s", r, encoded(request(r)))

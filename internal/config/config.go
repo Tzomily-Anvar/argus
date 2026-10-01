@@ -448,8 +448,8 @@ func SprintWritesAllowed() bool { return Bool("ARGUS_SPRINT_ALLOW_WRITES", false
 //
 // The thresholds are days because the questions are: how long untouched
 // is stale, how recently created is new, how far back the personal inbox
-// looks. The labels are the team's own spelling of "this is an operations
-// request", so they are settings rather than assumptions.
+// looks. The labels are the team's own spelling of "this is a request
+// from outside the team", so they are settings rather than assumptions.
 
 // BacklogStaleDays is how many days without an update makes a ticket
 // stale.
@@ -459,18 +459,20 @@ func BacklogStaleDays() int { return Int("ARGUS_BACKLOG_STALE_DAYS", 14) }
 // listed as new.
 func BacklogNewDays() int { return Int("ARGUS_BACKLOG_NEW_DAYS", 3) }
 
-// BacklogOperationsLabel is the label that marks an operations request.
-// It is the only label the tool ever adds.
-func BacklogOperationsLabel() string { return String("ARGUS_BACKLOG_OPERATIONS_LABEL", "Operations") }
+// BacklogRequestLabel is the label that marks a request from outside the
+// team - typically from an operations or support team whose tickets
+// engineering triages, though the tool assumes nothing about who asks.
+// It is the one label the request views ever add.
+func BacklogRequestLabel() string { return String("ARGUS_BACKLOG_REQUEST_LABEL", "Request") }
 
-// BacklogLegacyLabels are older spellings of the same label. They are read
-// as meaning operations and offered for replacement; none is ever added.
+// BacklogLegacyLabels are older spellings of the request label. They are
+// read as meaning a request and offered for replacement; none is ever added.
 // No default: which spelling a team used to use is the team's to say.
 func BacklogLegacyLabels() []string { return Strings("ARGUS_BACKLOG_LEGACY_LABELS", nil) }
 
 // BacklogWorkLabels mark a kind of engineering work rather than a
-// request. An operations request carrying one is flagged, because the
-// person asking has described the fix instead of the need.
+// request. A request carrying one is flagged, because the person asking
+// has described the fix instead of the need.
 func BacklogWorkLabels() []string { return Strings("ARGUS_BACKLOG_WORK_LABELS", nil) }
 
 // BacklogInboxDays is how far back the inbox looks for mentions,
@@ -482,11 +484,11 @@ func BacklogInboxDays() int { return Int("ARGUS_BACKLOG_INBOX_DAYS", 3) }
 // on more than one board. Empty by default: the report's own project.
 func BacklogEpicProjects() []string { return Strings("ARGUS_BACKLOG_EPIC_PROJECTS", nil) }
 
-// BacklogOpsTeamID is the Atlassian team whose members the operations
-// roster can be imported from, under the same organisation id as the
-// sprint roster's team. An identifier, so no default; unset, the import
-// is not offered.
-func BacklogOpsTeamID() string { return String("ARGUS_BACKLOG_OPS_TEAM_ID", "") }
+// BacklogRequestTeamID is the Atlassian team whose members the
+// requesters can be imported from, under the same organisation id as
+// the sprint roster's team. An identifier, so no default; unset, the
+// import is not offered.
+func BacklogRequestTeamID() string { return String("ARGUS_BACKLOG_REQUEST_TEAM_ID", "") }
 
 // BacklogDeleteAllowed is the gate on the one irreversible write the
 // backlog tool can make. It sits on top of ARGUS_SPRINT_ALLOW_WRITES:

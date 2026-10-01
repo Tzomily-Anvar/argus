@@ -139,8 +139,8 @@ func TestPersistedJSONShape(t *testing.T) {
 		})
 	})
 
-	t.Run("OpsMember", func(t *testing.T) {
-		storetest.CheckJSONFields(t, "store.OpsMember", store.OpsMember{}, map[string]string{
+	t.Run("Requester", func(t *testing.T) {
+		storetest.CheckJSONFields(t, "store.Requester", store.Requester{}, map[string]string{
 			"account_id": "string",
 			"name":       "string",
 			"updated_at": "time.Time",
@@ -179,7 +179,7 @@ func TestEveryPersistedTypeIsRegistered(t *testing.T) {
 		"Person": true, "Sprint": true, "Capacity": true,
 		"SprintStats": true, "WriteRecord": true, "PruneResult": true,
 		"Draft": true, "DraftRequest": true,
-		"Ack": true, "OpsMember": true, "Label": true,
+		"Ack": true, "Requester": true, "Label": true,
 	}
 
 	fset := token.NewFileSet()

@@ -267,17 +267,17 @@ func Core() Catalogue {
 			Desc: "A ticket created within this many days is new, until acknowledged.",
 		},
 		{
-			Key: "ARGUS_BACKLOG_OPERATIONS_LABEL", Section: "Backlog", Kind: KindString,
-			Default: "Operations",
-			Desc:    "The label that marks an operations request. The only label the tool ever adds.",
+			Key: "ARGUS_BACKLOG_REQUEST_LABEL", Section: "Backlog", Kind: KindString,
+			Default: "Request",
+			Desc:    "The label that marks a request from outside the team. The one label the request views ever add.",
 		},
 		{
 			Key: "ARGUS_BACKLOG_LEGACY_LABELS", Section: "Backlog", Kind: KindList,
-			Desc: "Older spellings of the operations label, read as the same thing and offered for replacement. Never added.",
+			Desc: "Older spellings of the request label, read as the same thing and offered for replacement. Never added.",
 		},
 		{
 			Key: "ARGUS_BACKLOG_WORK_LABELS", Section: "Backlog", Kind: KindList,
-			Desc: "Labels that mark a kind of engineering work, not a request. An operations request carrying one is flagged.",
+			Desc: "Labels that mark a kind of engineering work, not a request. A request carrying one is flagged.",
 		},
 		{
 			Key: "ARGUS_BACKLOG_INBOX_DAYS", Section: "Backlog", Kind: KindInt, Default: "3",
@@ -288,8 +288,8 @@ func Core() Catalogue {
 			Desc: "Other project keys whose open Epics the bulk bar offers when setting an Epic. Empty means this project only.",
 		},
 		{
-			Key: "ARGUS_BACKLOG_OPS_TEAM_ID", Section: "Backlog", Kind: KindString,
-			Desc: "The Atlassian team id the operations roster can be imported from, under ARGUS_ATLASSIAN_ORG_ID. Optional.",
+			Key: "ARGUS_BACKLOG_REQUEST_TEAM_ID", Section: "Backlog", Kind: KindString,
+			Desc: "The Atlassian team id the requesters can be imported from, under ARGUS_ATLASSIAN_ORG_ID. Optional.",
 		},
 		{
 			Key: "ARGUS_BACKLOG_ALLOW_DELETE", Section: "Backlog", Kind: KindBool, Default: "false",

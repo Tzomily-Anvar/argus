@@ -22,9 +22,9 @@ type Group struct {
 	JQL   string   `json:"jql"`
 }
 
-// Groups draws every punch list over the rows. The roster is the
-// operations account ids, for the query that names them.
-func Groups(rows []Row, cfg Config, f Fields, roster map[string]bool) []Group {
+// Groups draws every punch list over the rows. The requesters are the
+// account ids whose tickets are requests, for the query that names them.
+func Groups(rows []Row, cfg Config, f Fields, requesters map[string]bool) []Group {
 	base := fmt.Sprintf("project = %s AND statusCategory != Done", cfg.Project)
 	epics := quoteList(sortedKeys(f.EpicTypes))
 	notEpic := "issuetype not in (" + epics + ")"
@@ -79,16 +79,16 @@ func Groups(rows []Row, cfg Config, f Fields, roster map[string]bool) []Group {
 			})})
 	}
 	out = append(out,
-		Group{ID: "operations_missing_label", Label: "Operations requests missing the label",
-			Why:  fmt.Sprintf("An operations request by its reporter or a legacy label, without the %s label.", cfg.OperationsLabel),
-			Keys: pick(rows, func(r Row) bool { return r.OperationsMissingLabel }),
-			JQL:  operationsJQL(base, cfg, roster)},
+		Group{ID: "request_missing_label", Label: "Requests missing the label",
+			Why:  fmt.Sprintf("A request by its reporter or a legacy label, without the %s label.", cfg.RequestLabel),
+			Keys: pick(rows, func(r Row) bool { return r.RequestMissingLabel }),
+			JQL:  requestJQL(base, cfg, requesters)},
 		Group{ID: "legacy_label", Label: "Legacy label",
-			Why:  fmt.Sprintf("Carries an older spelling of the operations label, to be replaced with %s.", cfg.OperationsLabel),
+			Why:  fmt.Sprintf("Carries an older spelling of the request label, to be replaced with %s.", cfg.RequestLabel),
 			Keys: pick(rows, func(r Row) bool { return r.LegacyLabel }),
 			JQL:  legacyJQL(base, cfg)},
-		Group{ID: "operations_work_label", Label: "Requests carrying a work label",
-			Why:  "Reported by the operations roster but labelled as a kind of engineering work, which names the fix rather than the need.",
+		Group{ID: "request_work_label", Label: "Requests carrying a work label",
+			Why:  "Reported by a requester but labelled as a kind of engineering work, which names the fix rather than the need.",
 			Keys: pick(rows, func(r Row) bool { return r.WorkLabel })},
 	)
 	for i := range out {
@@ -128,21 +128,21 @@ func legacyJQL(base string, cfg Config) string {
 	return fmt.Sprintf("%s AND labels in (%s)", base, quoteList(cfg.LegacyLabels))
 }
 
-// operationsJQL names the two signals JQL can see - the legacy labels
-// and the roster's reporters - and excludes tickets already labelled.
-func operationsJQL(base string, cfg Config, roster map[string]bool) string {
+// requestJQL names the two signals JQL can see - the legacy labels and
+// the requesters as reporters - and excludes tickets already labelled.
+func requestJQL(base string, cfg Config, requesters map[string]bool) string {
 	var signals []string
 	if len(cfg.LegacyLabels) > 0 {
 		signals = append(signals, "labels in ("+quoteList(cfg.LegacyLabels)+")")
 	}
-	if ids := sortedKeys(roster); len(ids) > 0 {
+	if ids := sortedKeys(requesters); len(ids) > 0 {
 		signals = append(signals, "reporter in ("+quoteList(ids)+")")
 	}
 	if len(signals) == 0 {
 		return ""
 	}
 	return fmt.Sprintf("%s AND (%s) AND (labels IS EMPTY OR labels not in (%s))",
-		base, strings.Join(signals, " OR "), quoteList([]string{cfg.OperationsLabel}))
+		base, strings.Join(signals, " OR "), quoteList([]string{cfg.RequestLabel}))
 }
 
 // keysJQL opens exactly these keys, or nothing at all.
@@ -233,23 +233,24 @@ func Epics(rows []Row, open []IssueRef, cfg Config) []Epic {
 	return out
 }
 
-// OperationsView is every operations request, the ones without the
-// label, and the ones still carrying a legacy one.
-type OperationsView struct {
+// RequestsView is every request from outside the team, the ones without
+// the label, the ones still carrying a legacy one, the ones labelled as
+// engineering work, and who the requesters are.
+type RequestsView struct {
 	AllKeys          []string `json:"all_keys"`
 	MissingLabelKeys []string `json:"missing_label_keys"`
 	LegacyLabelKeys  []string `json:"legacy_label_keys"`
 	WorkLabelKeys    []string `json:"work_label_keys"`
-	Roster           []Ref    `json:"roster"`
+	Requesters       []Ref    `json:"requesters"`
 }
 
-// Operations reads the flags Rows already judged.
-func Operations(rows []Row) OperationsView {
-	return OperationsView{
-		AllKeys:          pick(rows, func(r Row) bool { return r.Operations }),
-		MissingLabelKeys: pick(rows, func(r Row) bool { return r.OperationsMissingLabel }),
+// Requests reads the flags Rows already judged.
+func Requests(rows []Row) RequestsView {
+	return RequestsView{
+		AllKeys:          pick(rows, func(r Row) bool { return r.Request }),
+		MissingLabelKeys: pick(rows, func(r Row) bool { return r.RequestMissingLabel }),
 		LegacyLabelKeys:  pick(rows, func(r Row) bool { return r.LegacyLabel }),
 		WorkLabelKeys:    pick(rows, func(r Row) bool { return r.WorkLabel }),
-		Roster:           []Ref{},
+		Requesters:       []Ref{},
 	}
 }

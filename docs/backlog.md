@@ -36,9 +36,9 @@ in Jira's issue navigator.
 | `unsized` | A task or bug with neither points nor an estimate |
 | `no_sprint` | In no active or future sprint — the backlog proper |
 | `build_epic_no_story` | Under a Build epic but linked to no story |
-| `operations_missing_label` | An operations request without the label |
-| `legacy_label` | Carrying an older spelling of the operations label |
-| `operations_work_label` | A request from the roster labelled as a kind of engineering work |
+| `request_missing_label` | A request from outside the team without the label |
+| `legacy_label` | Carrying an older spelling of the request label |
+| `request_work_label` | A requester's ticket labelled as a kind of engineering work |
 
 "A task or bug" means any work type: everything that is not a
 container, an epic or a sub-task, which on a standard project is Task
@@ -60,27 +60,40 @@ of that is still unrefined: in a status named *To Refine*, or in Jira's
 *new* category. A closed epic that still has open work under it is
 listed too, because that is worth seeing rather than hiding.
 
-**Operations.** Every operations request, and above them the ones
-missing the label. A ticket is an operations request by any of three
-signals: it carries `ARGUS_BACKLOG_OPERATIONS_LABEL`; it carries one of
-`ARGUS_BACKLOG_LEGACY_LABELS`; or its reporter is on the operations
-roster, a list of account ids kept in the app. The roster exists
+**Requests.** Every request from outside the team, and above them the
+ones missing the label. A typical use is an operations or support team
+whose tickets engineering triages, but the tool does not assume that:
+a ticket is a request by any of three signals. It carries
+`ARGUS_BACKLOG_REQUEST_LABEL`; it carries one of
+`ARGUS_BACKLOG_LEGACY_LABELS`; or its reporter is one of the
+*requesters*, a list of account ids kept in the app. The list exists
 because the label is applied by hand and forgotten, and the reporter is
 the one signal that is never forgotten. It lives behind the gear, like
 the sprint report's team. Candidates for it are the reporters seen in
 the backlog, most frequent first, so a person is ticked rather than an
-account id copied about; with `ARGUS_BACKLOG_OPS_TEAM_ID` set, the
+account id copied about; with `ARGUS_BACKLOG_REQUEST_TEAM_ID` set, the
 Atlassian team's members are proposed too.
 
 The legacy labels, if a team names any, are read as meaning the same
 thing and are never added; the tool offers to replace them so they die
 out. Work labels are the opposite kind: they mark engineering work -
-`DevOps`, say, or a repository's name - and a request from someone on
-the roster carrying one is flagged, because the person asking has named
-the fix rather than the need. The same label on an engineer's own ticket
-is nobody's mistake and is left alone. Only the operations label is ever
-written, and only by the other side of the tool, behind
+`DevOps`, say, or a repository's name - and a requester's ticket
+carrying one is flagged, because the person asking has named the fix
+rather than the need. The same label on an engineer's own ticket is
+nobody's mistake and is left alone. Only the request label is ever
+written by this view, and only by the other side of the tool, behind
 `ARGUS_SPRINT_ALLOW_WRITES`.
+
+**Labels.** The open backlog one label at a time. Pick any label the
+open tickets carry - the picker lists them with their counts, most used
+first - and the view shows every ticket under it, with two buttons:
+*Migrate to…*, which moves them all to another label in one edit each,
+and *Remove*, which takes the label off and leaves the rest. Either acts
+on the rows you have ticked in that list, or on all of them when none
+are, and says which. This is how a spelling that drifted, or two labels
+that came to mean the same thing, are folded back into one; the
+Requests view's "replace the legacy label" is the same migration with
+the labels filled in.
 
 **Inbox.** A personal feed, across every project and space: issues
 that mention you, are assigned to you, or that you watch, changed in
@@ -119,9 +132,10 @@ no bad thing.
 |---|---|---|
 | `ARGUS_BACKLOG_STALE_DAYS` | 14 | No update in this many days is stale |
 | `ARGUS_BACKLOG_NEW_DAYS` | 3 | Created within this many days is new |
-| `ARGUS_BACKLOG_OPERATIONS_LABEL` | `Operations` | The label that marks an operations request; the only label the tool ever adds |
-| `ARGUS_BACKLOG_LEGACY_LABELS` | none | Older spellings, read as the same thing and never added |
-| `ARGUS_BACKLOG_WORK_LABELS` | none | Labels that mark engineering work; a roster request carrying one is flagged |
+| `ARGUS_BACKLOG_REQUEST_LABEL` | `Request` | The label that marks a request from outside the team; the one label the Requests view ever adds |
+| `ARGUS_BACKLOG_LEGACY_LABELS` | none | Older spellings of it, read as the same thing and never added |
+| `ARGUS_BACKLOG_WORK_LABELS` | none | Labels that mark engineering work; a requester's ticket carrying one is flagged |
+| `ARGUS_BACKLOG_REQUEST_TEAM_ID` | none | An Atlassian team whose members are proposed as requesters; optional |
 | `ARGUS_BACKLOG_INBOX_DAYS` | 3 | How far back the inbox looks |
 | `ARGUS_BACKLOG_ALLOW_DELETE` | `false` | The one irreversible write, on top of `ARGUS_SPRINT_ALLOW_WRITES` |
 
@@ -130,7 +144,7 @@ undone, so it has a gate of its own: both settings must be on, the
 confirmation types the count, and every deleted ticket leaves an audit
 row. Nothing on the read side described here is affected by either
 setting; with both off the tool reads Jira and writes only its own
-acknowledgements and roster.
+acknowledgements and requesters.
 
 Which field holds points, which holds the estimate and which the sprint
 are resolved the way the sprint report resolves them: the board's
@@ -158,18 +172,23 @@ line naming the setting.
 | assign to a sprint | the tickets moved onto the sprint you pick | already in that sprint |
 | set the Epic | the parent field | already under that Epic; the ticket is an Epic |
 | link to a Story | one link, of the first type in `ARGUS_JIRA_STORY_LINK_TYPES` | already linked to it; the ticket is a Story or an Epic |
-| add labels | the labels you type, added to whatever is there | already carries them all |
-| remove labels | the labels you type, taken off where present | carries none of them |
-| add `Operations` | the configured operations label | already carries it |
-| replace `Ops` with `Operations` | the operations label added, each legacy label removed | nothing to add or remove |
+| add labels | the labels you pick, added to whatever is there | already carries them all |
+| remove labels | the labels you pick, taken off where present | carries none of them |
+| migrate labels | the labels you name removed, the one you name added | carries none of the labels being replaced |
+| add the request label | `ARGUS_BACKLOG_REQUEST_LABEL` | already carries it |
 | delete | the ticket, subtasks included | the ticket is an Epic |
 
 Labels are added and removed one at a time, never set as a whole list,
 so a label somebody adds between the preview and the write survives.
-The labels the bulk bar offers are chosen behind the gear, picked from
-what the open backlog carries (most used first) or typed for one not in
-use yet; with none chosen the bar asks for a spelling each time. The
-list is the team's own and creates or deletes nothing in Jira.
+A migration is one edit per ticket - the old labels off, the new one on
+- and a ticket carrying none of the old ones is left alone even if it
+already carries the new one, because it was never on the old. The
+labels the bulk bar offers are chosen behind the gear, picked from what
+the open backlog carries (most used first) or typed for one not in use
+yet; with none chosen the bar asks for a spelling each time. The bar's
+*Migrate label…* picks from the chosen labels and every label in use,
+then where to move them. The list is the team's own and creates or
+deletes nothing in Jira.
 A story link is made the way the team makes them: the child at the end
 `ARGUS_BACKLOG_STORY_LINK_CHILD` names (`inward` by default), the Story
 at the other. It does not transition status, comment, edit summaries,

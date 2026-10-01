@@ -8,22 +8,23 @@ import { BatchPanel, type BatchRequest } from "./components/backlog/BatchPanel";
 import { BulkBar } from "./components/backlog/BulkBar";
 import { GroupsView } from "./components/backlog/GroupsView";
 import { InboxView } from "./components/backlog/InboxView";
+import { LabelsView } from "./components/backlog/LabelsView";
 import { NewView } from "./components/backlog/NewView";
-import { OperationsView } from "./components/backlog/OperationsView";
+import { RequestsView } from "./components/backlog/RequestsView";
 import { jiraBase, type Selection } from "./components/backlog/Rows";
 import { BacklogSettingsPanel } from "./components/backlog/BacklogSettingsPanel";
 import { ago } from "./components/backlog/Section";
 
 /* The backlog tool.
  *
- * One sweep of the open tickets, read four ways: what is new, which
- * fixed groups they fall in, which are Operations requests, and the
- * personal inbox beside them. The views share one selection, and the
- * selection feeds one bulk bar, so a ticket ticked in Groups can be
- * acted on from Operations without finding it again. Every write goes
- * through the batch panel, previewed first. */
+ * One sweep of the open tickets, read five ways: what is new, which
+ * fixed groups they fall in, which are requests from outside the team,
+ * which carry a given label, and the personal inbox beside them. The
+ * views share one selection, and the selection feeds one bulk bar, so a
+ * ticket ticked in Groups can be acted on from Requests without finding
+ * it again. Every write goes through the batch panel, previewed first. */
 
-const VIEWS = ["new", "groups", "operations", "inbox"] as const;
+const VIEWS = ["new", "groups", "requests", "labels", "inbox"] as const;
 type View = (typeof VIEWS)[number];
 
 /* The view is the second segment of the path. New is the bare tool, so
@@ -86,11 +87,13 @@ export function BacklogTool() {
   const fresh = rows.filter((r) => r.new && !r.acknowledged).length;
   const grouped = (data?.groups ?? []).reduce((n, g) => n + (g.keys ?? []).length, 0);
   const inboxLive = (inbox.data?.items ?? []).filter((i) => !i.dismissed).length;
+  const labelled = new Set(rows.flatMap((r) => r.labels ?? [])).size;
 
   const sections: Section[] = [
     { id: "new", label: "New", count: fresh, urgent: true },
     { id: "groups", label: "Groups", count: grouped },
-    { id: "operations", label: "Operations", count: (data?.operations?.all_keys ?? []).length },
+    { id: "requests", label: "Requests", count: (data?.requests?.all_keys ?? []).length },
+    { id: "labels", label: "Labels", count: labelled },
     { id: "inbox", label: "Inbox", count: inboxLive },
   ];
 
@@ -111,12 +114,12 @@ export function BacklogTool() {
           <span className="text-xs" style={{ color: "var(--faint)" }}>
             {refresh.isPending || data?.building ? "sweeping…" : data ? `as of ${ago(data.swept_at)}` : ""}
           </span>
-          {/* The operations roster: about the team rather than the
-              sweep, so it lives behind the gear as the sprint roster does. */}
+          {/* The requesters: about the team rather than the sweep, so
+              they live behind the gear as the sprint roster does. */}
           <button
             onClick={() => setSettings(true)}
             aria-label="Settings"
-            title="The operations roster, and the labels the bulk bar offers"
+            title="The requesters, and the labels the bulk bar offers"
             className="flex items-center rounded-lg px-2.5 py-2 text-sm font-medium"
             style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
           >
@@ -174,8 +177,11 @@ export function BacklogTool() {
               staleKeys={staleKeys}
             />
           )}
-          {view === "operations" && (
-            <OperationsView data={data} selection={selection} staleKeys={staleKeys} onBatch={setBatch} />
+          {view === "requests" && (
+            <RequestsView data={data} selection={selection} staleKeys={staleKeys} onBatch={setBatch} />
+          )}
+          {view === "labels" && (
+            <LabelsView data={data} selection={selection} staleKeys={staleKeys} onBatch={setBatch} />
           )}
           {view === "inbox" && <InboxView inbox={inbox.data} loading={inbox.isLoading} error={inbox.error} />}
 

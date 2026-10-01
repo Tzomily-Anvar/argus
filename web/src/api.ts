@@ -901,13 +901,13 @@ export type BacklogRow = {
   new: boolean;
   acknowledged: boolean;
   stale_days: number;
-  /** An Operations request, whether by label, legacy label or roster
-   *  reporter. The two flags after it say which fix it needs. */
-  operations: boolean;
-  operations_missing_label: boolean;
+  /** A request from outside the team, whether by label, legacy label or
+   *  a requester as reporter. The flags after it say which fix it needs. */
+  request: boolean;
+  request_missing_label: boolean;
   legacy_label: boolean;
-  /** A request from the roster carrying a label that marks engineering work. */
-  operations_work_label: boolean;
+  /** A requester's ticket carrying a label that marks engineering work. */
+  request_work_label: boolean;
 };
 
 /** One of the fixed groups: the tickets the sweep put in it, the sentence
@@ -934,16 +934,16 @@ export type BacklogEpic = {
   keys: string[];
 };
 
-export type BacklogOperations = {
+export type BacklogRequests = {
   all_keys: string[];
   missing_label_keys: string[];
   legacy_label_keys: string[];
   work_label_keys: string[];
-  roster: BacklogPerson[];
+  requesters: BacklogPerson[];
 };
 
 export type BacklogSettings = {
-  operations_label: string;
+  request_label: string;
   legacy_labels: string[];
   work_labels: string[];
   allow_delete: boolean;
@@ -960,7 +960,7 @@ export type Backlog = {
   sprints: BacklogSprintRef[];
   epics_all: BacklogRef[];
   stories: (BacklogRef & { epic_key: string })[];
-  operations: BacklogOperations;
+  requests: BacklogRequests;
   settings: BacklogSettings;
 };
 
@@ -977,11 +977,14 @@ export type InboxItem = {
 
 export type Inbox = { items: InboxItem[]; warnings: string[] };
 
-export type OpsMember = { account_id: string; name: string };
+/** Someone whose tickets count as requests from outside the team even
+ *  without the label: typically an operations or support team's people,
+ *  though nothing assumes so. */
+export type Requester = { account_id: string; name: string };
 
-export type OpsRoster = {
-  members: OpsMember[];
-  /** Everyone who reported an open ticket, with how many, so the roster
+export type Requesters = {
+  requesters: Requester[];
+  /** Everyone who reported an open ticket, with how many, so the list
    *  can be built from who actually asks rather than typed from memory. */
   candidates: { account_id: string; label: string; reported: number }[];
 };
@@ -992,8 +995,8 @@ export type BatchAction =
   | "story.link"
   | "labels.add"
   | "labels.remove"
-  | "operations.label"
-  | "operations.migrate"
+  | "labels.migrate"
+  | "request.label"
   | "issue.delete";
 
 /** One ticket in a preview: what the field holds and what it would hold,
@@ -1070,8 +1073,8 @@ export type BacklogLabels = {
 export const fetchLabels = () => getJSON<BacklogLabels>("/api/backlog/labels");
 export const saveLabels = (labels: string[]) => putJSON("/api/backlog/labels", { labels });
 
-export const fetchOpsRoster = () => getJSON<OpsRoster>("/api/backlog/ops-roster");
-export const saveOpsRoster = (members: OpsMember[]) => putJSON("/api/backlog/ops-roster", { members });
+export const fetchRequesters = () => getJSON<Requesters>("/api/backlog/requesters");
+export const saveRequesters = (requesters: Requester[]) => putJSON("/api/backlog/requesters", { requesters });
 
 export const previewBatch = (action: BatchAction, keys: string[], params: Record<string, unknown>) =>
   postJSON<BatchPreview>("/api/backlog/batch/preview", { action, keys, params });
@@ -1085,12 +1088,12 @@ export const applyBatch = (id: string, digest: string, confirm: string) =>
 export const reverseBatch = (batch: string) =>
   postJSON<BatchPreview>("/api/backlog/batch/reverse", { batch });
 
-/** What the operations team's Atlassian team proposes for the roster;
- *  the same shape the sprint roster's import answers with. */
-export type OpsTeamImport = {
+/** What the requesters' Atlassian team proposes for the list; the same
+ *  shape the sprint roster's import answers with. */
+export type RequestTeamImport = {
   configured: boolean;
   reason?: string;
   team_name?: string;
   candidates: { account_id: string; name: string; state: string }[];
 };
-export const fetchOpsTeam = () => getJSON<OpsTeamImport>("/api/backlog/ops-team");
+export const fetchRequestTeam = () => getJSON<RequestTeamImport>("/api/backlog/request-team");

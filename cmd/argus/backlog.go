@@ -74,8 +74,7 @@ func setUpBacklog(ctx context.Context, shared store.Store) (*backlog.Service, *b
 	batch := backlog.NewBatch(writer, st, backlog.BatchConfig{Actor: email,
 		EnableWrites:    config.SprintWritesAllowed(),
 		AllowDelete:     config.BacklogDeleteAllowed(),
-		OperationsLabel: config.BacklogOperationsLabel(),
-		LegacyLabels:    config.BacklogLegacyLabels(),
+		RequestLabel:    config.BacklogRequestLabel(),
 		StoryLinkTypes:  config.JiraStoryLinkTypes(),
 		StoryLinkChild:  config.BacklogStoryLinkChild(),
 		ContainerTypes:  config.Strings("ARGUS_JIRA_CONTAINER_TYPES", []string{"Story"}),
@@ -86,17 +85,17 @@ func setUpBacklog(ctx context.Context, shared store.Store) (*backlog.Service, *b
 
 	interval := time.Duration(config.Int("ARGUS_REFRESH_MINUTES", 15)) * time.Minute
 	svc := backlog.NewService(client, st, backlog.Config{
-		Project:         project,
-		BaseURL:         strings.TrimRight(base, "/"),
-		StaleDays:       config.BacklogStaleDays(),
-		NewDays:         config.BacklogNewDays(),
-		OperationsLabel: config.BacklogOperationsLabel(),
-		LegacyLabels:    config.BacklogLegacyLabels(),
-		InboxDays:       config.BacklogInboxDays(),
-		StoryLinkTypes:  config.JiraStoryLinkTypes(),
-		ContainerTypes:  config.Strings("ARGUS_JIRA_CONTAINER_TYPES", []string{"Story"}),
-		EpicClasses:     epicClasses(),
-		EpicProjects:    config.BacklogEpicProjects(),
+		Project:        project,
+		BaseURL:        strings.TrimRight(base, "/"),
+		StaleDays:      config.BacklogStaleDays(),
+		NewDays:        config.BacklogNewDays(),
+		RequestLabel:   config.BacklogRequestLabel(),
+		LegacyLabels:   config.BacklogLegacyLabels(),
+		InboxDays:      config.BacklogInboxDays(),
+		StoryLinkTypes: config.JiraStoryLinkTypes(),
+		ContainerTypes: config.Strings("ARGUS_JIRA_CONTAINER_TYPES", []string{"Story"}),
+		EpicClasses:    epicClasses(),
+		EpicProjects:   config.BacklogEpicProjects(),
 	}, interval)
 	svc.Start()
 

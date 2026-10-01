@@ -19,7 +19,7 @@
 // their baseline, and the close-out draft: which tickets the operator
 // means to size, assign or log hours against, and for whom. The backlog
 // tool adds its acknowledgements - ticket keys and page titles, which
-// say what one person has looked at - and the operations roster. It
+// say what one person has looked at - and the requesters. It
 // stays on the machine running Argus, it is excluded from version
 // control, and SECURITY.md says so plainly. Anything added to these
 // types inherits that responsibility.
@@ -286,14 +286,16 @@ const (
 // it, whatever cutoff Prune was given for the sprint rows.
 const AckRetention = 90 * 24 * time.Hour
 
-// OpsMember is one person on the operations roster: someone whose
-// tickets are operations requests whether or not they carry the label.
+// Requester is one person whose tickets are requests from outside the
+// team whether or not they carry the request label. A typical list is
+// an operations or support team whose tickets engineering triages, but
+// the tool assumes nothing about who they are.
 //
-// The roster exists because the label is applied by hand and forgotten,
+// The list exists because the label is applied by hand and forgotten,
 // and the reporter is the one signal that is never forgotten. It is a
 // list of account ids kept in the app, like the sprint roster, and it is
 // replaced whole on every save because the panel holds all of it.
-type OpsMember struct {
+type Requester struct {
 	AccountID string    `json:"account_id"`
 	Name      string    `json:"name"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -366,11 +368,10 @@ type Store interface {
 	ListAcks(ctx context.Context, kind string) ([]Ack, error)
 	DeleteAcks(ctx context.Context, kind string, keys []string) error
 
-	// The operations roster. PutOps replaces the whole list, since the
-	// panel that saves it holds all of it; an empty list empties the
-	// roster.
-	ListOps(ctx context.Context) ([]OpsMember, error)
-	PutOps(ctx context.Context, members []OpsMember) error
+	// The requesters. PutRequesters replaces the whole list, since the
+	// panel that saves it holds all of it; an empty list empties it.
+	ListRequesters(ctx context.Context) ([]Requester, error)
+	PutRequesters(ctx context.Context, members []Requester) error
 
 	// The labels offered by the bulk bar, replaced whole like the roster.
 	// A label is one word; PutLabels refuses an empty one and folds a

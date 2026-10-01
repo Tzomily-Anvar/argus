@@ -133,7 +133,7 @@ func backlogServer(t *testing.T, sweep bool) *server.Server {
 	t.Cleanup(func() { _ = st.Close() })
 	svc := backlog.NewService(client, st, backlog.Config{
 		Project: "ABC", BaseURL: fake.URL,
-		StaleDays: 14, NewDays: 3, OperationsLabel: "Operations", LegacyLabels: []string{"Ops"},
+		StaleDays: 14, NewDays: 3, RequestLabel: "Operations", LegacyLabels: []string{"Ops"},
 		InboxDays: 3, StoryLinkTypes: []string{"Blocks"}, ContainerTypes: []string{"Story"},
 	}, 0)
 	if sweep {
@@ -187,13 +187,13 @@ func TestBacklogViewAfterASweep(t *testing.T) {
 	if keys := groupKeys(v, "no_story"); len(keys) != 1 || keys[0] != "ABC-1" {
 		t.Errorf("no_story = %v", keys)
 	}
-	if v.Operations.LegacyLabelKeys == nil || len(v.Operations.LegacyLabelKeys) != 1 {
-		t.Errorf("operations = %+v", v.Operations)
+	if v.Requests.LegacyLabelKeys == nil || len(v.Requests.LegacyLabelKeys) != 1 {
+		t.Errorf("requests = %+v", v.Requests)
 	}
 	if v.Warnings == nil || len(v.Warnings) != 0 {
 		t.Errorf("warnings = %#v, want an empty list", v.Warnings)
 	}
-	if v.Settings.OperationsLabel != "Operations" || v.Settings.WritesAllowed || v.Settings.AllowDelete {
+	if v.Settings.RequestLabel != "Operations" || v.Settings.WritesAllowed || v.Settings.AllowDelete {
 		t.Errorf("settings = %+v", v.Settings)
 	}
 	// The row's points came through the board's field.
@@ -305,45 +305,45 @@ func TestInboxDismissAndUndo(t *testing.T) {
 	}
 }
 
-func TestOpsRoster(t *testing.T) {
+func TestRequesters(t *testing.T) {
 	srv := backlogServer(t, true)
-	type roster struct {
-		Members    []map[string]any    `json:"members"`
+	type requesters struct {
+		Requesters []map[string]any    `json:"requesters"`
 		Candidates []backlog.Candidate `json:"candidates"`
 	}
-	read := func() roster {
-		rec := call(t, srv, http.MethodGet, "/api/backlog/ops-roster", "")
+	read := func() requesters {
+		rec := call(t, srv, http.MethodGet, "/api/backlog/requesters", "")
 		if rec.Code != http.StatusOK {
-			t.Fatalf("roster: %d %s", rec.Code, rec.Body.String())
+			t.Fatalf("requesters: %d %s", rec.Code, rec.Body.String())
 		}
-		var r roster
+		var r requesters
 		_ = json.Unmarshal(rec.Body.Bytes(), &r)
 		return r
 	}
 	r := read()
-	if r.Members == nil || len(r.Members) != 0 || len(r.Candidates) != 2 || r.Candidates[0].Reported != 1 {
-		t.Errorf("empty roster = %+v", r)
+	if r.Requesters == nil || len(r.Requesters) != 0 || len(r.Candidates) != 2 || r.Candidates[0].Reported != 1 {
+		t.Errorf("no requesters = %+v", r)
 	}
 
-	rec := call(t, srv, http.MethodPut, "/api/backlog/ops-roster", `{"members":[{"account_id":"acc-r1","name":"Reporter One"}]}`)
+	rec := call(t, srv, http.MethodPut, "/api/backlog/requesters", `{"requesters":[{"account_id":"acc-r1","name":"Reporter One"}]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
 	}
-	if r = read(); len(r.Members) != 1 || r.Members[0]["account_id"] != "acc-r1" {
-		t.Errorf("after saving: %+v", r.Members)
+	if r = read(); len(r.Requesters) != 1 || r.Requesters[0]["account_id"] != "acc-r1" {
+		t.Errorf("after saving: %+v", r.Requesters)
 	}
-	// The roster is a signal: the reporter's ticket is now an operations
-	// request missing the label.
+	// A requester is a signal: the reporter's ticket is now a request
+	// missing the label.
 	v := decodeView(t, call(t, srv, http.MethodGet, "/api/backlog", ""))
-	if keys := v.Operations.MissingLabelKeys; len(keys) != 2 {
+	if keys := v.Requests.MissingLabelKeys; len(keys) != 2 {
 		t.Errorf("missing label = %v, want ABC-1 by its reporter beside ABC-2 by its legacy label", keys)
 	}
-	if len(v.Operations.Roster) != 1 || v.Operations.Roster[0].Label != "Reporter One" {
-		t.Errorf("the view should carry the roster: %+v", v.Operations.Roster)
+	if len(v.Requests.Requesters) != 1 || v.Requests.Requesters[0].Label != "Reporter One" {
+		t.Errorf("the view should carry the requesters: %+v", v.Requests.Requesters)
 	}
 
-	if rec := call(t, srv, http.MethodPut, "/api/backlog/ops-roster", `{"members":[{"name":"nobody"}]}`); rec.Code != http.StatusBadRequest {
-		t.Errorf("a member without an account id: status = %d, want 400", rec.Code)
+	if rec := call(t, srv, http.MethodPut, "/api/backlog/requesters", `{"requesters":[{"name":"nobody"}]}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("a requester without an account id: status = %d, want 400", rec.Code)
 	}
 }
 

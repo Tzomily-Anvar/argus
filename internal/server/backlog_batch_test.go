@@ -186,7 +186,7 @@ func batchServer(t *testing.T, fake *backlogStandIn, writes, deletes bool) (*Ser
 	t.Cleanup(func() { _ = st.Close() })
 	b := backlog.NewBatch(client, st, backlog.BatchConfig{
 		Actor: "operator@example.com", EnableWrites: writes, AllowDelete: deletes,
-		OperationsLabel: "Operations", LegacyLabels: []string{"Ops"},
+		RequestLabel:   "Operations",
 		StoryLinkTypes: []string{"Blocks"}, StoryLinkChild: "inward", ContainerTypes: []string{"Story"},
 		SprintField: sprintFieldID,
 	})
@@ -307,16 +307,20 @@ func TestBatchAddsLabelsAndReversesThem(t *testing.T) {
 	}
 }
 
+// A migration is one edit per ticket that carries the old label; a
+// ticket without it is not given the new one, it is left alone.
 func TestBatchMigratesTheLegacyLabelInOneEdit(t *testing.T) {
 	fake := newBacklogStandIn(t)
 	srv, _ := batchServer(t, fake, true, false)
-	p := previewBatch(t, srv, `{"action":"operations.migrate","keys":["PRJ-1","PRJ-2"]}`)
-	if rec, res := applyBatch(t, srv, p, ""); rec.Code != http.StatusOK || res.Applied != 2 {
+	p := previewBatch(t, srv, `{"action":"labels.migrate","keys":["PRJ-1","PRJ-2"],"params":{"from":["Ops"],"to":"Operations"}}`)
+	if p.Changes != 1 || p.Skipped != 1 || p.Rows[1].Skipped != "does not carry Ops" {
+		t.Fatalf("preview = %+v", p.Rows)
+	}
+	if rec, res := applyBatch(t, srv, p, ""); rec.Code != http.StatusOK || res.Applied != 1 || res.Skipped != 1 {
 		t.Fatalf("apply: %d %s", rec.Code, rec.Body.String())
 	}
 	got := fake.sent()
-	if len(got) != 2 || got[0].Body != `{"update":{"labels":[{"add":"Operations"},{"remove":"Ops"}]}}` ||
-		got[1].Body != `{"update":{"labels":[{"add":"Operations"}]}}` {
+	if len(got) != 1 || got[0].Body != `{"update":{"labels":[{"add":"Operations"},{"remove":"Ops"}]}}` {
 		t.Errorf("the stand-in saw %+v", got)
 	}
 }

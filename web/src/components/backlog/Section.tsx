@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { Selection } from "./Rows";
 
 /* A card with a heading, a sentence under it and room on the right for
  * the controls that act on the whole card. The same shape the sprint
@@ -26,6 +27,19 @@ export function Section({
       <div style={{ borderTop: "1px solid var(--line)" }}>{children}</div>
     </section>
   );
+}
+
+/** What a section's button acts on: the rows ticked within the section,
+ *  or the whole section when none are, with the words that say which.
+ *  The bulk bar is for a selection spanning sections; a section's own
+ *  button is the one-click path over its list. */
+export type Scope = { all: string[]; keys: string[]; count: string };
+
+export function scopeOf(all: string[], selection: Selection): Scope {
+  const ticked = all.filter((k) => selection.has(k));
+  return ticked.length > 0
+    ? { all, keys: ticked, count: `${ticked.length} selected` }
+    : { all, keys: all, count: `all ${all.length}` };
 }
 
 /** ago is how long since a timestamp, in the short form the headers of

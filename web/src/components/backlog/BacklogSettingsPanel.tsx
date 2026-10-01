@@ -1,24 +1,27 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchLabels, fetchOpsRoster, fetchOpsTeam, saveLabels, saveOpsRoster, type OpsMember } from "../../api";
+import { fetchLabels, fetchRequesters, fetchRequestTeam, saveLabels, saveRequesters, type Requester } from "../../api";
 import { outlined, small } from "../closeout/Table";
 import { SaveBar, SidePanel, stateOf } from "../Panel";
 import { Picker } from "./Picker";
 
-/* The Backlog tool's settings: the operations roster, and the labels
- * the bulk bar offers.
+/* The Backlog tool's settings: the requesters, and the labels the bulk
+ * bar offers.
  *
- * Behind the gear, where the sprint report keeps its team, and for the
- * same reason: who is on the operations team and which labels the team
+ * The requesters are the people whose tickets count as requests from
+ * outside the team even without the label - typically an operations or
+ * support team whose tickets engineering triages, though the tool does
+ * not assume so. Behind the gear, where the sprint report keeps its
+ * team, and for the same reason: who asks and which labels the team
  * applies change a few times a year, while the tickets change daily.
- * Keeping the roster on the Operations view made the durable thing look
+ * Keeping the list on the Requests view made the durable thing look
  * like part of the day's work. Edited the same way as the sprint roster
  * - typing does not save, Save saves - and the panel refuses to close on
  * unsaved changes without saying so.
  *
- * Two sources feed the roster: the Atlassian team, when one is
+ * Two sources feed the list: the Atlassian team, when one is
  * configured, which proposes its members; and whoever has reported an
- * open ticket, so the roster can be built from who actually asks rather
+ * open ticket, so the list can be built from who actually asks rather
  * than typed from memory. The labels are picked from what the open
  * backlog carries, most used first, or typed for one not in use yet.
  * All of it only proposes; nothing is saved until Save. */
@@ -26,38 +29,38 @@ import { Picker } from "./Picker";
 export function BacklogSettingsPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const labels = useLabels(qc);
-  const roster = useQuery({ queryKey: ["ops-roster"], queryFn: fetchOpsRoster });
+  const requesters = useQuery({ queryKey: ["requesters"], queryFn: fetchRequesters });
   // Null means "as the server has it"; a list means edits not yet saved.
-  const [draft, setDraft] = useState<OpsMember[] | null>(null);
-  const members = draft ?? roster.data?.members ?? [];
+  const [draft, setDraft] = useState<Requester[] | null>(null);
+  const members = draft ?? requesters.data?.requesters ?? [];
   // One Save for both lists; each is only written when it changed.
   const save = useMutation({
     mutationFn: async () => {
-      if (draft !== null) await saveOpsRoster(members);
+      if (draft !== null) await saveRequesters(members);
       if (labels.draft !== null) await saveLabels(labels.chosen);
     },
     onSuccess: () => {
       setDraft(null);
       labels.setDraft(null);
-      qc.invalidateQueries({ queryKey: ["ops-roster"] });
+      qc.invalidateQueries({ queryKey: ["requesters"] });
       qc.invalidateQueries({ queryKey: ["labels"] });
-      // The roster decides which reporters count, so the rows move too.
+      // The requesters decide which reporters count, so the rows move too.
       qc.invalidateQueries({ queryKey: ["backlog"] });
     },
   });
 
-  const onRoster = new Set(members.map((m) => m.account_id));
-  const candidates = (roster.data?.candidates ?? [])
-    .filter((c) => !onRoster.has(c.account_id))
+  const listed = new Set(members.map((m) => m.account_id));
+  const candidates = (requesters.data?.candidates ?? [])
+    .filter((c) => !listed.has(c.account_id))
     .map((c) => ({ id: c.account_id, label: c.label, hint: `${c.reported} reported` }));
   const add = (id: string) => {
-    const c = (roster.data?.candidates ?? []).find((x) => x.account_id === id);
+    const c = (requesters.data?.candidates ?? []).find((x) => x.account_id === id);
     if (c) setDraft([...members, { account_id: c.account_id, name: c.label }]);
   };
   const remove = (id: string) => setDraft(members.filter((m) => m.account_id !== id));
 
-  const team = useQuery({ queryKey: ["ops-team"], queryFn: fetchOpsTeam, staleTime: 60_000 });
-  const proposed = (team.data?.candidates ?? []).filter((c) => !onRoster.has(c.account_id));
+  const team = useQuery({ queryKey: ["request-team"], queryFn: fetchRequestTeam, staleTime: 60_000 });
+  const proposed = (team.data?.candidates ?? []).filter((c) => !listed.has(c.account_id));
   const importTeam = () => {
     if (proposed.length === 0) return;
     setDraft([...members, ...proposed.map((c) => ({ account_id: c.account_id, name: c.name }))]);
@@ -65,7 +68,7 @@ export function BacklogSettingsPanel({ onClose }: { onClose: () => void }) {
 
   // Unsaved changes, counted as people added plus people removed, so the
   // note under the list says how many rather than only that there are some.
-  const saved = roster.data?.members ?? [];
+  const saved = requesters.data?.requesters ?? [];
   const dirty = (draft === null ? 0
     : draft.filter((m) => !saved.some((s) => s.account_id === m.account_id)).length
       + saved.filter((s) => !draft.some((m) => m.account_id === s.account_id)).length)
@@ -74,7 +77,7 @@ export function BacklogSettingsPanel({ onClose }: { onClose: () => void }) {
   return (
     <SidePanel
       title="Settings"
-      subtitle="The operations roster, and the labels the bulk bar offers. Both carry across every sweep."
+      subtitle="The requesters, and the labels the bulk bar offers. Both carry across every sweep."
       pending={dirty > 0}
       onClose={onClose}
       footer={
@@ -88,35 +91,35 @@ export function BacklogSettingsPanel({ onClose }: { onClose: () => void }) {
       }
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-[13px] font-semibold">Operations roster</h3>
+        <h3 className="text-[13px] font-semibold">Requesters</h3>
         <span className="flex items-center gap-2">
           {team.data?.configured && (
             <button
               onClick={importTeam}
               disabled={proposed.length === 0}
               title={proposed.length === 0
-                ? `Everyone on ${team.data.team_name ?? "the team"} is already on the roster.`
-                : `Add the ${proposed.length} on ${team.data.team_name ?? "the team"} who are not on the roster yet.`}
+                ? `Everyone on ${team.data.team_name ?? "the team"} is already a requester.`
+                : `Add the ${proposed.length} on ${team.data.team_name ?? "the team"} who are not requesters yet.`}
               className={small}
               style={outlined}
             >
               Import from {team.data.team_name ?? "Atlassian team"}{proposed.length > 0 ? ` (${proposed.length})` : ""}
             </button>
           )}
-          <Picker label="Add from reporters" items={candidates} onPick={add} placeholder="Find a reporter…" disabled={roster.isLoading} />
+          <Picker label="Add from reporters" items={candidates} onPick={add} placeholder="Find a reporter…" disabled={requesters.isLoading} />
         </span>
       </div>
 
-      {roster.error && (
+      {requesters.error && (
         <p className="mb-3 rounded-lg px-3 py-2 text-[13px]" style={{ background: "var(--crit-bg)", color: "var(--crit)" }}>
-          {roster.error instanceof Error ? roster.error.message : String(roster.error)}
+          {requesters.error instanceof Error ? requesters.error.message : String(requesters.error)}
         </p>
       )}
 
       <div className="rounded-xl" style={{ border: "1px solid var(--line)" }}>
         {members.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>
-            {roster.isLoading ? "Reading the roster…" : "Nobody on the roster. Requests are then found by label alone."}
+            {requesters.isLoading ? "Reading the requesters…" : "No requesters. Requests are then found by label alone."}
           </p>
         ) : (
           <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
@@ -131,9 +134,9 @@ export function BacklogSettingsPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <p className="mt-3 text-[12.5px]" style={{ color: "var(--muted)" }}>
-        A ticket reported by anyone here is an operations request whether or not it carries the label,
-        and the Operations view offers to add the label to it. The roster is Argus's own list; the
-        Atlassian team only proposes members, and removing somebody here changes nothing in Atlassian.
+        Requesters: whose tickets count as requests from outside the team even without the label.
+        The Requests view offers to add the label to them. The list is Argus's own; the Atlassian
+        team only proposes members, and removing somebody here changes nothing in Atlassian.
       </p>
 
       <LabelsBlock labels={labels} />

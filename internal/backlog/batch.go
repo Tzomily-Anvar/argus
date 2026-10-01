@@ -28,14 +28,14 @@ import (
 // The actions a batch performs. They are what the preview names, what
 // the audit row records as its operation, and what the bulk bar offers.
 const (
-	ActionSprintAssign      = "sprint.assign"
-	ActionEpicSet           = "epic.set"
-	ActionStoryLink         = "story.link"
-	ActionLabelsAdd         = "labels.add"
-	ActionLabelsRemove      = "labels.remove"
-	ActionOperationsLabel   = "operations.label"
-	ActionOperationsMigrate = "operations.migrate"
-	ActionIssueDelete       = "issue.delete"
+	ActionSprintAssign  = "sprint.assign"
+	ActionEpicSet       = "epic.set"
+	ActionStoryLink     = "story.link"
+	ActionLabelsAdd     = "labels.add"
+	ActionLabelsRemove  = "labels.remove"
+	ActionLabelsMigrate = "labels.migrate"
+	ActionRequestLabel  = "request.label"
+	ActionIssueDelete   = "issue.delete"
 )
 
 // PreviewLifetime is how long a preview stays valid, the same fifteen
@@ -69,11 +69,10 @@ type BatchConfig struct {
 	EnableWrites bool
 	AllowDelete  bool
 
-	// OperationsLabel is the one label ever added for the operations
-	// team, and LegacyLabels the ones a migration removes. Left empty,
-	// the label is Operations and there is nothing to migrate.
-	OperationsLabel string
-	LegacyLabels    []string
+	// RequestLabel is the label request.label adds: the one that marks a
+	// ticket as a request from outside the team. Left empty it is
+	// Request. Which labels a migration replaces is said per request.
+	RequestLabel string
 
 	// StoryLinkTypes are the link types that tie a Story to its work; the
 	// first is the one written. StoryLinkChild says which end the child
@@ -163,8 +162,8 @@ type Batch struct {
 // pinned one, and the sprint service replaces it with the board's on its
 // first sweep, which is the value that matters for points.
 func NewBatch(client *jira.Client, st store.Store, cfg BatchConfig) *Batch {
-	if cfg.OperationsLabel == "" {
-		cfg.OperationsLabel = "Operations"
+	if cfg.RequestLabel == "" {
+		cfg.RequestLabel = "Request"
 	}
 	if len(cfg.StoryLinkTypes) == 0 {
 		cfg.StoryLinkTypes = config.JiraStoryLinkTypes()

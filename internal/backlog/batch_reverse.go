@@ -67,7 +67,7 @@ func (b *Batch) inverse(w store.WriteRecord, facts map[string]string, is jira.Is
 		Guard: Guard{IssueID: is.ID, Updated: is.Fields.Updated.Time},
 	}
 	switch w.Operation {
-	case ActionLabelsAdd, ActionLabelsRemove, ActionOperationsLabel, ActionOperationsMigrate:
+	case ActionLabelsAdd, ActionLabelsRemove, ActionLabelsMigrate, ActionRequestLabel:
 		was, wrote := splitLabels(w.Before), splitLabels(w.After)
 		labelsRow(&r, is.Fields.Labels, except(was, wrote), except(wrote, was))
 		if r.Skipped != "" {

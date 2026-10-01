@@ -59,17 +59,17 @@ func TestGroupsFireOnTheRightRows(t *testing.T) {
 	groups := Groups(rows, testConfig(), testFields(), roster)
 
 	want := map[string][]string{
-		"new_unacknowledged":       {"ABC-1", "ABC-4", "ABC-6"},
-		"stale":                    {"ABC-2"},
-		"no_epic":                  {"ABC-1"},
-		"no_story":                 {"ABC-1", "ABC-3"},
-		"no_labels":                {"ABC-1", "ABC-6"},
-		"unsized":                  {"ABC-1"},
-		"no_sprint":                {"ABC-1", "ABC-3", "ABC-50"},
-		"build_epic_no_story":      {"ABC-3"},
-		"operations_missing_label": {"ABC-2", "ABC-4"},
-		"legacy_label":             {"ABC-2"},
-		"operations_work_label":    {},
+		"new_unacknowledged":    {"ABC-1", "ABC-4", "ABC-6"},
+		"stale":                 {"ABC-2"},
+		"no_epic":               {"ABC-1"},
+		"no_story":              {"ABC-1", "ABC-3"},
+		"no_labels":             {"ABC-1", "ABC-6"},
+		"unsized":               {"ABC-1"},
+		"no_sprint":             {"ABC-1", "ABC-3", "ABC-50"},
+		"build_epic_no_story":   {"ABC-3"},
+		"request_missing_label": {"ABC-2", "ABC-4"},
+		"legacy_label":          {"ABC-2"},
+		"request_work_label":    {},
 	}
 	if len(groups) != len(want) {
 		t.Errorf("groups = %v, want %d of them", groupIDs(groups), len(want))
@@ -141,28 +141,28 @@ func TestWorkLabelOnARequest(t *testing.T) {
 	if got := flagged(roster); len(got) != 0 {
 		t.Errorf("flagged with the reporter off the roster = %v, want none", got)
 	}
-	ops := Operations(Rows(fixture(t), cfg, nil, map[string]bool{"acc-r1": true}, now))
-	if !sameKeys(ops.WorkLabelKeys, []string{"ABC-2"}) || len(ops.LegacyLabelKeys) != 0 {
-		t.Errorf("view = %+v: want ABC-2 under work labels and nothing legacy", ops)
+	reqs := Requests(Rows(fixture(t), cfg, nil, map[string]bool{"acc-r1": true}, now))
+	if !sameKeys(reqs.WorkLabelKeys, []string{"ABC-2"}) || len(reqs.LegacyLabelKeys) != 0 {
+		t.Errorf("view = %+v: want ABC-2 under work labels and nothing legacy", reqs)
 	}
 }
 
-// Three signals make an operations request, and the missing-label list
-// is the ones the label signal does not cover.
-func TestOperationsBySignal(t *testing.T) {
-	ops := Operations(rowsOf(t, nil, roster))
-	if !sameKeys(ops.AllKeys, []string{"ABC-2", "ABC-3", "ABC-4"}) {
-		t.Errorf("all = %v: want the legacy label, the label and the roster reporter", ops.AllKeys)
+// Three signals make a request, and the missing-label list is the ones
+// the label signal does not cover.
+func TestRequestsBySignal(t *testing.T) {
+	reqs := Requests(rowsOf(t, nil, roster))
+	if !sameKeys(reqs.AllKeys, []string{"ABC-2", "ABC-3", "ABC-4"}) {
+		t.Errorf("all = %v: want the legacy label, the label and the requester's ticket", reqs.AllKeys)
 	}
-	if !sameKeys(ops.MissingLabelKeys, []string{"ABC-2", "ABC-4"}) {
-		t.Errorf("missing label = %v", ops.MissingLabelKeys)
+	if !sameKeys(reqs.MissingLabelKeys, []string{"ABC-2", "ABC-4"}) {
+		t.Errorf("missing label = %v", reqs.MissingLabelKeys)
 	}
-	if !sameKeys(ops.LegacyLabelKeys, []string{"ABC-2"}) {
-		t.Errorf("legacy = %v", ops.LegacyLabelKeys)
+	if !sameKeys(reqs.LegacyLabelKeys, []string{"ABC-2"}) {
+		t.Errorf("legacy = %v", reqs.LegacyLabelKeys)
 	}
-	// Without the roster, the reporter signal goes.
-	if ops := Operations(rowsOf(t, nil, nil)); !sameKeys(ops.AllKeys, []string{"ABC-2", "ABC-3"}) {
-		t.Errorf("all without a roster = %v", ops.AllKeys)
+	// Without any requesters, the reporter signal goes.
+	if reqs := Requests(rowsOf(t, nil, nil)); !sameKeys(reqs.AllKeys, []string{"ABC-2", "ABC-3"}) {
+		t.Errorf("all without requesters = %v", reqs.AllKeys)
 	}
 }
 
@@ -202,7 +202,7 @@ func TestGroupJQL(t *testing.T) {
 		"no_labels": base + ` AND issuetype not in ("Epic") AND labels IS EMPTY`,
 		"unsized": base + ` AND issuetype not in subTaskIssueTypes() AND issuetype not in ("Epic")` +
 			` AND issuetype not in ("Story") AND cf[10016] IS EMPTY AND cf[10017] IS EMPTY`,
-		"operations_missing_label": base + ` AND (labels in ("Ops") OR reporter in ("acc-ops"))` +
+		"request_missing_label": base + ` AND (labels in ("Ops") OR reporter in ("acc-ops"))` +
 			` AND (labels IS EMPTY OR labels not in ("Operations"))`,
 		"legacy_label":        base + ` AND labels in ("Ops")`,
 		"no_story":            "key in (ABC-1, ABC-3)",
