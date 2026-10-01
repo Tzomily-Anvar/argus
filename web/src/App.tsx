@@ -116,6 +116,7 @@ export default function App() {
   const stale = data?.results["stale_prs"]?.data as { rows?: PRRow[]; bot_count?: number } | undefined;
   const merge = data?.results["merge_readiness"]?.data as MergeReadiness | undefined;
   const allOpen = merge?.rows ?? [];
+  const draftPRs = merge?.drafts ?? [];
   const security = data?.results["security"]?.data as SecurityData | undefined;
 
   // Criticals alone would be the wrong measure of "is this clear?": an
@@ -155,6 +156,15 @@ export default function App() {
       count: mine.length, body: () => <PRTable rows={mine} showAuthor={false} /> },
     { id: "merge_readiness", label: "All open", title: "Open pull requests", why: why("merge_readiness"),
       count: allOpen.length, body: () => <PRTable rows={allOpen} /> },
+    // Drafts get their own tab rather than a place in the open list: they
+    // are not asking for review yet, but a repository full of them should
+    // not look like one with nothing open. Absent when there are none, or
+    // when the team has chosen to fold them into the open list.
+    ...(draftPRs.length > 0
+      ? [{ id: "drafts", label: "Drafts", title: "Draft pull requests",
+          why: "Work in progress, kept apart so the open list stays about what is asking for review. A draft that sits here for weeks is a stale branch with a title.",
+          count: draftPRs.length, body: () => <PRTable rows={draftPRs} /> }]
+      : []),
     { id: "stale", label: "Stale", title: "Abandoned work",
       why: "Pull requests and branches that have stopped moving. Long-lived branches drift from main and get harder to merge the longer they sit - finish them or close them.",
       count: (stale?.rows?.length ?? 0) + branches.length,
