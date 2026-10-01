@@ -46,12 +46,12 @@ type Rules struct {
 // DefaultStoryLinkTypes are the issue link types that tie a container to
 // the work beneath it.
 //
-// Measured over five sprints of one team's finished Stories, Blocks
-// carries most of the association, Relates a handful more, and
-// migration_parent is a legacy type left behind by a move between
-// projects. All three are wanted, which is why this is a list and why it
-// is configurable rather than assumed.
-var DefaultStoryLinkTypes = []string{"Blocks", "migration_parent", "Relates"}
+// Blocks and Relates are the two link types every Jira site declares,
+// and between them they carry the association on most boards. A team
+// whose history holds another - a type left behind by a migration
+// between projects, say - names it in ARGUS_JIRA_STORY_LINK_TYPES, which
+// is why this is a list and configurable rather than assumed.
+var DefaultStoryLinkTypes = []string{"Blocks", "Relates"}
 
 func has(list []string, name string) bool {
 	for _, s := range list {

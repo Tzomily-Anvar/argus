@@ -212,7 +212,7 @@ func Core() Catalogue {
 		},
 		{
 			Key: "ARGUS_JIRA_STORY_LINK_TYPES", Section: "Jira", Kind: KindList,
-			Default: "Blocks,migration_parent,Relates",
+			Default: "Blocks,Relates",
 			Desc:    "Issue link types that tie a container to the work beneath it, when parent points at the Epic.",
 		},
 		{

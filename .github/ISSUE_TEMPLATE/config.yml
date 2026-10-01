@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report
+    url: https://github.com/Tzomily-Anvar/argus/security/advisories/new
+    about: Report a vulnerability privately. Please do not open a public issue for one - see SECURITY.md.
+  - name: Documentation
+    url: https://github.com/Tzomily-Anvar/argus/tree/main/docs
+    about: Tokens, the GitHub App, the sprint report, the Backlog tool, and every rule.

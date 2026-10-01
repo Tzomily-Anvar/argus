@@ -286,9 +286,10 @@ func JiraEstimateFieldName() string {
 // Jira's parent field points at the Epic for a team that puts Tasks under
 // a Story, so the association has nowhere to live but issue links - and
 // which link type carries it is a local habit rather than a standard. A
-// team that migrated between projects usually has two.
+// team that migrated between projects usually has two, and names the
+// legacy one here beside the current one.
 func JiraStoryLinkTypes() []string {
-	return Strings("ARGUS_JIRA_STORY_LINK_TYPES", []string{"Blocks", "migration_parent", "Relates"})
+	return Strings("ARGUS_JIRA_STORY_LINK_TYPES", []string{"Blocks", "Relates"})
 }
 
 // Worklog attribution modes: who a logged entry's time is credited to.

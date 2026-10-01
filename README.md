@@ -1,14 +1,21 @@
 # Argus
 
-A read-only dashboard for a GitHub organisation, and a sprint report for
-Jira: what is waiting on your review, what is ready to merge, what has
-gone stale, which security alerts matter, and where a sprint's capacity
-actually went.
+A read-only dashboard for a GitHub organisation, and a set of Jira tools
+beside it: what is waiting on your review, what is ready to merge, what
+has gone stale, which security alerts matter, where a sprint's capacity
+actually went, what in the backlog needs a hand, and who has been
+carrying the review load.
 
-It runs **on your own machine** — as a single binary or as one container
-— and authenticates with **your own** credentials, so everything is
-scoped to what you can already see. Nothing is hosted and nothing is
-shared.
+It runs **on your own machine** — as a single binary, a Linux package or
+one container — and authenticates with **your own** credentials, so
+everything is scoped to what you can already see. Nothing is hosted and
+nothing is shared.
+
+**Who this is for.** A tech lead, engineering manager or scrum master
+who runs a GitHub organisation (or a personal account) and, optionally,
+a Jira project, and wants the day's triage in one place rather than in
+six browser tabs — on their own machine, with their own credentials, and
+without handing anyone else's service a token.
 
 It sweeps in the background and serves from memory, so the dashboard is
 **instant whenever you open it**, however slow the underlying API was.
@@ -19,19 +26,23 @@ and the first visit afterwards sweeps at once and restores the pace.
 
 ## Why this exists
 
-Hello! Argus was made to automate part of my work, and has tools necessary
-for running my team the way I need. Some of the tools have to do with PR
-statuses and points of attention for me, other tools have to do with
-reporting on Sprints and handling the backlog. As a Lead Engineer in a
-startup my needs are various, and when I noticed how much time could be
-saved by making tools for these jobs instead of using AI for them, it felt
-like a journey worth taking. This repo is also a learning place for me, to
-try new things and test tools, languages, etc. Feel free to use it, leave
-remarks or suggestions.
+Running a small engineering team means asking the same questions every
+morning: whose review is blocking whom, what is approved and forgotten,
+which alerts are real, whether the sprint is where it should be, and
+what has quietly piled up in the backlog. The answers are all in GitHub
+and Jira already; the work is in collecting them.
 
-And if you did end up here, I hope Argus the all-seeing sees what you need
-him to see — or, if you like the Odyssey, Argus is your loyal hound
-waiting for you to go on your next hunt.
+Argus grew out of a set of scripts that did that collecting, one
+question each. Putting them behind one dashboard that sweeps in the
+background turned a morning's clicking into a glance, and making the
+tool public is a bet that other leads ask the same questions. It is also
+a place to try things — a language, a layout, a way of testing — so
+expect it to keep changing. Use it, and if something is wrong or missing,
+say so.
+
+And if you did end up here, may Argus the all-seeing see what you need
+him to see — or, if you prefer the Odyssey, may he be the loyal hound
+waiting for you to come home.
 
 ---
 
@@ -61,6 +72,23 @@ that too. Edits appear in Jira under your own account, because they are
 made with your own token. See
 [Closing out a sprint](docs/sprint-report.md#closing-out-a-sprint).
 
+**The Backlog tool's bulk actions sit behind the same switch and the
+same gate.** With `ARGUS_SPRINT_ALLOW_WRITES` on it can do a named list
+of things to the tickets you select — assign them to a sprint, set the
+Epic, link them to a Story, add, remove or migrate labels, and add the
+label that marks a request from outside the team — and nothing else.
+Each action is previewed one row per ticket, re-checked against Jira at
+the moment of writing so a ticket somebody has edited since is skipped,
+written to the same audit log, and reversible from it. Deleting an issue
+is the one write nothing can reverse, so it sits behind a second switch,
+`ARGUS_BACKLOG_ALLOW_DELETE`, off by default: with both on, applying
+asks you to type the number of tickets the preview says will go, an Epic
+is never deleted in bulk, and no reverse is offered because there is
+nothing it could do. See [The Backlog tool](docs/backlog.md).
+
+**The Leaderboard only reads.** It is tallied from the same pull request
+sweep as everything else, and nothing in Argus writes to GitHub, ever.
+
 **What it stores depends on which tools you run.** The pull request tool
 stores nothing at all — its snapshot lives in memory and is gone when the
 container stops. The sprint report has to store what Jira has no source
@@ -76,8 +104,26 @@ long.
 
 ## What you see
 
-A summary row across the top — what is waiting on you, what is ready to
-merge, what nobody has claimed — then one section per question:
+Four tools, switched between in the left rail. Only the ones you have
+configured appear:
+
+- **Pull requests** (`pr`) — the read-only GitHub dashboard: the day's
+  triage across the organisation, sweeping in the background. On by
+  default.
+- **Sprint report** (`sprint`) — what a sprint delivered, per person and
+  per epic, with an opt-in close-out that fixes in Jira what the report
+  found, and publishes a page to Confluence if you want one.
+- **Backlog** (`backlog`) — what in the open backlog needs a hand: new
+  tickets, stale ones, work with no Epic, no Story or no size, requests
+  from outside the team, and a personal inbox; with bulk actions behind
+  the same write gate.
+- **Leaderboard** — who has been reviewing, this fortnight and last,
+  drawn from the pull request sweep. On whenever `pr` is. It is a
+  thank-you to the people carrying review, not a target to hit.
+
+The pull request tool is a summary row across the top — what is waiting
+on you, what is ready to merge, what nobody has claimed — then one
+section per question:
 
 | Section | Answers |
 |---|---|
@@ -91,16 +137,20 @@ merge, what nobody has claimed — then one section per question:
 | **Stale** | Pull requests and branches that have stopped moving. |
 | **Security** | Dependabot and code-scanning alerts, vendored noise discounted. |
 
-The left rail switches between tools. At the bottom of it are four colour
-themes — Slate, Glacier, Nightfall, Pine — each with its own light and
-dark, remembered per browser.
+At the bottom of the rail are four colour themes — Slate, Glacier,
+Nightfall, Pine — each with its own light and dark, remembered per
+browser.
+
+There are no screenshots here on purpose: every one would show a real
+team's pull requests and tickets.
 
 ---
 
 ## Installing
 
-There are three ways in, in the order most people should try them. They
-all end in the same place: a dashboard at
+There are three ways in, in the order most people should try them:
+Homebrew on macOS, a package or the plain binary on Linux and Windows,
+or Docker. They all end in the same place: a dashboard at
 **<http://argus.localhost:18474>**, sweeping in the background so the
 answer is already there when you look. `*.localhost` resolves to
 127.0.0.1 with no `/etc/hosts` entry and no `sudo`.
@@ -168,25 +218,45 @@ argus service install     # a launchd agent, per-user, no root
 argus service uninstall   # undo it
 ```
 
-### 2. Download the binary — Linux, Windows, or anyone not using Homebrew
+### 2. Linux — a package, or the binary
 
 Every release on the
 [Releases page](https://github.com/Tzomily-Anvar/argus/releases) carries
-builds for macOS and Linux (amd64 and arm64) and for Windows.
+a `.deb`, an `.rpm` and an `.apk` for amd64 and arm64, beside the plain
+archives. The package puts `argus` on your `PATH` and nothing else: no
+service, no user, no post-install script.
 
-> **Windows is built but untested.** It compiles, and the code paths for
-> it are written — `%AppData%` for configuration, Task Scheduler for
-> starting at login — but nobody has yet run Argus on Windows. If you do,
-> an issue saying whether it worked would be genuinely useful. The
-> `systemd --user` unit on Linux is in the same position: written and
-> reviewed, not yet run in anger. Download
-the archive for your platform, extract it, and put `argus` somewhere on
-your `PATH`. Then it is the same as above:
+```bash
+# Debian, Ubuntu and friends
+sudo apt install ./argus_<version>_linux_amd64.deb
+
+# Fedora, RHEL, openSUSE
+sudo rpm -i argus_<version>_linux_amd64.rpm
+```
+
+Then it is the same as on macOS:
 
 ```bash
 argus setup
-argus
+argus           # run it, then open http://argus.localhost:18474
 ```
+
+To keep it sweeping in the background, `argus service install` writes a
+`systemd --user` unit — per-user, no root.
+
+> **Not yet run in anger.** The packages and the `systemd --user` unit
+> are built and reviewed, but nobody has installed Argus on Linux from a
+> package yet. If you do, an issue saying whether it worked would be
+> genuinely useful.
+
+**Without a package manager**, or on Windows: download the archive for
+your platform, extract it, and put `argus` somewhere on your `PATH`.
+Then `argus setup` as above.
+
+> **Windows is built but untested.** It compiles, and the code paths for
+> it are written — `%AppData%` for configuration, Task Scheduler for
+> starting at login via `argus service install` — but nobody has yet run
+> Argus on Windows.
 
 On **macOS**, a binary you downloaded is quarantined by Gatekeeper, which
 refuses to run it and blames you rather than the quarantine. Clear it:
@@ -197,16 +267,12 @@ xattr -dr com.apple.quarantine ./argus
 
 The Homebrew cask does that for you, which is one reason to prefer it.
 
-On **Windows**, `argus service install` registers a Task Scheduler entry
-that starts Argus at login; on **Linux** it writes a `systemd --user`
-unit. Both are per-user and unprivileged — nothing here needs root.
-
 Releases are built by GitHub Actions rather than on anyone's laptop, and
-each one is published with a build provenance attestation. If you would
-rather not take that on trust:
+every published file — archives and packages alike — carries a build
+provenance attestation. If you would rather not take that on trust:
 
 ```bash
-gh attestation verify argus_1.0.0_linux_amd64.tar.gz \
+gh attestation verify argus_1.0.0_linux_amd64.deb \
   --repo Tzomily-Anvar/argus
 ```
 
@@ -244,9 +310,11 @@ rather than leaving you to guess.
 |---|---|
 | [**GitHub tokens**](docs/github-token.md) | Fine-grained or classic, exact permissions, SSO, and the 1Password setup |
 | [**The sprint report**](docs/sprint-report.md) | Enabling it, what it computes, and the conventions you configure |
+| [**The Backlog tool**](docs/backlog.md) | The grooming view, requests from outside the team, the inbox, and the bulk actions |
 | [**Rules**](docs/rules.md) | Every check, how to turn one off or retune it, and which repositories are swept |
-| [**Contributing**](CONTRIBUTING.md) | Adding a rule — one file, no wiring |
+| [**Contributing**](CONTRIBUTING.md) | Adding a rule or a tool, and keeping private strings out |
 | [**Security**](SECURITY.md) | What is enforced, what is stored, and for how long |
+| [**Changelog**](CHANGELOG.md) | What changed in each release |
 | [`.env.example`](.env.example) | Every setting, with its default and what it does |
 
 ---
@@ -258,11 +326,12 @@ company-specific default. The two that matter most:
 
 ```bash
 ARGUS_GITHUB_ORG=your-org    # required; Argus refuses to start without it
-ARGUS_TOOLS=pr               # pr, or pr,sprint
+ARGUS_TOOLS=pr               # pr, or pr,sprint, or pr,sprint,backlog
 ```
 
 The pull request watchdog is the default and the only tool on unless you
-ask for more — everything else costs credentials, storage, or both.
+ask for more — everything else costs credentials, storage, or both. The
+Leaderboard needs nothing of its own and comes with `pr`.
 
 Rules are independent and individually tunable:
 
@@ -342,7 +411,9 @@ ARGUS_GITHUB_ORG=your-org ARGUS_GITHUB_TOKEN=$(gh auth token) ./argus &
 cd web && npm run dev
 ```
 
-Adding a rule means adding one file — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Adding a rule means adding one file, and adding a tool means a backend
+behind configuration plus one entry in the registry — see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## How this was built
 
