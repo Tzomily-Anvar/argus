@@ -175,25 +175,45 @@ argus service install     # a launchd agent, per-user, no root
 argus service uninstall   # undo it
 ```
 
-### 2. Download the binary — Linux, Windows, or anyone not using Homebrew
+### 2. Linux — a package, or the binary
 
 Every release on the
 [Releases page](https://github.com/Tzomily-Anvar/argus/releases) carries
-builds for macOS and Linux (amd64 and arm64) and for Windows.
+a `.deb`, an `.rpm` and an `.apk` for amd64 and arm64, beside the plain
+archives. The package puts `argus` on your `PATH` and nothing else: no
+service, no user, no post-install script.
 
-> **Windows is built but untested.** It compiles, and the code paths for
-> it are written — `%AppData%` for configuration, Task Scheduler for
-> starting at login — but nobody has yet run Argus on Windows. If you do,
-> an issue saying whether it worked would be genuinely useful. The
-> `systemd --user` unit on Linux is in the same position: written and
-> reviewed, not yet run in anger. Download
-the archive for your platform, extract it, and put `argus` somewhere on
-your `PATH`. Then it is the same as above:
+```bash
+# Debian, Ubuntu and friends
+sudo apt install ./argus_<version>_linux_amd64.deb
+
+# Fedora, RHEL, openSUSE
+sudo rpm -i argus_<version>_linux_amd64.rpm
+```
+
+Then it is the same as on macOS:
 
 ```bash
 argus setup
-argus
+argus           # run it, then open http://argus.localhost:18474
 ```
+
+To keep it sweeping in the background, `argus service install` writes a
+`systemd --user` unit — per-user, no root.
+
+> **Not yet run in anger.** The packages and the `systemd --user` unit
+> are built and reviewed, but nobody has installed Argus on Linux from a
+> package yet. If you do, an issue saying whether it worked would be
+> genuinely useful.
+
+**Without a package manager**, or on Windows: download the archive for
+your platform, extract it, and put `argus` somewhere on your `PATH`.
+Then `argus setup` as above.
+
+> **Windows is built but untested.** It compiles, and the code paths for
+> it are written — `%AppData%` for configuration, Task Scheduler for
+> starting at login via `argus service install` — but nobody has yet run
+> Argus on Windows.
 
 On **macOS**, a binary you downloaded is quarantined by Gatekeeper, which
 refuses to run it and blames you rather than the quarantine. Clear it:
@@ -204,16 +224,12 @@ xattr -dr com.apple.quarantine ./argus
 
 The Homebrew cask does that for you, which is one reason to prefer it.
 
-On **Windows**, `argus service install` registers a Task Scheduler entry
-that starts Argus at login; on **Linux** it writes a `systemd --user`
-unit. Both are per-user and unprivileged — nothing here needs root.
-
 Releases are built by GitHub Actions rather than on anyone's laptop, and
-each one is published with a build provenance attestation. If you would
-rather not take that on trust:
+every published file — archives and packages alike — carries a build
+provenance attestation. If you would rather not take that on trust:
 
 ```bash
-gh attestation verify argus_1.0.0_linux_amd64.tar.gz \
+gh attestation verify argus_1.0.0_linux_amd64.deb \
   --repo Tzomily-Anvar/argus
 ```
 
