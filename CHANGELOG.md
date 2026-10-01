@@ -8,6 +8,21 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [0.3.1] - 2026-10-01
+
+### Added
+
+- A **Drafts** tab on the pull request dashboard. Drafts are read like
+  every other pull request and shown apart, with a count, so a
+  repository whose only open pull requests are drafts no longer looks
+  like one with nothing open. `ARGUS_RULE_MERGE_READINESS_EXCLUDE_DRAFTS=false`
+  folds them back into All open.
+
+### Changed
+
+- The section tabs are one row that scrolls sideways when the page is
+  narrow, instead of wrapping.
+
 ## [0.3.0] - 2026-10-01
 
 ### Added
@@ -74,6 +89,7 @@ release pipeline - is described on the
 [GitHub Releases page](https://github.com/Tzomily-Anvar/argus/releases),
 which carries the notes for each tag.
 
-[Unreleased]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Tzomily-Anvar/argus/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Tzomily-Anvar/argus/releases/tag/v0.2.0
