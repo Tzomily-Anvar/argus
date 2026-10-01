@@ -3,7 +3,6 @@ package rules
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -15,65 +14,66 @@ import (
 // Review is the work no sprint counts: it appears on nobody's board, it
 // is in nobody's velocity, and the people who do most of it are usually
 // the ones who notice least that they do. A leaderboard makes it
-// visible, and a little competitive, which is the fun of it. Two
-// periods are kept - this fortnight and the one before - so a rank can
-// carry an arrow.
+// visible, and a little competitive, which is the fun of it. It is a
+// thank-you to the people doing the reviewing, never a target: review
+// is teamwork, and a number that became a quota would stop measuring
+// anything worth knowing.
 //
 // Everything comes from GitHub on each sweep. One search over the pull
-// requests updated since the earlier period began, fifty at a time with
-// their reviews attached, so the whole board costs a handful of GraphQL
-// calls rather than one per pull request. A review of your own pull
-// request is not a review and is not counted; neither is a bot's, by
-// default.
+// requests updated inside the lookback, fifty at a time with their
+// reviews attached, so the whole board costs a handful of GraphQL calls
+// rather than one per pull request. The rule does not tally. It hands
+// back every review it read, with a timestamp, and the server counts
+// them for whatever period a reader asks for - the rolling fortnight by
+// default, or a Jira sprint - so a change of period costs nothing from
+// GitHub. The lookback is long enough for two sprints of four weeks,
+// which is what the sprint view needs to draw an arrow. A review of
+// your own pull request is not a review and is not counted; neither is
+// a bot's, by default.
 
 func init() {
 	Register(Rule{
 		ID:          "review_leaderboard",
 		Title:       "Who is reviewing",
-		Description: "Code reviews per person over the current period and the one before, from every pull request updated in that time.",
-		Why:         "Review is the work no sprint counts. Seeing who carries it is the first step to sharing it, and a little competition does no harm.",
+		Description: "Every code review submitted inside the lookback, so the Leaderboard tool can count them per person over a rolling period or a sprint.",
+		Why:         "Review is the work no sprint counts. Seeing who carries it is the first step to sharing it. For fun: review is teamwork, and this board is a thank-you to the people doing it, not a target for anyone.",
 		Enabled:     true,
 		Params: []Param{
-			{Name: "days", Desc: "The length of one period, in days. Two periods are kept, so the sweep reads twice this far back.", Default: 14},
+			{Name: "lookback_days", Desc: "How far back the sweep reads reviews. Long enough for two sprints, so a sprint on the board can be compared with the one before.", Default: 60},
+			{Name: "days", Desc: "The length of the rolling period the Leaderboard opens on, in days. A fortnight by default.", Default: 14},
 			{Name: "exclude_bots", Desc: "Leave out reviews by apps and bots.", Default: true},
 		},
 		Run: runReviewLeaderboard,
 	})
 }
 
-// Leaderboard is the rule's answer: two periods of the same length, the
-// current one ending now.
-type Leaderboard struct {
-	Days     int    `json:"days"`
-	Current  Period `json:"current"`
-	Previous Period `json:"previous"`
+// ReviewLog is the rule's answer: the reviews themselves, not a tally.
+type ReviewLog struct {
+	// LookbackDays is how far back the sweep read, and Since the moment
+	// that is. A period starting earlier than Since is missing its
+	// oldest reviews, and whoever tallies it should say so.
+	LookbackDays int       `json:"lookback_days"`
+	Since        time.Time `json:"since"`
+	// Days is the rolling period length the page opens on.
+	Days int `json:"days"`
 	// Truncated says the search hit GitHub's thousand-result ceiling, so
-	// the oldest pull requests in the window were not read. The figures
-	// are then a floor, and the page says so.
+	// the oldest pull requests in the window were not read. Any tally is
+	// then a floor, and the page says so.
 	Truncated bool `json:"truncated"`
+	// PRCount is how many pull requests were read, reviewed or not.
+	PRCount int      `json:"pr_count"`
+	Reviews []Review `json:"reviews"`
 }
 
-// Period is one span of time and who reviewed in it, ranked.
-type Period struct {
-	From    time.Time  `json:"from"`
-	To      time.Time  `json:"to"`
-	PRs     int        `json:"prs"`     // pull requests that received a review
-	Reviews int        `json:"reviews"` // reviews submitted
-	Rows    []Reviewer `json:"rows"`
-}
-
-// Reviewer is one person's fortnight.
-type Reviewer struct {
-	Login            string `json:"login"`
-	Rank             int    `json:"rank"`
-	Reviews          int    `json:"reviews"`
-	PRs              int    `json:"prs"`
-	Approvals        int    `json:"approvals"`
-	ChangesRequested int    `json:"changes_requested"`
-	Comments         int    `json:"comments"`
-	// PreviousRank is where they stood the period before, 0 if nowhere.
-	PreviousRank    int `json:"previous_rank"`
-	PreviousReviews int `json:"previous_reviews"`
+// Review is one submitted review that counts: not the author's own, not
+// pending, and not a bot's unless bots were asked for.
+type Review struct {
+	Login    string    `json:"login"`
+	PR       string    `json:"pr"` // repo#number
+	Author   string    `json:"author"`
+	At       time.Time `json:"at"`
+	State    string    `json:"state"`
+	Comments int       `json:"comments"`
 }
 
 // reviewSearchQuery pages through the pull requests updated since a
@@ -98,38 +98,25 @@ query($q:String!,$after:String){
   }}`
 
 func runReviewLeaderboard(c *Context, v Values) (any, error) {
+	lookback := v.Int("lookback_days")
+	if lookback <= 0 {
+		lookback = 60
+	}
 	days := v.Int("days")
 	if days <= 0 {
 		days = 14
 	}
-	span := time.Duration(days) * 24 * time.Hour
-	now := c.Now
-	current := Period{From: now.Add(-span), To: now}
-	previous := Period{From: now.Add(-2 * span), To: current.From}
+	since := c.Now.Add(-time.Duration(lookback) * 24 * time.Hour)
 
-	prs, truncated, err := c.reviewedPullRequests(previous.From)
+	prs, truncated, err := c.reviewedPullRequests(since)
 	if err != nil {
 		return nil, err
 	}
-
-	cur := tally(prs, current, v.Bool("exclude_bots"))
-	prev := tally(prs, previous, v.Bool("exclude_bots"))
-	current.Rows, current.PRs, current.Reviews = cur.rows(), cur.prs, cur.reviews
-	previous.Rows, previous.PRs, previous.Reviews = prev.rows(), prev.prs, prev.reviews
-
-	// Last period's standing beside this one, so the page can draw an
-	// arrow. Someone absent last time has no previous rank.
-	before := map[string]Reviewer{}
-	for _, r := range previous.Rows {
-		before[r.Login] = r
-	}
-	for i := range current.Rows {
-		if p, ok := before[current.Rows[i].Login]; ok {
-			current.Rows[i].PreviousRank, current.Rows[i].PreviousReviews = p.Rank, p.Reviews
-		}
-	}
-
-	return Leaderboard{Days: days, Current: current, Previous: previous, Truncated: truncated}, nil
+	reviews := collectReviews(prs, since, v.Bool("exclude_bots"))
+	return ReviewLog{
+		LookbackDays: lookback, Since: since, Days: days,
+		Truncated: truncated, PRCount: len(prs), Reviews: reviews,
+	}, nil
 }
 
 // reviewedPullRequests reads every pull request in scope updated since
@@ -163,20 +150,16 @@ func (c *Context) reviewedPullRequests(since time.Time) ([]map[string]any, bool,
 // draft nobody has seen, and is not one.
 var counted = map[string]bool{"APPROVED": true, "CHANGES_REQUESTED": true, "COMMENTED": true, "DISMISSED": true}
 
-type board struct {
-	by      map[string]*Reviewer
-	prsOf   map[string]map[string]bool // login -> pull request keys reviewed
-	seenPR  map[string]bool
-	reviews int
-	prs     int
-}
-
-// tally counts the reviews submitted inside one period.
-func tally(prs []map[string]any, p Period, excludeBots bool) board {
-	b := board{by: map[string]*Reviewer{}, prsOf: map[string]map[string]bool{}, seenPR: map[string]bool{}}
+// collectReviews flattens the pull requests into the reviews that
+// count, submitted since the lookback began. A pull request updated
+// inside the window can carry reviews from long before it, which would
+// be missing for every other pull request of their age; dropping them
+// keeps the log consistent with its own Since.
+func collectReviews(prs []map[string]any, since time.Time, excludeBots bool) []Review {
+	out := []Review{}
 	for _, pr := range prs {
 		key := gh.Str(gh.Map(pr["repository"])["name"]) + "#" + fmt.Sprint(int(gh.Num(pr["number"])))
-		author := gh.Map(pr["author"])
+		author := gh.Str(gh.Map(pr["author"])["login"])
 		for _, raw := range gh.List(gh.Map(pr["reviews"])["nodes"]) {
 			rv := gh.Map(raw)
 			state := strings.ToUpper(gh.Str(rv["state"]))
@@ -184,69 +167,21 @@ func tally(prs []map[string]any, p Period, excludeBots bool) board {
 				continue
 			}
 			at, err := time.Parse(time.RFC3339, gh.Str(rv["submittedAt"]))
-			if err != nil || at.Before(p.From) || !at.Before(p.To) {
+			if err != nil || at.Before(since) {
 				continue
 			}
 			who := gh.Map(rv["author"])
 			login := gh.Str(who["login"])
-			if login == "" || login == gh.Str(author["login"]) {
+			if login == "" || login == author {
 				continue // nobody, or the author reviewing their own work
 			}
 			if excludeBots && (gh.Str(who["__typename"]) == "Bot" || strings.HasSuffix(login, "[bot]")) {
 				continue
 			}
-			r := b.by[login]
-			if r == nil {
-				r = &Reviewer{Login: login}
-				b.by[login] = r
-				b.prsOf[login] = map[string]bool{}
-			}
-			r.Reviews++
-			r.Comments += int(gh.Num(gh.Map(rv["comments"])["totalCount"]))
-			switch state {
-			case "APPROVED":
-				r.Approvals++
-			case "CHANGES_REQUESTED":
-				r.ChangesRequested++
-			}
-			b.prsOf[login][key] = true
-			b.reviews++
-			if !b.seenPR[key] {
-				b.seenPR[key] = true
-				b.prs++
-			}
-		}
-	}
-	return b
-}
-
-// rows ranks the board: most reviews first, then most pull requests,
-// then most comments, then by name so the order is stable. Equal
-// figures share a rank, as they do on any podium.
-func (b board) rows() []Reviewer {
-	out := make([]Reviewer, 0, len(b.by))
-	for login, r := range b.by {
-		r.PRs = len(b.prsOf[login])
-		out = append(out, *r)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		a, z := out[i], out[j]
-		if a.Reviews != z.Reviews {
-			return a.Reviews > z.Reviews
-		}
-		if a.PRs != z.PRs {
-			return a.PRs > z.PRs
-		}
-		if a.Comments != z.Comments {
-			return a.Comments > z.Comments
-		}
-		return strings.ToLower(a.Login) < strings.ToLower(z.Login)
-	})
-	for i := range out {
-		if i > 0 && out[i].Reviews == out[i-1].Reviews && out[i].PRs == out[i-1].PRs && out[i].Comments == out[i-1].Comments {
-			out[i].Rank = out[i-1].Rank
-		} else {
-			out[i].Rank = i + 1
+			out = append(out, Review{
+				Login: login, PR: key, Author: author, At: at, State: state,
+				Comments: int(gh.Num(gh.Map(rv["comments"])["totalCount"])),
+			})
 		}
 	}
 	return out

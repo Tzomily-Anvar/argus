@@ -8,9 +8,16 @@ export type RuleResult = {
   duration_ms: number;
 };
 
-/** The review leaderboard rule's answer: two periods of the same length. */
+/** The review leaderboard, counted by /api/leaderboard over the two
+ *  periods asked for: the rolling fortnight by default, or a sprint and
+ *  the one before it. The sweep keeps the reviews; the counting is on
+ *  demand, so a change of period costs nothing from GitHub. */
 export type Leaderboard = {
+  /** The rolling period length the page opens on, in days. */
   days: number;
+  /** How far back the sweep read, and the moment that is. */
+  lookback_days: number;
+  since: string;
   current: LeaderboardPeriod;
   previous: LeaderboardPeriod;
   truncated: boolean;
@@ -22,6 +29,9 @@ export type LeaderboardPeriod = {
   prs: number;
   reviews: number;
   rows: Reviewer[];
+  /** The period starts before the sweep's lookback, so its oldest
+   *  reviews were never read. */
+  partial: boolean;
 };
 
 export type Reviewer = {
@@ -118,6 +128,17 @@ async function getJSON<T>(path: string): Promise<T> {
 }
 
 export const fetchSnapshot = () => getJSON<Snapshot>("/api/snapshot");
+
+/** The leaderboard over a period and its comparison. Both pairs are
+ *  RFC 3339; leaving them out gives the rolling default ending at the
+ *  sweep, and leaving out the comparison gives the same length again
+ *  before `from`. */
+export type LeaderboardQuery = { from: string; to: string; prev_from?: string; prev_to?: string };
+export const fetchLeaderboard = (q?: LeaderboardQuery) => {
+  const set = Object.entries(q ?? {}).filter((e): e is [string, string] => typeof e[1] === "string");
+  const qs = new URLSearchParams(set).toString();
+  return getJSON<Leaderboard>(`/api/leaderboard${qs ? "?" + qs : ""}`);
+};
 export const fetchRules = () => getJSON<{ rules: RuleInfo[] }>("/api/rules");
 
 export async function requestRefresh(): Promise<void> {

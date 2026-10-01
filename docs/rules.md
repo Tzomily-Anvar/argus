@@ -14,7 +14,7 @@ knob. It reports configuration; it does not change it.
 | `stale_prs` | PRs older than a threshold, with bot PRs counted separately. |
 | `stale_branches` | Branches with no commit in a long time. |
 | `security` | Dependabot and code-scanning alerts, plus open Dependabot PRs. |
-| `review_leaderboard` | Code reviews per person this fortnight and last, for the Leaderboard tool. |
+| `review_leaderboard` | Every code review submitted in the last sixty days, for the Leaderboard tool. |
 
 The dashboard's sections are not one-to-one with these rules. Some are a
 filtered view of one — **Ready to merge** and **Ready to QA** split the
@@ -33,6 +33,36 @@ ARGUS_RULE_STALE_PRS_DAYS=21            # or just retune it
 Then `./run.sh restart`. Every knob and its default is documented in
 [`.env.example`](../.env.example), which is generated from the rules
 themselves and so cannot drift from them.
+
+### The review leaderboard
+
+Review is the work no sprint counts. The **Leaderboard** tool makes it
+visible: a podium and a table of code reviews per person, from every
+pull request in scope, with an arrow for movement against the period
+before. It is for fun. Review is teamwork, and the board is a thank-you
+to the people doing it, not a target for anyone — the page says so, and
+so does this.
+
+It is on whenever the pull request tool and the `review_leaderboard`
+rule are; `ARGUS_RULE_REVIEW_LEADERBOARD_ENABLED=false` hides it. The
+rule does not tally. It keeps every review it read inside the lookback
+(`ARGUS_RULE_REVIEW_LEADERBOARD_LOOKBACK_DAYS`, sixty by default, so two
+sprints of up to four weeks fit), and `GET /api/leaderboard` counts them
+over whatever period is asked for, without going back to GitHub:
+
+- **Rolling**, the default: the last `DAYS` days ending at the sweep (a
+  fortnight by default), compared with the same length before. The page
+  offers this fortnight and last.
+- **Sprint**, when the sprint tool is on: a Jira sprint's own dates,
+  compared with the sprint before it. The page defaults to the active
+  sprint, or the latest closed one.
+
+A review of your own pull request is not a review and does not count;
+neither does a bot's unless `EXCLUDE_BOTS` is off. A period that reaches
+back past the lookback is marked partial, and the page says so. The
+sweep is one GitHub search over the pull requests updated in the
+lookback, fifty at a time; if it hits the search ceiling of a thousand
+results the figures are floors, and the page says that too.
 
 ### Which repositories
 
