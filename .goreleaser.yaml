@@ -37,6 +37,29 @@ archives:
       - LICENSE*
       - docs/*.md
 
+# Linux packages, so installing is one command rather than download,
+# extract, chmod and PATH. The package carries the binary and the docs
+# and nothing else: no unit file, no post-install script, no user
+# created. `argus service install` writes the systemd --user unit for
+# whoever runs it, which is the same path as every other install.
+nfpms:
+  - id: argus
+    package_name: argus
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    homepage: https://github.com/Tzomily-Anvar/argus
+    maintainer: Tzomily Anvar <69584443+Tzomily-Anvar@users.noreply.github.com>
+    description: A read-only dashboard for what a GitHub organisation is doing
+    license: MIT
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+    contents:
+      - src: README.md
+        dst: /usr/share/doc/argus/README.md
+      - src: LICENSE
+        dst: /usr/share/doc/argus/LICENSE
+      - src: docs/*.md
+        dst: /usr/share/doc/argus/docs/
+
 checksum:
   name_template: checksums.txt
 
@@ -49,8 +72,8 @@ changelog:
       - "^test:"
       - "^chore:"
 
-# Homebrew casks are macOS-only. Linux users take the tarball from the
-# release, or run the container - both are in the README.
+# Homebrew casks are macOS-only. Linux users take the .deb, .rpm or .apk
+# above, the tarball, or the container - all in the README.
 homebrew_casks:
   - name: argus
     repository:

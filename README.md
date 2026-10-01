@@ -183,19 +183,26 @@ The shortest path, and the one to take unless you have a reason not to.
 
 ```bash
 brew install Tzomily-Anvar/tap/argus
-argus setup     # answers three questions and writes the configuration
-argus           # run it
+argus setup     # three questions, writes the configuration
+argus           # run it, then open http://argus.localhost:18474
 ```
 
-`argus setup` asks for your organisation, offers to sign you in, and
-asks whether you want the sprint report. It checks the organisation
-against GitHub while you are still there to correct it, and writes
-`config.env` under your usual configuration directory — a
-package-manager install has no repository to write into.
+`argus setup` walks you through it, in this order:
 
-Signing in prints a short code and points you at
-<https://github.com/login/device>. You type the code in, approve it, and
-that is the whole of it.
+1. **Sign in.** It prints a short code and points you at
+   <https://github.com/login/device>. Type the code in, approve it, and
+   come back; nothing to create and no token to paste.
+2. **Which account.** Your organisation or your own username — the name
+   in `github.com/<name>`. Pasting the page's address from your browser
+   is fine; Argus takes the name out of it and checks it against GitHub
+   while you are still there to correct it.
+3. **The sprint report**, which needs Jira. Say no for now; everything
+   else works without it, and you can come back to it later.
+
+It writes `config.env` under your usual configuration directory — a
+package-manager install has no repository to write into — and tells you
+what to run next. The first sweep takes a few seconds; the dashboard is
+served from memory after that.
 
 If you would rather see every setting and choose for yourself, the long
 way round does the same job:

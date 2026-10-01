@@ -96,8 +96,8 @@ func Core() Catalogue {
 	return Catalogue{
 		{
 			Key: "ARGUS_GITHUB_ORG", Section: "Required", Kind: KindString,
-			Desc: "The GitHub organisation, or your own username, to sweep. " +
-				"The one setting with no default.",
+			Desc: "The GitHub organisation, or your own username, to sweep: the name in " +
+				"github.com/<name>, or that page's address. The one setting with no default.",
 		},
 
 		{
@@ -583,6 +583,15 @@ func (s Setting) Validate(v string) error {
 	if v == "" {
 		return fmt.Errorf("%s needs a value. Use `argus config unset %s` to return it to its default",
 			s.Key, s.Key)
+	}
+
+	// The account is the one setting a wrong value silently ruins: it
+	// goes straight into an API path and buys an empty dashboard. Refused
+	// here, at `argus config set`, while the person is still looking.
+	if s.Key == "ARGUS_GITHUB_ORG" {
+		if _, ok := AccountName(v); !ok {
+			return fmt.Errorf("%s cannot be %q. %s", s.Key, v, OrgHint)
+		}
 	}
 
 	switch s.Kind {

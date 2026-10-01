@@ -121,10 +121,10 @@ func setup() error {
 	}
 
 	fmt.Printf("\n  Wrote %s\n\n", path)
-	fmt.Printf("  Next:\n")
-	fmt.Printf("      argus doctor            check it over\n")
-	fmt.Printf("      argus                   run it\n")
-	fmt.Printf("      argus service install   keep it running in the background\n\n")
+	fmt.Printf("  That is the setup done. Next:\n\n")
+	fmt.Printf("      argus                   run it, then open http://argus.localhost:18474\n")
+	fmt.Printf("      argus service install   or keep it running in the background instead\n")
+	fmt.Printf("      argus doctor            if anything looks wrong\n\n")
 	return nil
 }
 
@@ -142,16 +142,18 @@ type wizard struct{ in *bufio.Reader }
 // to ask.
 func (w *wizard) askAccount() (string, error) {
 	for {
-		answer, err := w.ask("GitHub organisation or username", "",
+		answer, err := w.ask("GitHub organisation or username (or paste its address)", "",
 			"    Argus needs one to sweep. It is the name in\n"+
-				"    github.com/<name>, whether that is an organisation or you.")
+				"    github.com/<name>, whether that is an organisation or you.\n"+
+				"    Pasting the page's address from your browser works too.")
 		if err != nil {
 			return "", err
 		}
-		name, ok := accountFromAnswer(answer)
+		name, ok := config.AccountName(answer)
 		if !ok {
 			fmt.Printf("    ✗ that does not look like a GitHub name. It is the bare name in\n" +
-				"      github.com/<name>: letters, digits and hyphens.\n")
+				"      github.com/<name>: letters, digits and hyphens. Pasting the\n" +
+				"      page's address is fine too.\n")
 			continue
 		}
 		if name != answer {
@@ -183,58 +185,6 @@ func (w *wizard) askAccount() (string, error) {
 			}
 		}
 	}
-}
-
-// accountFromAnswer pulls the account name out of whatever was typed.
-//
-// The answer is often the browser's address bar rather than the name,
-// because that is where someone looks when asked which account they
-// mean. Anything that is still not a name after that is refused:
-// ARGUS_GITHUB_ORG goes straight into an API path, so a wrong value here
-// buys an empty dashboard and no explanation of why.
-func accountFromAnswer(answer string) (string, bool) {
-	s := strings.TrimSpace(answer)
-	if i := strings.Index(s, "://"); i >= 0 {
-		s = s[i+3:]
-	}
-	s, _, _ = strings.Cut(s, "?")
-	s, _, _ = strings.Cut(s, "#")
-
-	for _, part := range strings.Split(s, "/") {
-		switch {
-		case part == "":
-			continue
-		case strings.Contains(part, "."):
-			continue // the host of a pasted address
-		case part == "orgs" || part == "enterprises":
-			continue // what github.com puts in front of the name
-		}
-		if !validLogin(part) {
-			return "", false
-		}
-		return part, true
-	}
-	return "", false
-}
-
-// validLogin follows GitHub's own rule for a login: letters, digits and
-// hyphens, none at either end, and no more than 39 characters. It is the
-// same rule for an organisation and for a person.
-//
-// Checked here as well as against the API so that a typo is still caught
-// when nobody is signed in and the name cannot be looked up.
-func validLogin(s string) bool {
-	if s == "" || len(s) > 39 || strings.HasPrefix(s, "-") || strings.HasSuffix(s, "-") {
-		return false
-	}
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 type accountResult int
