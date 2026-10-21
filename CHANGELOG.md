@@ -6,6 +6,16 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.3] - 2026-10-21
+
+### Fixed
+
+- `brew install --cask argus` on Linux. The cask's old postflight ran
+  `/usr/bin/xattr`, which Linux does not have, and the install failed.
+  The declared step below skips quietly where there is no `xattr`.
+
 ### Changed
 
 - The Homebrew cask clears macOS's quarantine flag with declared
@@ -114,7 +124,8 @@ release pipeline - is described on the
 [GitHub Releases page](https://github.com/Tzomily-Anvar/argus/releases),
 which carries the notes for each tag.
 
-[Unreleased]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Tzomily-Anvar/argus/compare/v0.2.0...v0.3.0
