@@ -70,6 +70,16 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Known vulnerabilities
+        run: |
+          # A release is built with whatever toolchain go.mod names, so an
+          # old patch release ships its standard library bugs in every
+          # binary. v0.3.1 went out on go1.26.0 with 46 fixed
+          # advisories for that reason. This reads both the modules and the
+          # toolchain, and fails the build when either has a fix waiting.
+          go version
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
       - name: Cross-compile the released targets
         run: |
           # Installing the background service has a path per operating

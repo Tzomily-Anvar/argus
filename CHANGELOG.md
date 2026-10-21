@@ -6,7 +6,19 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Security
+
+- Binaries and the container image are built with Go 1.26.10. v0.3.1 was
+  built with Go 1.26.0, whose standard library has since had fixes in
+  `net/http`, `crypto/tls`, `crypto/x509`, `html/template`, `net/url` and
+  others. Argus talks to GitHub and Jira over TLS and serves its own
+  HTTP, so these apply. Upgrade by installing this release; nothing in
+  configuration or stored data changes.
+- The dashboard's build tools are updated past advisories in `vite` and
+  `source-map-js`. These affect only the development server, never the
+  released binary.
+- CI runs `govulncheck`, so a toolchain or module with a published fix
+  fails the build.
 
 ## [0.3.1] - 2026-10-01
 
