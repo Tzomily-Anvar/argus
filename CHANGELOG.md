@@ -6,7 +6,16 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- The Homebrew cask clears macOS's quarantine flag with declared
+  `postflight_steps` instead of a Ruby `postflight` block, which
+  Homebrew 7 deprecates and warns about on every `brew info` and
+  install. Needs Homebrew 5.1.14 or later, which `brew update` brings.
+- Dependencies updated: the dashboard builds with Vite 8 (Rolldown in
+  place of esbuild and Rollup), TypeScript 7, `@vitejs/plugin-react` 6
+  and React 19.3.1; goose 3.29, `golang.org/x/text` and `x/sync` on the
+  Go side. Nothing changes in behaviour.
 
 ## [0.3.2] - 2026-10-21
 
