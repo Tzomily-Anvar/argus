@@ -6,6 +6,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.2] - 2026-10-21
+
 ### Security
 
 - Binaries and the container image are built with Go 1.26.10. v0.3.1 was
@@ -101,7 +105,8 @@ release pipeline - is described on the
 [GitHub Releases page](https://github.com/Tzomily-Anvar/argus/releases),
 which carries the notes for each tag.
 
-[Unreleased]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Tzomily-Anvar/argus/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Tzomily-Anvar/argus/releases/tag/v0.2.0
