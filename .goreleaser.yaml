@@ -85,12 +85,22 @@ homebrew_casks:
     license: MIT
     # The binary is not notarised, so Gatekeeper would quarantine it and
     # macOS would refuse to run it with a dialog that blames the user.
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/argus"]
-          end
+    #
+    # Homebrew 7 deprecates the Ruby `postflight` block that `hooks` writes
+    # in favour of declared `postflight_steps`, which run in its sandbox.
+    # GoReleaser v2.18 can only write the old form, so the steps go in as a
+    # custom block. must_succeed is off because xattr exits non-zero when
+    # the attribute is already absent, as it is on Linux and on a reinstall.
+    # GoReleaser templates the whole cask, so Homebrew's own {{staged_path}}
+    # is written as a quoted string to come through untouched.
+    custom_block: |
+      postflight_steps do
+        run "/usr/bin/xattr",
+            args:           ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/argus"],
+            must_succeed:   false,
+            print_stderr:   false,
+            writable_paths: ["argus"]
+      end
     # No service block: `argus service install` writes the launchd or
     # systemd unit itself, so one command works however Argus was
     # installed, and nothing sweeps until someone asks it to.
