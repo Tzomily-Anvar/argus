@@ -6,7 +6,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- The Backlog's searchable pickers open in full. The list was drawn
+  inside its card, which clipped it, so a picker at a card's right edge
+  - the Labels view's "Pick a label", say - showed one entry and pushed
+  the card sideways when its search box took focus. The list now floats
+  above the page, keeps to the screen and follows its button on scroll.
 
 ## [0.3.3] - 2026-10-21
 

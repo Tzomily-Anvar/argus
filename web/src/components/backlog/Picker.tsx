@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 
 /* A searchable select.
  *
@@ -7,7 +8,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
  * a button that opens a list with a search box on top, the same shape as
  * the sprint picker's "All sprints" list, so it is already familiar. It
  * opens upward when asked, because the bulk bar sits at the foot of the
- * page and a list dropping below it would drop off the screen. */
+ * page and a list dropping below it would drop off the screen.
+ *
+ * The list is drawn on the page body, placed against the button, rather
+ * than inside the button's card: the cards clip what spills out of them,
+ * and a picker at a card's right edge would otherwise open half hidden.
+ * It keeps to the screen, lining up with the button's right edge when
+ * there is no room to its right, and follows the button on scroll. */
 
 export type PickerItem = { id: string; label: string; hint?: string };
 
@@ -23,14 +30,39 @@ export function Picker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [place, setPlace] = useState<CSSProperties>({});
+  const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    const width = 320;
+    const gutter = 8;
+    const follow = () => {
+      const r = button.current?.getBoundingClientRect();
+      if (!r) return;
+      setPlace({
+        left: r.left + width <= window.innerWidth - gutter ? r.left : Math.max(gutter, r.right - width),
+        width,
+        ...(up ? { bottom: window.innerHeight - r.top + gutter } : { top: r.bottom + gutter }),
+      });
+    };
+    follow();
+    window.addEventListener("scroll", follow, true);
+    window.addEventListener("resize", follow);
+    return () => {
+      window.removeEventListener("scroll", follow, true);
+      window.removeEventListener("resize", follow);
+    };
+  }, [open, up]);
+
   useEffect(() => {
     if (!open) return;
-    input.current?.focus();
+    input.current?.focus({ preventScroll: true });
     const onDown = (e: MouseEvent) => {
-      if (panel.current && !panel.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!button.current?.contains(t) && !panel.current?.contains(t)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", onDown);
@@ -49,8 +81,9 @@ export function Picker({
   }, [items, query]);
 
   return (
-    <div ref={panel} className="relative">
+    <>
       <button
+        ref={button}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         disabled={disabled}
@@ -64,10 +97,11 @@ export function Picker({
         {label} <span aria-hidden="true" style={{ color: "var(--faint)" }}>▾</span>
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
-          className={`absolute left-0 z-50 w-80 rounded-xl p-2 ${up ? "bottom-full mb-2" : "top-full mt-2"}`}
-          style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
+          ref={panel}
+          className="fixed z-[60] rounded-xl p-2"
+          style={{ ...place, background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)" }}
         >
           <input
             ref={input}
@@ -99,8 +133,9 @@ export function Picker({
               </button>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }
