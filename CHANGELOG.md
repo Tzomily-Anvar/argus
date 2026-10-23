@@ -6,6 +6,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.4] - 2026-10-22
+
 ### Fixed
 
 - The Backlog's searchable pickers open in full. The list was drawn
@@ -130,7 +134,8 @@ release pipeline - is described on the
 [GitHub Releases page](https://github.com/Tzomily-Anvar/argus/releases),
 which carries the notes for each tag.
 
-[Unreleased]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Tzomily-Anvar/argus/compare/v0.3.0...v0.3.1
