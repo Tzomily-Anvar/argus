@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/Tzomily-Anvar/argus/internal/backlog"
 	"github.com/Tzomily-Anvar/argus/internal/config"
@@ -180,7 +181,7 @@ func (s *Server) BacklogRoutes(svc *backlog.Service, st store.Store, b *backlog.
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"labels": labels, "in_use": svc.LabelsInUse()})
+		writeJSON(w, http.StatusOK, s.labelChoices(svc, labels))
 	})
 
 	handle("PUT /api/backlog/labels", func(w http.ResponseWriter, r *http.Request) {
@@ -208,7 +209,7 @@ func (s *Server) BacklogRoutes(svc *backlog.Service, st store.Store, b *backlog.
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"labels": saved, "in_use": svc.LabelsInUse()})
+		writeJSON(w, http.StatusOK, s.labelChoices(svc, saved))
 	})
 
 	// The requesters, with the reporters seen in the backlog as
@@ -263,4 +264,34 @@ func readKeys(w http.ResponseWriter, r *http.Request, field string) ([]string, b
 		return nil, false
 	}
 	return keys, true
+}
+
+// labelChoices is everything the label pickers offer, and the spelling
+// they hold new labels to: the labels chosen behind the gear, the ones
+// the open backlog carries, the active repositories by name, the rest of
+// the site's labels, and the labels in use to tidy.
+func (s *Server) labelChoices(svc *backlog.Service, chosen []store.Label) map[string]any {
+	cfg := svc.Config()
+	style := config.BacklogLabelStyle()
+	inUse := svc.LabelsInUse()
+	site := svc.Snapshot().SiteLabels
+	// The labels a setting names, which renaming would break: the
+	// request label before the rest, since it is the one a view adds.
+	// Then the ones chosen behind the gear, which the team picked on
+	// purpose, exceptions to the style included.
+	exempt := append(append([]string{cfg.RequestLabel}, cfg.WorkLabels...), cfg.LegacyLabels...)
+	for _, l := range chosen {
+		exempt = append(exempt, l.Name)
+	}
+	repos := backlog.ActiveRepos(s.cache.Repos(), config.BacklogRepoLabelDays(), time.Now())
+	return map[string]any{
+		"labels":    chosen,
+		"in_use":    inUse,
+		"repos":     backlog.RepoLabels(repos, inUse, site, style),
+		"elsewhere": backlog.LabelsElsewhere(site, inUse),
+		"style":     style,
+		"spelling":  backlog.LabelSpelling(inUse, style, exempt, repos),
+		"tally":     backlog.TallyLabelStyles(inUse),
+		"exempt":    exempt,
+	}
 }

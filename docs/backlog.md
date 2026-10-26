@@ -25,7 +25,9 @@ again — see below.
 
 **Groups.** Each is a punch list with one sentence saying why it
 matters, the tickets in it, and the exact JQL that opens the same set
-in Jira's issue navigator.
+in Jira's issue navigator. A group with nothing in it gets no card of
+its own; the empty ones are named together on one line, so the page
+still says which questions came back clear.
 
 | Group | What is in it |
 |---|---|
@@ -95,6 +97,25 @@ that came to mean the same thing, are folded back into one; the
 Requests view's "replace the legacy label" is the same migration with
 the labels filled in.
 
+With no label picked, the view lists the labels to tidy, each with the
+migration that settles it. One label spelt more than one way -
+`argus-api`, `argusApi`, `Argus_API`, which Jira keeps as three labels
+because it compares them letter for letter - is folded into one: the
+spelling in the team's style if one of them has it, or a new one in that
+style if none does; with no style set, the most used. Where
+`ARGUS_BACKLOG_LABEL_STYLE` names a spelling, a label spelt otherwise is
+listed too, to be moved to that spelling. Labels a setting names - the
+request label, legacy and work labels - are never respelt, since the
+views look for them by name; where one is among several spellings, it
+is the one kept. Nor are the labels chosen behind the gear, which is
+where a deliberate exception to the style, such as `DevOps`, goes.
+Among the rest, a spelling that is exactly an active repository's name
+is preferred to a more used one, for a team that names labels after
+its repositories. While no style is set, the view says how the labels in
+use of more than one word split between the styles, to choose one by.
+The style is something the team states, not something Argus adopts
+from the labels in use, which are exactly what drifted.
+
 **Inbox.** A personal feed, across every project and space: issues
 that mention you, are assigned to you, or that you watch, changed in
 the last `ARGUS_BACKLOG_INBOX_DAYS` days; and Confluence pages that
@@ -139,6 +160,8 @@ no bad thing.
 | `ARGUS_BACKLOG_REQUEST_TEAM_ID` | none | An Atlassian team whose members are proposed as requesters; optional |
 | `ARGUS_BACKLOG_INBOX_DAYS` | 3 | How far back the inbox looks |
 | `ARGUS_BACKLOG_ALLOW_DELETE` | `false` | The one irreversible write, on top of `ARGUS_SPRINT_ALLOW_WRITES` |
+| `ARGUS_BACKLOG_LABEL_STYLE` | `any` | How labels of several words are spelt: `kebab`, `snake`, `camel`, `pascal` or `train` (`Argus-API`); suggested for new labels and checked in the Labels view |
+| `ARGUS_BACKLOG_REPO_LABEL_DAYS` | 90 | Offer as labels the repositories pushed to within this many days; 0 offers none |
 
 Deleting a ticket is the one thing the tool can do that cannot be
 undone, so it has a gate of its own: both settings must be on, the
@@ -184,12 +207,20 @@ so a label somebody adds between the preview and the write survives.
 A migration is one edit per ticket - the old labels off, the new one on
 - and a ticket carrying none of the old ones is left alone even if it
 already carries the new one, because it was never on the old. The
-labels the bulk bar offers are chosen behind the gear, picked from what
-the open backlog carries (most used first) or typed for one not in use
-yet; with none chosen the bar asks for a spelling each time. The bar's
-*Migrate label…* picks from the chosen labels and every label in use,
-then where to move them. The list is the team's own and creates or
-deletes nothing in Jira.
+bar's *Add label* lists every label there is, in groups: the ones
+chosen behind the gear, then the repositories in scope pushed to within
+`ARGUS_BACKLOG_REPO_LABEL_DAYS` days, by name, then the rest the open
+backlog carries, most used first, then the rest of the site's labels.
+A repository is offered under a label that already exists for it, in
+whatever case and separators, so picking it never makes a second
+spelling; otherwise under its name in the team's style. A label typed
+that matches none of them can be created there - Jira creates a label
+on first use - in the team's spelling first and as typed second, and
+any label one letter away is offered above both. A label typed that is
+another spelling of an existing one is offered as that one instead.
+*Remove label* and the first pick of *Migrate label* list the labels on
+the selected tickets, with how many of them carry each. The chosen list
+is the team's own and creates or deletes nothing in Jira.
 A story link is made the way the team makes them: the child at the end
 `ARGUS_BACKLOG_STORY_LINK_CHILD` names (`inward` by default), the Story
 at the other. It does not transition status, comment, edit summaries,

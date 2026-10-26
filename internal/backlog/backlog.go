@@ -94,6 +94,9 @@ type Snapshot struct {
 	Sprints  []jira.Sprint
 	Inbox    []Item
 	Fields   Fields
+	// SiteLabels is every label the Jira site has seen, for the label
+	// pickers' "elsewhere in Jira" group.
+	SiteLabels []string
 }
 
 // Service owns the Jira client, the store and the cached sweep.
@@ -305,6 +308,14 @@ func (s *Service) fetch() (Snapshot, error) {
 		} else {
 			snap.Sprints = sprints
 		}
+	}
+	// The site's labels, for picking one the open backlog does not
+	// carry. Like the sprints, a failure costs the picker a group and
+	// not the sweep.
+	if labels, err := s.client.Labels(); err != nil {
+		snap.Warnings = append(snap.Warnings, fmt.Sprintf("could not list the site's labels: %v", err))
+	} else {
+		snap.SiteLabels = labels
 	}
 	items, inboxWarnings := s.fetchInbox()
 	snap.Inbox = items

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchLabels, type Backlog } from "../../api";
+import { fetchLabels, type Backlog, type BacklogLabels } from "../../api";
+import { labelItems, newLabelItems, STYLE_NAMES } from "../../labels";
 import { outlined, small } from "../closeout/Table";
 import { errorText } from "../Notice";
 import type { BatchRequest } from "./BatchPanel";
@@ -18,7 +19,11 @@ import { Section, scopeOf } from "./Section";
  * under the chosen one; the two buttons act on the ticked rows of that
  * list or on all of it, and say which. A migration is the same batch
  * the Requests view uses to retire a legacy label, with any label as
- * what goes and any as what comes. */
+ * what goes and any as what comes.
+ *
+ * With no label picked, the view lists the labels to tidy: one label
+ * spelt more than one way, and, where the team has named a spelling, a
+ * label spelt otherwise, each with the migration that settles it. */
 
 export function LabelsView({
   data, selection, staleKeys, onBatch,
@@ -30,7 +35,6 @@ export function LabelsView({
 }) {
   const labels = useQuery({ queryKey: ["labels"], queryFn: fetchLabels, staleTime: 60_000 });
   const inUse = labels.data?.in_use ?? [];
-  const chosen = (labels.data?.labels ?? []).map((l) => l.name);
   const [label, setLabel] = useState<string | null>(null);
   // A label that left the backlog since it was picked (its last ticket
   // migrated, say) is still shown, with nothing under it, rather than
@@ -38,11 +42,11 @@ export function LabelsView({
   const count = inUse.find((l) => l.name === label)?.count ?? 0;
   const rows = label ? (data.rows ?? []).filter((r) => (r.labels ?? []).includes(label)) : [];
   const scope = scopeOf(rows.map((r) => r.key), selection);
-  // Where a migration can go: the labels chosen behind the gear and the
-  // ones in use, less the one being replaced.
-  const targets = [...new Set([...chosen, ...inUse.map((l) => l.name)])]
-    .filter((l) => l !== label)
-    .map((l) => ({ id: l, label: l, hint: chosen.includes(l) ? "chosen" : undefined }));
+  // Where a migration can go: any label offered but the one being
+  // replaced, or a new one in the team's spelling.
+  const targets = labelItems(labels.data, label ? [label] : []);
+  const known = labelItems(labels.data, label ? [label] : []).map((i) => i.id);
+  const create = (q: string) => newLabelItems(q, known, labels.data?.style ?? "any");
 
   return (
     <Section
@@ -64,10 +68,11 @@ export function LabelsView({
               <Picker
                 label={`Migrate to… · ${scope.count}`}
                 items={targets}
+                extra={create}
                 onPick={(to) => onBatch({
                   action: "labels.migrate", keys: scope.keys, params: { from: [label], to }, label: `Migrate ${label} to ${to}`,
                 })}
-                placeholder="Find the new label…"
+                placeholder="Find or type the new label…"
                 disabled={scope.keys.length === 0}
               />
               <button
@@ -91,10 +96,83 @@ export function LabelsView({
       {label ? (
         <Rows rows={rows} selection={selection} staleKeys={staleKeys} empty={`Nothing open carries ${label} any more.`} />
       ) : (
-        <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>
-          {labels.isLoading ? "Reading the labels…" : inUse.length === 0 ? "No open ticket carries a label." : `${inUse.length} ${inUse.length === 1 ? "label" : "labels"} in use. Pick one above.`}
-        </p>
+        <>
+          <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>
+            {labels.isLoading ? "Reading the labels…" : inUse.length === 0 ? "No open ticket carries a label." : `${inUse.length} ${inUse.length === 1 ? "label" : "labels"} in use. Pick one above.`}
+          </p>
+          {labels.data && <Spelling data={data} labels={labels.data} onPick={setLabel} onBatch={onBatch} />}
+        </>
       )}
     </Section>
+  );
+}
+
+/* The labels to tidy. Each line is the labels to replace, the spelling
+ * to keep, and one button that migrates every open ticket carrying any
+ * of them; a label's name opens its tickets above. Under it, while the
+ * team has named no spelling, how the labels in use split today, as the
+ * evidence to choose one by - it is reported, never applied. */
+function Spelling({
+  data, labels, onPick, onBatch,
+}: {
+  data: Backlog;
+  labels: BacklogLabels;
+  onPick: (label: string) => void;
+  onBatch: (req: BatchRequest) => void;
+}) {
+  const findings = labels.spelling ?? [];
+  const style = labels.style ?? "any";
+  const t = labels.tally;
+  const split = t && (["train", "kebab", "snake", "camel", "pascal"] as const)
+    .filter((k) => t[k] > 0)
+    .map((k) => `${t[k]} ${STYLE_NAMES[k]}`)
+    .concat(t.other > 0 ? [`${t.other} mixed`] : []);
+
+  return (
+    <div className="border-t px-4 py-3" style={{ borderColor: "var(--line)" }}>
+      <h3 className="mb-1 text-[13px] font-semibold">Spelling</h3>
+      <p className="mb-2 text-[12.5px]" style={{ color: "var(--muted)" }}>
+        {style === "any"
+          ? "Labels spelt more than one way. Set ARGUS_BACKLOG_LABEL_STYLE to hold every label to one spelling as well."
+          : `The team spells labels in ${STYLE_NAMES[style]}. Labels spelt otherwise, and labels spelt more than one way.`}
+        {style === "any" && split && split.length > 0 && ` Labels of several words in use today: ${split.join(", ")}.`}
+      </p>
+      {findings.length === 0 ? (
+        <p className="py-2 text-[13px]" style={{ color: "var(--faint)" }}>Nothing to tidy.</p>
+      ) : (
+        <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
+          {findings.map((f) => {
+            const from = f.variants.map((v) => v.name);
+            const keys = (data.rows ?? []).filter((r) => (r.labels ?? []).some((l) => from.includes(l))).map((r) => r.key);
+            return (
+              <li key={f.target} className="flex flex-wrap items-center gap-2 py-2 text-[13px]">
+                <span className="flex flex-wrap items-center gap-1.5">
+                  {f.variants.map((v) => (
+                    <button key={v.name} onClick={() => onPick(v.name)} className="lnk font-mono" title={`Show the tickets labelled ${v.name}`}>
+                      {v.name} <span style={{ color: "var(--muted)" }}>· {v.count}</span>
+                    </button>
+                  ))}
+                </span>
+                <span aria-hidden="true" style={{ color: "var(--faint)" }}>→</span>
+                <span className="font-mono">{f.target}</span>
+                <span className="text-[12px]" style={{ color: "var(--muted)" }}>
+                  {f.reason === "spellings" ? "one label, spelt more than one way" : `not ${STYLE_NAMES[style]}`}
+                </span>
+                <button
+                  onClick={() => onBatch({
+                    action: "labels.migrate", keys, params: { from, to: f.target }, label: `Migrate ${from.join(", ")} to ${f.target}`,
+                  })}
+                  disabled={keys.length === 0}
+                  className={`${small} ml-auto`}
+                  style={outlined}
+                >
+                  Migrate · {keys.length}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }

@@ -304,9 +304,9 @@ type Requester struct {
 // Label is one label the team applies from the backlog tool's bulk bar.
 //
 // A Jira site holds hundreds of labels, most typed once and never again;
-// the bulk bar offers the few chosen behind the gear so adding or
-// removing one is a pick rather than a spelling. The list is the team's
-// choice of what to offer and says nothing about what Jira holds, and
+// the bulk bar lists the few chosen behind the gear first, and holds
+// them exempt from the team's label spelling, so they are the team's
+// deliberate choices. The list says nothing about what Jira holds, and
 // like the roster it is replaced whole on every save.
 type Label struct {
 	Name      string    `json:"name"`

@@ -303,3 +303,23 @@ func TestProjectKeyIsSanitised(t *testing.T) {
 		}
 	}
 }
+
+// A server that ignores startAt and never says the list is done must not
+// keep the sweep paging for ever.
+func TestLabelsStopsPaging(t *testing.T) {
+	pages := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":["one"],"isLast":false}`))
+	}))
+	defer srv.Close()
+	c, err := New(srv.URL, "operator@example.com", "token", 1, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels, err := c.Labels()
+	if err != nil || pages != 50 || len(labels) != 50 {
+		t.Errorf("labels %d, pages %d, err %v; want 50 pages and a stop", len(labels), pages, err)
+	}
+}
