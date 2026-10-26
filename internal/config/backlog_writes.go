@@ -28,3 +28,35 @@ func BacklogStoryLinkChild() string {
 	}
 	return LinkChildInward
 }
+
+// The label spellings a team can settle on.
+const (
+	LabelStyleAny    = "any"
+	LabelStyleKebab  = "kebab"
+	LabelStyleSnake  = "snake"
+	LabelStyleCamel  = "camel"
+	LabelStylePascal = "pascal"
+	LabelStyleTrain  = "train"
+)
+
+// LabelStyles is every spelling, in the order the settings list them.
+var LabelStyles = []string{LabelStyleAny, LabelStyleKebab, LabelStyleSnake, LabelStyleCamel, LabelStylePascal, LabelStyleTrain}
+
+// BacklogLabelStyle is how the team spells a label of more than one
+// word: kebab-case, snake_case, camelCase, PascalCase or Train-Case. It
+// is a choice the team states rather than one read off the labels it
+// has, because the labels in use are exactly what drifted. Anything unrecognised
+// reads as any, which checks nothing.
+func BacklogLabelStyle() string {
+	v := strings.ToLower(String("ARGUS_BACKLOG_LABEL_STYLE", LabelStyleAny))
+	for _, s := range LabelStyles {
+		if v == s {
+			return s
+		}
+	}
+	return LabelStyleAny
+}
+
+// BacklogRepoLabelDays is how recently a repository must have been
+// pushed to for the label pickers to offer its name. Zero offers none.
+func BacklogRepoLabelDays() int { return Int("ARGUS_BACKLOG_REPO_LABEL_DAYS", 90) }

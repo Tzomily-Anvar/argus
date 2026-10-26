@@ -6,7 +6,32 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- The Backlog's label pickers list every label, not only the ones
+  chosen behind the gear: the chosen ones first, then the repositories
+  pushed to recently, by name, then every label the open backlog
+  carries and the rest of the site's labels. A label nobody has used
+  can be typed and created in the same picker, and one typed that is
+  another spelling of an existing label is offered as that one instead.
+- `ARGUS_BACKLOG_LABEL_STYLE` names how the team spells a label of
+  several words - kebab, snake, camel, pascal or train (`Argus-API`).
+  New labels are suggested in it, and the Labels view lists every
+  label spelt otherwise, and every label spelt more than one way, with
+  the migration that settles it. The labels chosen behind the gear are
+  exempt, for a deliberate exception such as `DevOps`.
+- `ARGUS_BACKLOG_REPO_LABEL_DAYS` (90) sets how recently a repository
+  must have been pushed to for its name to be offered as a label.
+
+### Changed
+
+- *Remove label* and *Migrate label* on the bulk bar list the labels on
+  the selected tickets, with how many of them carry each, instead of
+  the chosen list.
+- The Groups view names its empty groups together on one line instead
+  of giving each a card of disabled buttons, so the page is as long as
+  the work in it.
+- Closing a Backlog picker with Escape returns focus to its button.
 
 ## [0.3.4] - 2026-10-22
 

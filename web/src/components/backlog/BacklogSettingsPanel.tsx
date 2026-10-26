@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchLabels, fetchRequesters, fetchRequestTeam, saveLabels, saveRequesters, type Requester } from "../../api";
+import { labelItems, newLabelItems } from "../../labels";
 import { outlined, small } from "../closeout/Table";
 import { Notice, errorText } from "../Notice";
 import { SaveBar, SidePanel, stateOf } from "../Panel";
@@ -176,10 +177,10 @@ function ListBlock({
   );
 }
 
-/* The labels block: what the bulk bar's "Add label" and "Remove label"
- * pickers offer. Picked from the labels the open backlog carries, or
- * typed for one not in use yet; Jira creates a label on first use, so a
- * typed one is not a mistake, only a spelling to check. */
+/* The labels block: what the bulk bar's "Add label" picker lists first.
+ * Picked from every label there is, or typed for one nobody has used
+ * yet; Jira creates a label on first use, so a typed one is not a
+ * mistake, only a spelling to check, and the picker checks it. */
 
 function useLabels() {
   const query = useQuery({ queryKey: ["labels"], queryFn: fetchLabels });
@@ -192,16 +193,15 @@ function useLabels() {
 }
 
 function LabelsBlock({ labels }: { labels: ReturnType<typeof useLabels> }) {
-  const [typed, setTyped] = useState("");
   const { query, chosen, setDraft } = labels;
-  const inUse = (query.data?.in_use ?? [])
-    .filter((l) => !chosen.includes(l.name))
-    .map((l) => ({ id: l.name, label: l.name, hint: `${l.count} ${l.count === 1 ? "ticket" : "tickets"}` }));
+  // Everything but the chosen ones, which are already on the list; the
+  // saved list's own group is dropped, since a draft may differ from it.
+  const candidates = labelItems(query.data && { ...query.data, labels: [] }, chosen);
+  const known = [...chosen, ...candidates.map((i) => i.id)];
   const add = (name: string) => {
     const clean = name.trim();
     if (!clean || /\s/.test(clean) || chosen.includes(clean)) return;
     setDraft([...chosen, clean]);
-    setTyped("");
   };
   const remove = (name: string) => setDraft(chosen.filter((l) => l !== name));
 
@@ -210,26 +210,21 @@ function LabelsBlock({ labels }: { labels: ReturnType<typeof useLabels> }) {
       <ListBlock
         title="Labels"
         controls={
-          <>
-            <Picker label="Add from labels in use" items={inUse} onPick={add} placeholder="Find a label…" disabled={query.isLoading} />
-            <input
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") add(typed); }}
-              placeholder="or type one"
-              aria-label="A label to add"
-              className="w-32 rounded-lg px-2.5 py-1.5 text-[13px] outline-none"
-              style={{ background: "var(--surface-2)", border: "1px solid var(--line)", color: "var(--ink)" }}
-            />
-            <button onClick={() => add(typed)} disabled={!typed.trim() || /\s/.test(typed.trim())} className={small} style={outlined}>Add</button>
-          </>
+          <Picker
+            label="Add a label"
+            items={candidates}
+            extra={(q) => newLabelItems(q, known, query.data?.style ?? "any")}
+            onPick={add}
+            placeholder="Find or type a label…"
+            disabled={query.isLoading}
+          />
         }
         error={query.error}
         items={chosen.map((l) => ({ id: l, label: l }))}
         mono
         onRemove={remove}
-        empty={query.isLoading ? "Reading the labels…" : "No labels chosen. The bulk bar then asks you to type one each time."}
-        note="The bulk bar offers these when adding or removing labels, so a label is picked rather than spelled. A label is one word. Removing one here only takes it off the list; the tickets keep it."
+        empty={query.isLoading ? "Reading the labels…" : "No labels chosen. The bulk bar then lists the repositories and the labels in use first."}
+        note="The bulk bar lists these first when adding a label, above the active repositories, the labels in use and the rest of the site, and any label can still be typed there. A label is one word. Removing one here only takes it off the list; the tickets keep it."
       />
     </div>
   );

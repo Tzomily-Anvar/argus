@@ -100,6 +100,13 @@ func fakeBacklogJira(t *testing.T) *httptest.Server {
 			default:
 				answer(w, map[string]any{"issues": backlogIssues, "isLast": true})
 			}
+		case "GET /rest/api/3/label":
+			// Two pages, so the sweep has to follow the offset.
+			if r.URL.Query().Get("startAt") == "0" {
+				answer(w, map[string]any{"values": []string{"Ops", "triage"}, "isLast": false})
+				return
+			}
+			answer(w, map[string]any{"values": []string{"ops"}, "isLast": true})
 		case "GET /wiki/rest/api/content/search":
 			if strings.HasPrefix(r.URL.Query().Get("cql"), "watcher") {
 				answer(w, map[string]any{"results": []any{}})
@@ -350,8 +357,12 @@ func TestRequesters(t *testing.T) {
 func TestLabelsAreChosenFromThoseInUse(t *testing.T) {
 	srv := backlogServer(t, true)
 	type labels struct {
-		Labels []map[string]any     `json:"labels"`
-		InUse  []backlog.LabelCount `json:"in_use"`
+		Labels    []map[string]any          `json:"labels"`
+		InUse     []backlog.LabelCount      `json:"in_use"`
+		Elsewhere []string                  `json:"elsewhere"`
+		Repos     []backlog.RepoLabel       `json:"repos"`
+		Style     string                    `json:"style"`
+		Spelling  []backlog.SpellingFinding `json:"spelling"`
 	}
 	read := func(rec *httptest.ResponseRecorder) labels {
 		if rec.Code != http.StatusOK {
@@ -364,6 +375,13 @@ func TestLabelsAreChosenFromThoseInUse(t *testing.T) {
 	l := read(call(t, srv, http.MethodGet, "/api/backlog/labels", ""))
 	if l.Labels == nil || len(l.Labels) != 0 || len(l.InUse) != 1 || l.InUse[0].Name != "Ops" || l.InUse[0].Count != 1 {
 		t.Errorf("before choosing: %+v", l)
+	}
+	// The site's other labels, across both pages; no repositories, since
+	// this server has no GitHub sweep; and nothing to tidy, since the
+	// one label in use is spelt one way and the style checks nothing.
+	if strings.Join(l.Elsewhere, ",") != "ops,triage" || l.Repos == nil || len(l.Repos) != 0 ||
+		l.Style != "any" || len(l.Spelling) != 0 {
+		t.Errorf("choices: elsewhere %q repos %+v style %q spelling %+v", l.Elsewhere, l.Repos, l.Style, l.Spelling)
 	}
 	l = read(call(t, srv, http.MethodPut, "/api/backlog/labels", `{"labels":["triage","Ops","triage"]}`))
 	if len(l.Labels) != 2 || l.Labels[0]["name"] != "Ops" || l.Labels[1]["name"] != "triage" {

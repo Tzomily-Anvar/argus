@@ -11,7 +11,10 @@ import { Section } from "./Section";
  * in it, the JQL that reproduces the list in Jira, and the rows behind
  * a toggle. The JQL matters more than it looks: a count a person cannot
  * check in Jira is a number to argue with, and one they can is a number
- * to act on. Under the groups, the epics with work still to refine. */
+ * to act on. A group with nothing in it gets no card: the empty ones
+ * share one line, so the answer "nothing here" is still given without
+ * a card of disabled buttons for each. Under the groups, the epics with
+ * work still to refine. */
 
 function GroupCard({
   group, byKey, base, selection, staleKeys,
@@ -32,7 +35,7 @@ function GroupCard({
       title={
         <span className="flex items-center gap-2">
           {group.label}
-          <Badge tone={keys.length > 0 ? "info" : "neutral"} label={String(keys.length)} title={`${keys.length} in this group`} />
+          <Badge tone="info" label={String(keys.length)} title={`${keys.length} in this group`} />
         </span>
       }
       hint={group.why}
@@ -43,10 +46,10 @@ function GroupCard({
               Open in Jira →
             </a>
           )}
-          <button onClick={() => selection.set(keys, true)} disabled={keys.length === 0} className={small} style={outlined}>
+          <button onClick={() => selection.set(keys, true)} className={small} style={outlined}>
             Select all
           </button>
-          <button onClick={() => setOpen((v) => !v)} aria-expanded={open} disabled={keys.length === 0} className={small} style={outlined}>
+          <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className={small} style={outlined}>
             {open ? "Hide" : "Show"}
           </button>
         </>
@@ -56,7 +59,7 @@ function GroupCard({
         <Rows rows={rows} selection={selection} staleKeys={staleKeys} empty="None of these are in the sweep." />
       ) : (
         <p className="px-4 py-2 text-[12.5px]" style={{ color: "var(--faint)" }}>
-          {keys.length === 0 ? "Nothing in this group." : `${keys.length} ${keys.length === 1 ? "ticket" : "tickets"}. Show to list them.`}
+          {`${keys.length} ${keys.length === 1 ? "ticket" : "tickets"}. Show to list them.`}
         </p>
       )}
     </Section>
@@ -125,11 +128,23 @@ export function GroupsView({
   staleKeys: Set<string>;
 }) {
   const byKey = new Map((rows ?? []).map((r) => [r.key, r]));
+  const busy = (groups ?? []).filter((g) => (g.keys ?? []).length > 0);
+  const clear = (groups ?? []).filter((g) => (g.keys ?? []).length === 0);
   return (
     <>
-      {(groups ?? []).map((g) => (
+      {busy.map((g) => (
         <GroupCard key={g.id} group={g} byKey={byKey} base={base} selection={selection} staleKeys={staleKeys} />
       ))}
+      {clear.length > 0 && (
+        <div className="card mb-4 flex flex-wrap items-center gap-2 px-4 py-3 text-[13px]">
+          <span className="font-semibold">Nothing in</span>
+          {clear.map((g) => (
+            <span key={g.id} title={g.why}>
+              <Badge tone="neutral" label={g.label} />
+            </span>
+          ))}
+        </div>
+      )}
       <Section
         title="Epics"
         hint="Every epic with open work under it, and how much of that work is still to be refined. Selecting the unrefined ones puts them in the bulk bar."

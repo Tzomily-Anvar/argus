@@ -56,6 +56,13 @@ type Snapshot struct {
 	Ready      bool              `json:"ready"`
 }
 
+// Repo is one repository in scope, as the last sweep listed it: enough
+// for another tool to offer the active ones by name.
+type Repo struct {
+	Name     string    `json:"name"`
+	PushedAt time.Time `json:"pushed_at"`
+}
+
 // idleAfter is how long the dashboard goes unvisited before the sweep
 // backs off, and idleFactor is how much it backs off by. Six hours is
 // longer than any working gap and shorter than a night, so the slow
@@ -87,6 +94,7 @@ type Cache struct {
 	org      string
 	user     string
 	teams    []string
+	repos    []Repo
 	sweptAt  time.Time
 	sweeping bool
 	lastErr  string
@@ -229,7 +237,19 @@ func (c *Cache) Sweep() {
 		results[r.RuleID] = r
 	}
 
+	// The repositories in scope, which the rules that walk them have
+	// usually listed already; the listing is shared, so this costs a
+	// request only when none of them is enabled. A failure keeps the
+	// last list rather than emptying it.
+	repos, reposErr := ctx.Repos()
+	if reposErr != nil {
+		log.Printf("sweep: could not list the repositories: %v", reposErr)
+	}
+
 	c.mu.Lock()
+	if reposErr == nil {
+		c.repos = repoList(repos)
+	}
 	c.results = results
 	c.org, c.user, c.teams = ctx.Org, ctx.Me, ctx.Teams
 	c.sweptAt = time.Now().UTC()
@@ -237,6 +257,33 @@ func (c *Cache) Sweep() {
 	c.mu.Unlock()
 
 	log.Printf("sweep: %d rules in %s", len(enabled), time.Since(started).Round(time.Millisecond))
+}
+
+// repoList keeps what Repos hands out from GitHub's repository objects.
+// A repository GitHub gives no push time for sorts as never pushed.
+func repoList(raw []map[string]any) []Repo {
+	out := make([]Repo, 0, len(raw))
+	for _, r := range raw {
+		name := gh.Str(r["name"])
+		if name == "" {
+			continue
+		}
+		pushed, _ := time.Parse(time.RFC3339, gh.Str(r["pushed_at"]))
+		out = append(out, Repo{Name: name, PushedAt: pushed})
+	}
+	return out
+}
+
+// Repos is the repositories in scope as of the last sweep that listed
+// them, empty before the first. A nil cache, as the tests build, has
+// none.
+func (c *Cache) Repos() []Repo {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]Repo(nil), c.repos...)
 }
 
 // Snapshot returns the current picture. Safe to call at any time; before

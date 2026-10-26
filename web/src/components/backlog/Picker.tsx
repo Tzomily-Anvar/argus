@@ -14,16 +14,25 @@ import { createPortal } from "react-dom";
  * than inside the button's card: the cards clip what spills out of them,
  * and a picker at a card's right edge would otherwise open half hidden.
  * It keeps to the screen, lining up with the button's right edge when
- * there is no room to its right, and follows the button on scroll. */
+ * there is no room to its right, and follows the button on scroll.
+ *
+ * Items can carry a group, which is shown as a heading where it changes,
+ * so one list can say where each choice came from. `extra` adds rows for
+ * what was typed, above the matches - a label that does not exist yet,
+ * say - and is only asked once something is typed. A list of thousands
+ * draws the first few hundred matches and says to keep typing. */
 
-export type PickerItem = { id: string; label: string; hint?: string };
+export type PickerItem = { id: string; label: string; hint?: string; group?: string; disabled?: boolean };
+
+const SHOWN = 200;
 
 export function Picker({
-  label, items, onPick, placeholder = "Find…", up = false, disabled = false,
+  label, items, onPick, extra, placeholder = "Find…", up = false, disabled = false,
 }: {
   label: string;
   items: PickerItem[];
   onPick: (id: string) => void;
+  extra?: (query: string) => PickerItem[];
   placeholder?: string;
   up?: boolean;
   disabled?: boolean;
@@ -64,7 +73,11 @@ export function Picker({
       const t = e.target as Node;
       if (!button.current?.contains(t) && !panel.current?.contains(t)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      button.current?.focus();
+    };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -76,9 +89,16 @@ export function Picker({
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = items ?? [];
-    if (!q) return list;
-    return list.filter((i) => i.label.toLowerCase().includes(q) || (i.hint ?? "").toLowerCase().includes(q));
-  }, [items, query]);
+    const found = q ? list.filter((i) => i.label.toLowerCase().includes(q) || (i.hint ?? "").toLowerCase().includes(q)) : list;
+    return [...(q && extra ? extra(query) : []), ...found];
+  }, [items, query, extra]);
+  const shown = matches.slice(0, SHOWN);
+  const pick = (i: PickerItem) => {
+    if (i.disabled) return;
+    onPick(i.id);
+    setOpen(false);
+    setQuery("");
+  };
 
   return (
     <>
@@ -107,6 +127,12 @@ export function Picker({
             ref={input}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter takes the first row once something is typed, which
+              // is what was typed when `extra` offers it, so a new label
+              // is typed and entered.
+              if (e.key === "Enter" && !e.nativeEvent.isComposing && query.trim() && shown[0]) pick(shown[0]);
+            }}
             placeholder={placeholder}
             className="mb-2 w-full rounded-lg px-2.5 py-1.5 text-[13px] outline-none"
             style={{ background: "var(--surface-2)", border: "1px solid var(--line)", color: "var(--ink)" }}
@@ -115,23 +141,31 @@ export function Picker({
             <p className="px-2 py-3 text-[13px]" style={{ color: "var(--muted)" }}>Nothing matches that.</p>
           )}
           <div className="max-h-72 overflow-y-auto">
-            {matches.map((i) => (
-              <button
-                key={i.id}
-                onClick={() => {
-                  onPick(i.id);
-                  setOpen(false);
-                  setQuery("");
-                }}
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px]"
-                style={{ background: "transparent" }}
-              >
-                <span className="min-w-0 flex-1 truncate">{i.label}</span>
-                {i.hint && (
-                  <span className="shrink-0 text-[11.5px] whitespace-nowrap" style={{ color: "var(--muted)" }}>{i.hint}</span>
+            {shown.map((i, n) => (
+              <div key={`${n}:${i.id}`}>
+                {i.group && i.group !== shown[n - 1]?.group && (
+                  <p className="px-2.5 pt-2 pb-1 text-[11px] font-semibold tracking-wide uppercase" style={{ color: "var(--faint)" }}>
+                    {i.group}
+                  </p>
                 )}
-              </button>
+                <button
+                  onClick={() => pick(i)}
+                  disabled={i.disabled}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] disabled:opacity-60"
+                  style={{ background: n === 0 && query.trim() ? "var(--surface-2)" : "transparent" }}
+                >
+                  <span className="min-w-0 flex-1 truncate">{i.label}</span>
+                  {i.hint && (
+                    <span className="shrink-0 text-[11.5px] whitespace-nowrap" style={{ color: "var(--muted)" }}>{i.hint}</span>
+                  )}
+                </button>
+              </div>
             ))}
+            {matches.length > SHOWN && (
+              <p className="px-2.5 py-2 text-[12px]" style={{ color: "var(--muted)" }}>
+                {matches.length - SHOWN} more. Keep typing to narrow it.
+              </p>
+            )}
           </div>
         </div>,
         document.body,

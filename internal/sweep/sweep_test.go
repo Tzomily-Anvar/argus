@@ -75,3 +75,18 @@ func TestTouchWakes(t *testing.T) {
 		t.Fatalf("after waking the wait is %s, want the configured 15m", got)
 	}
 }
+
+func TestRepoListKeepsNamesAndPushTimes(t *testing.T) {
+	got := repoList([]map[string]any{
+		{"name": "api", "pushed_at": "2026-10-20T09:00:00Z"},
+		{"name": "", "pushed_at": "2026-10-20T09:00:00Z"},
+		{"name": "empty"},
+	})
+	if len(got) != 2 || got[0].Name != "api" || got[0].PushedAt.Day() != 20 || got[1].Name != "empty" || !got[1].PushedAt.IsZero() {
+		t.Errorf("repoList = %+v", got)
+	}
+	var nilCache *Cache
+	if nilCache.Repos() != nil {
+		t.Error("a nil cache should have no repositories")
+	}
+}

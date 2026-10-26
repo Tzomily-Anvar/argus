@@ -121,6 +121,32 @@ func (c *Client) BoardSprints(boardID int64, states string) ([]Sprint, error) {
 	return page.Values, nil
 }
 
+// Labels lists every label the site has seen, in any project, open or
+// closed. Jira keeps no record of which project a label belongs to, so
+// this is the whole site's vocabulary and nothing narrower; the caller
+// decides how much of it to offer.
+func (c *Client) Labels() ([]string, error) {
+	var out []string
+	// A cap on the pages, so a server that ignores startAt cannot keep
+	// the sweep here for ever. Fifty pages is fifty thousand labels.
+	for start, pages := 0, 0; pages < 50; pages++ {
+		var page struct {
+			Values []string `json:"values"`
+			IsLast bool     `json:"isLast"`
+		}
+		params := url.Values{"startAt": {strconv.Itoa(start)}, "maxResults": {"1000"}}
+		if err := c.Get("/rest/api/3/label", params, &page); err != nil {
+			return nil, err
+		}
+		out = append(out, page.Values...)
+		if page.IsLast || len(page.Values) == 0 {
+			return out, nil
+		}
+		start += len(page.Values)
+	}
+	return out, nil
+}
+
 // ResolveSprint finds a sprint for a project.
 //
 // With no number it takes the open sprint; with one it looks for a sprint

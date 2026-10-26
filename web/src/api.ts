@@ -1091,7 +1091,22 @@ export type BacklogLabels = {
   /** Every label on the open backlog with how many tickets carry it,
    *  so the list is picked from what the team actually applies. */
   in_use: { name: string; count: number }[];
+  /** The active repositories offered as labels, spelt as a label that
+   *  already exists for them or else in the team's style. */
+  repos: { repo: string; label: string; count: number }[];
+  /** The site's other labels, which no open ticket carries. */
+  elsewhere: string[];
+  /** ARGUS_BACKLOG_LABEL_STYLE. */
+  style: LabelStyle;
+  /** Labels in use to tidy, most tickets first. */
+  spelling: { target: string; variants: { name: string; count: number }[]; reason: "spellings" | "style" }[];
+  /** How the labels in use of more than one word are spelt today. */
+  tally: Record<Exclude<LabelStyle, "any">, number> & { other: number };
+  /** Labels a setting names; never flagged for their style. */
+  exempt: string[];
 };
+
+export type LabelStyle = "any" | "kebab" | "snake" | "camel" | "pascal" | "train";
 
 export const fetchLabels = () => getJSON<BacklogLabels>("/api/backlog/labels");
 export const saveLabels = (labels: string[]) => putJSON("/api/backlog/labels", { labels });

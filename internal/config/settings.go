@@ -306,6 +306,16 @@ func Core() Catalogue {
 		},
 
 		{
+			Key: "ARGUS_BACKLOG_LABEL_STYLE", Section: "Backlog", Kind: KindEnum,
+			Values: LabelStyles, Default: LabelStyleAny,
+			Desc: "How the team spells a label of several words: kebab, snake, camel, pascal or train. The pickers suggest it and the Labels view lists what differs. any checks nothing.",
+		},
+		{
+			Key: "ARGUS_BACKLOG_REPO_LABEL_DAYS", Section: "Backlog", Kind: KindInt, Default: "90",
+			Desc: "The label pickers offer the name of every repository pushed to within this many days. 0 offers none.",
+		},
+
+		{
 			Key: "ARGUS_ATLASSIAN_ORG_ID", Section: "Atlassian team", Kind: KindString,
 			Desc: "The Atlassian organisation id, for importing the roster. Optional.",
 		},

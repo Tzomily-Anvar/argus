@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchLabels, type Backlog } from "../../api";
+import { labelItems, newLabelItems } from "../../labels";
 import { Badge } from "../Badge";
 import { Button } from "../Button";
 import { outlined, small } from "../closeout/Table";
@@ -25,22 +26,21 @@ export function BulkBar({
   base: string;
   onBatch: (req: BatchRequest) => void;
 }) {
-  // One input serves the label actions; which verb it was opened with
-  // decides what the preview asks for. A migration is two picks, the
-  // label to replace and then the one to put in its place; the first is
-  // held here between them.
-  const [labelling, setLabelling] = useState<"add" | "remove" | "migrate" | null>(null);
-  const [labels, setLabels] = useState("");
+  // A migration is two picks, the label to replace and then the one to
+  // put in its place; the first is held here between them.
   const [migrating, setMigrating] = useState<string | null>(null);
-  // The labels chosen behind the gear. With any chosen, the two label
-  // buttons are pickers over them with "Other…" at the end for a typed
-  // one; with none, they open the input straight away. A migration picks
-  // from the chosen ones and every label in use, since what it replaces
-  // is by definition a label the team would not choose to offer.
-  const chosen = useQuery({ queryKey: ["labels"], queryFn: fetchLabels, staleTime: 60_000 });
-  const shelf = (chosen.data?.labels ?? []).map((l) => l.name);
-  const inUse = (chosen.data?.in_use ?? []).map((l) => l.name);
-  const known = [...new Set([...shelf, ...inUse])];
+  // Adding offers every label there is, in groups: the ones chosen
+  // behind the gear first, then the active repositories, the rest in
+  // use and the rest of the site; and a label typed that is none of
+  // them is created, in the team's spelling, unless it is a spelling of
+  // one that exists. Removing offers what the selection carries.
+  const labels = useQuery({ queryKey: ["labels"], queryFn: fetchLabels, staleTime: 60_000 });
+  const style = labels.data?.style ?? "any";
+  const offered = labelItems(labels.data);
+  const known = offered.map((i) => i.id);
+  // While migrating, the label being replaced is not a label to offer
+  // instead of a new one: respelling it is the point.
+  const create = (q: string) => newLabelItems(q, known.filter((l) => l !== migrating), style);
   // The selection is one set across every view and section, so the
   // count can be larger than the ticks on screen. Opening the badge
   // lists every key, each with its own untick.
@@ -57,59 +57,43 @@ export function BulkBar({
   const epics = (data.epics_all ?? []).map((e) => ({ id: e.key, label: `${e.key} · ${e.summary}` }));
   const stories = (data.stories ?? []).map((s) => ({ id: s.key, label: `${s.key} · ${s.summary}`, hint: s.epic_key || undefined }));
 
-  const sendLabelList = (verb: "add" | "remove" | "migrate", list: string[]) => {
-    if (list.length === 0) return;
-    if (verb === "migrate") {
-      if (migrating) ask("labels.migrate", { from: [migrating], to: list[0] }, `Migrate ${migrating} to ${list[0]}`);
-    } else {
-      ask(verb === "add" ? "labels.add" : "labels.remove", { labels: list },
-        `${verb === "add" ? "Add" : "Remove"} ${list.length === 1 ? "label" : "labels"} ${list.join(", ")}`);
-    }
-    setLabelling(null);
-    setMigrating(null);
-    setLabels("");
-  };
-  const sendLabels = () => {
-    if (!labelling) return;
-    sendLabelList(labelling, labels.split(/[\s,]+/).map((l) => l.trim()).filter(Boolean));
-  };
-  // The label pickers' items: the labels themselves, and where a typed
-  // one is allowed, "Other…" at the end to open the input instead.
-  const OTHER = "\u0000other";
-  const labelItems = (list: string[], other = false) => [
-    ...list.map((l) => ({ id: l, label: l })),
-    ...(other ? [{ id: OTHER, label: "Other…", hint: "type one" }] : []),
-  ];
-  const labelPicker = (verb: "add" | "remove") => (
-    <Picker
-      label={verb === "add" ? "Add label" : "Remove label"}
-      items={labelItems(shelf, true)}
-      up
-      placeholder="Find a label…"
-      onPick={(id) => (id === OTHER ? setLabelling(verb) : sendLabelList(verb, [id]))}
-    />
-  );
-  // The second pick of a migration: anything known but the label being
-  // replaced, or a typed one.
+  // The labels on the selected tickets, most carried first, each saying
+  // on how many of them it is.
+  const selected = new Set(keys);
+  const carried = new Map<string, number>();
+  for (const r of data.rows ?? []) {
+    if (!selected.has(r.key)) continue;
+    for (const l of r.labels ?? []) carried.set(l, (carried.get(l) ?? 0) + 1);
+  }
+  const removable = [...carried]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([l, c]) => ({ id: l, label: l, hint: `on ${c} of ${n}` }));
+
+  // The second pick of a migration: anything offered but the label being
+  // replaced, or a new one.
   const migratePicker = migrating ? (
     <span className="flex items-center gap-1">
       <Picker
         label={`Migrate ${migrating} to`}
-        items={labelItems(known.filter((l) => l !== migrating), true)}
+        items={labelItems(labels.data, [migrating])}
+        extra={create}
         up
-        placeholder="Find the new label…"
-        onPick={(id) => (id === OTHER ? setLabelling("migrate") : sendLabelList("migrate", [id]))}
+        placeholder="Find or type the new label…"
+        onPick={(to) => {
+          ask("labels.migrate", { from: [migrating], to }, `Migrate ${migrating} to ${to}`);
+          setMigrating(null);
+        }}
       />
       <button onClick={() => setMigrating(null)} className={small} style={outlined}>Cancel</button>
     </span>
   ) : (
     <Picker
       label="Migrate label"
-      items={labelItems(known)}
+      items={removable}
       up
       placeholder="Find the label to replace…"
       onPick={setMigrating}
-      disabled={known.length === 0}
+      disabled={removable.length === 0}
     />
   );
 
@@ -158,35 +142,27 @@ export function BulkBar({
         onPick={(key) => ask("story.link", { story_key: key }, `Link to story ${key}`)}
       />
 
-      {labelling ? (
-        <span className="flex items-center gap-1">
-          <input
-            autoFocus
-            value={labels}
-            onChange={(e) => setLabels(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") sendLabels(); if (e.key === "Escape") setLabelling(null); }}
-            placeholder={labelling === "migrate" ? "new label" : "label, another"}
-            aria-label={labelling === "add" ? "Labels to add" : labelling === "remove" ? "Labels to remove" : "The label to migrate to"}
-            className="w-40 rounded-lg px-2.5 py-1.5 text-[13px] outline-none"
-            style={{ background: "var(--surface-2)", border: "1px solid var(--line)", color: "var(--ink)" }}
-          />
-          <button onClick={sendLabels} disabled={!labels.trim()} className={small} style={outlined}>
-            {labelling === "add" ? "Add" : labelling === "remove" ? "Remove" : `Migrate ${migrating ?? ""}`}
-          </button>
-          <button onClick={() => { setLabelling(null); setMigrating(null); }} className={small} style={outlined}>Cancel</button>
-        </span>
-      ) : migrating ? (
+      {migrating ? (
         migratePicker
-      ) : shelf.length > 0 ? (
-        <>
-          {labelPicker("add")}
-          {labelPicker("remove")}
-          {migratePicker}
-        </>
       ) : (
         <>
-          <Button onClick={() => setLabelling("add")}>Add label…</Button>
-          <Button onClick={() => setLabelling("remove")}>Remove label…</Button>
+          <Picker
+            label="Add label"
+            items={offered}
+            extra={create}
+            up
+            placeholder="Find or type a label…"
+            onPick={(l) => ask("labels.add", { labels: [l] }, `Add label ${l}`)}
+            disabled={labels.isLoading}
+          />
+          <Picker
+            label="Remove label"
+            items={removable}
+            up
+            placeholder="Find a label…"
+            onPick={(l) => ask("labels.remove", { labels: [l] }, `Remove label ${l}`)}
+            disabled={removable.length === 0}
+          />
           {migratePicker}
         </>
       )}
