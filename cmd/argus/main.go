@@ -95,6 +95,18 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The pull request tool keeps only the pull requests marked seen,
+	// and opens the store for that when neither tool above did.
+	if st == nil && config.ToolEnabled("pr") {
+		if st, err = openStore(context.Background()); err != nil {
+			return err
+		}
+		if err := st.Migrate(context.Background()); err != nil {
+			return err
+		}
+		// Retention is what drops a mark after ninety days.
+		go retain(context.Background(), st)
+	}
 	if st != nil {
 		defer st.Close()
 	}
@@ -119,6 +131,9 @@ func run() error {
 	}
 	if backlogSvc != nil {
 		srv.BacklogRoutes(backlogSvc, st, batch)
+	}
+	if st != nil && config.ToolEnabled("pr") {
+		srv.SeenRoutes(st)
 	}
 	return server.Run(config.Addr(), srv)
 }

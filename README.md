@@ -90,8 +90,9 @@ nothing it could do. See [The Backlog tool](docs/backlog.md).
 sweep as everything else, and nothing in Argus writes to GitHub, ever.
 
 **What it stores depends on which tools you run.** The pull request tool
-stores nothing at all — its snapshot lives in memory and is gone when the
-container stops. The sprint report has to store what Jira has no source
+keeps its snapshot in memory, gone when the container stops, and stores
+only the pull requests you mark seen: repository, number and commit. The
+sprint report has to store what Jira has no source
 for: each person's baseline, how much of a sprint they were away, and any
 note explaining a delta.
 
@@ -141,6 +142,13 @@ Every table of pull requests sorts by its column headings and narrows
 by author, repository or a search, and the sort and filter go in the
 address, so a link to one author's open pull requests is a link like any
 other. The Backlog's tables do the same.
+
+Each pull request says where it stands with you: *you approved*, *you
+commented*, or **changed since your review** once someone pushes after
+it. One you read without reviewing can be marked *seen* in Argus, and
+comes back as changed on the next push; nothing is written to GitHub.
+The **Looked at** filter narrows any tab to what you have not looked at
+yet, or to what has moved since you did.
 
 At the bottom of the rail are four colour themes — Slate, Glacier,
 Nightfall, Pine — each with its own light and dark, remembered per

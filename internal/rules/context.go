@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -48,6 +49,11 @@ type Context struct {
 	// pullRequest below.
 	prMu    sync.Mutex
 	prNodes map[string]*prNode
+
+	// How many approvals each repository's default branch asks for, read
+	// at most once per repository per sweep. See RequiredApprovals.
+	approvalsMu  sync.Mutex
+	approvalsFor map[string]*approvalsNode
 }
 
 // Personal reports whether the configured account is somebody's own
@@ -339,7 +345,7 @@ func (c *Context) PullRequest(repo string, number int) (map[string]any, error) {
 
 	n.once.Do(func() {
 		data, err := c.Client.GraphQL(pullRequestQuery, map[string]any{
-			"owner": c.Org, "name": repo, "number": number,
+			"owner": c.Org, "name": repo, "number": number, "me": nilIfEmpty(c.Me),
 		})
 		// Partial data is still worth having: the review decision and
 		// labels usually resolve even when the check contexts do not.
@@ -353,4 +359,63 @@ func (c *Context) PullRequest(repo string, number int) (map[string]any, error) {
 		}
 	})
 	return n.data, n.err
+}
+
+// nilIfEmpty is a GraphQL variable: null in place of an empty string.
+// A null author filters nothing, so a caller that needs the viewer's own
+// reviews checks the login is known before reading them.
+func nilIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// approvalsNode is one branch's required approval count, read once
+// however many of its pull requests ask.
+type approvalsNode struct {
+	once sync.Once
+	n    int
+}
+
+// RequiredApprovals is how many approving reviews the rulesets on a
+// repository's branch ask for: the largest count any pull request rule
+// on it names, whether the ruleset is the repository's or the
+// organisation's.
+//
+// GitHub's own review decision answers against the branch a pull
+// request merges into, so a pull request stacked on a feature branch the
+// rulesets do not cover is "approved" on one review. Reading the default
+// branch's count lets a pull request be held to the bar its work will
+// have to clear on the way in. Zero when no ruleset asks, or when the
+// rules cannot be read, in which case GitHub's decision stands as it is.
+func (c *Context) RequiredApprovals(repo, branch string) int {
+	key := repo + "@" + branch
+	c.approvalsMu.Lock()
+	if c.approvalsFor == nil {
+		c.approvalsFor = map[string]*approvalsNode{}
+	}
+	n, ok := c.approvalsFor[key]
+	if !ok {
+		n = &approvalsNode{}
+		c.approvalsFor[key] = n
+	}
+	c.approvalsMu.Unlock()
+
+	n.once.Do(func() {
+		rules, err := c.Client.GetAll(fmt.Sprintf("/repos/%s/%s/rules/branches/%s", c.Org, repo, url.PathEscape(branch)), nil)
+		if err != nil {
+			return
+		}
+		for _, raw := range rules {
+			rule := gh.Map(raw)
+			if gh.Str(rule["type"]) != "pull_request" {
+				continue
+			}
+			if want := int(gh.Num(gh.Map(rule["parameters"])["required_approving_review_count"])); want > n.n {
+				n.n = want
+			}
+		}
+	})
+	return n.n
 }

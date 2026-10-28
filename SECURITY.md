@@ -74,8 +74,11 @@ your name on the tickets, and should have been told beforehand.
 
 **What it stores depends on the tools you enable.**
 
-The pull request tool stores nothing: its snapshot lives in memory and is
-gone when the container stops.
+The pull request tool keeps its snapshot in memory, gone when the
+container stops. What it stores is the pull requests you mark seen: the
+repository, the number and the commit you looked at, nothing about
+anyone else. A mark is dropped after ninety days, with the backlog's
+acknowledgements.
 
 The sprint report stores what Jira has no source for — each person's
 baseline capacity, how many days of a sprint they were away, and any note

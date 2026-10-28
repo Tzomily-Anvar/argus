@@ -2,6 +2,7 @@ import { Badge, Pill, severityTone, type Tone } from "./Badge";
 import type { BranchRow, PRRow } from "../api";
 import { byText, passes, sortRows, useFilter, useSort, without, type Filter } from "../tableQuery";
 import { FilterNote, SortTh } from "./Filters";
+import { useLooked } from "../looked";
 
 function Age({ days }: { days: number }) {
   return (
@@ -37,7 +38,7 @@ function Table({ head, children }: { head: React.ReactNode; children: React.Reac
 
 function Row({ children }: { children: React.ReactNode }) {
   return (
-    <tr className="[&:not(:last-child)]:border-b" style={{ borderColor: "var(--line)" }}>
+    <tr className="group [&:not(:last-child)]:border-b" style={{ borderColor: "var(--line)" }}>
       {children}
     </tr>
   );
@@ -57,7 +58,10 @@ function RepoLink({ row }: { row: PRRow }) {
   );
 }
 
-/** Review decision as a status, with its own written label. */
+/** Review decision as a status, with its own written label, and the
+ *  approvals against what the rulesets ask for where they ask. A pull
+ *  request GitHub calls approved on fewer than that - one stacked on a
+ *  branch the rulesets do not cover - says so rather than wearing a tick. */
 function reviewBadge(row: PRRow) {
   const map: Record<string, { tone: Tone; label: string }> = {
     APPROVED: { tone: "good", label: "approved" },
@@ -65,7 +69,90 @@ function reviewBadge(row: PRRow) {
     REVIEW_REQUIRED: { tone: "warning", label: "needs review" },
   };
   const hit = map[row.review_decision ?? ""];
-  return hit ? <Badge tone={hit.tone} label={hit.label} /> : null;
+  if (!hit) return null;
+  const need = row.approvals_required ?? 0;
+  const count = `${row.approvals ?? 0}/${need}`;
+  if (need > 0 && row.github_decision === "APPROVED" && row.review_decision !== "APPROVED") {
+    return (
+      <Badge
+        tone="warning"
+        label={`${count} approvals`}
+        title={`GitHub counts this approved, because ${row.base_branch ? `${row.base_branch} asks` : "the branch it merges into asks"} for fewer. The default branch asks for ${need}.`}
+      />
+    );
+  }
+  const counted = need > 0 && row.review_decision !== "CHANGES_REQUESTED";
+  return <Badge tone={hit.tone} label={counted ? `${hit.label} ${count}` : hit.label} />;
+}
+
+/** The branch a pull request merges into, shown only where it is not
+ *  the default branch: a stacked pull request lands on its parent, not
+ *  in the main line. */
+function BaseBranch({ name }: { name?: string }) {
+  if (!name) return null;
+  const short = name.length > 28 ? `${name.slice(0, 27)}…` : name;
+  return (
+    <span className="ml-2 align-middle">
+      <Pill title={`Merges into ${name}, not the default branch`}>into {short}</Pill>
+    </span>
+  );
+}
+
+const SAID: Record<string, string> = {
+  APPROVED: "you approved",
+  CHANGES_REQUESTED: "you asked for changes",
+  COMMENTED: "you commented",
+};
+
+/** Where a pull request stands with you: your review on the code as it
+ *  stands, a seen mark, or a warning that it has moved since either.
+ *  Marking it seen is offered where there is no review on the current
+ *  code, and shows on hover so a long table is not a column of buttons. */
+function LookedMark({ row }: { row: PRRow }) {
+  const looked = useLooked();
+  if (!looked) return null;
+  const state = looked.of(row);
+  if (state === "yours") return null;
+  const said = SAID[looked.review(row)];
+  const canMark = looked.available && looked.head(row) !== "";
+  const markButton = canMark && (
+    <button
+      onClick={() => looked.mark(row, true)}
+      disabled={looked.busy}
+      className="lnk text-[12px] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+      title="Mark it seen here, without a review in GitHub. It comes back as changed when someone pushes."
+    >
+      mark seen
+    </button>
+  );
+  return (
+    <span className="ml-2 inline-flex items-center gap-1.5 align-middle">
+      {state === "reviewed" && said && <Pill title="Your latest review is on the code as it stands">{said}</Pill>}
+      {state === "seen" && (
+        <Pill title="You marked this seen, and nothing has been pushed since">
+          seen
+          <button
+            onClick={() => looked.mark(row, false)}
+            disabled={looked.busy}
+            aria-label="Unmark seen"
+            title="Unmark seen"
+            className="ml-1"
+            style={{ color: "var(--faint)" }}
+          >
+            ×
+          </button>
+        </Pill>
+      )}
+      {state === "changed since" && (
+        <Badge
+          tone="warning"
+          label={said ? "changed since your review" : "changed since you looked"}
+          title={said ? `Commits pushed since ${said}` : "Commits pushed since you marked it seen"}
+        />
+      )}
+      {state !== "reviewed" && state !== "seen" && markButton}
+    </span>
+  );
 }
 
 /** How much a pull request needs someone, worst first: something
@@ -90,11 +177,16 @@ const prOrder: Record<string, (a: PRRow, b: PRRow) => number> = {
   age: (a, b) => a.age_days - b.age_days,
 };
 
-/** The pull request filter's fields, as query parameters. */
-export const PR_FILTER_FIELDS = ["author", "repo"];
+/** The pull request filter's fields, as query parameters. `looked` is
+ *  where a pull request stands with you: see looked.tsx. */
+export const PR_FILTER_FIELDS = ["author", "repo", "looked"];
 
-export function prPasses(filter: Filter, r: PRRow): boolean {
-  return passes(filter, { author: [r.author], repo: [r.repo] }, [`${r.repo}#${r.number}`, r.title, r.author]);
+export function prPasses(filter: Filter, r: PRRow, looked = ""): boolean {
+  return passes(
+    filter,
+    { author: [r.author], repo: [r.repo], looked: looked ? [looked] : [] },
+    [`${r.repo}#${r.number}`, r.title, r.author],
+  );
 }
 
 /** A table of pull requests. With `controls`, its headings sort it and
@@ -104,10 +196,16 @@ export function PRTable({ rows, showAuthor = true, controls = false }: { rows: P
   const [sort, onSort] = useSort();
   // Without an author column the table is one author's, and an author
   // picked on another tab is set aside here rather than emptying it.
+  // Your own pull requests have nothing for you to look at, and with no
+  // marks to read the looked filter could only empty the table.
   const all = useFilter(PR_FILTER_FIELDS);
-  const filter = showAuthor ? all : without(all, ["author"]);
+  const looked = useLooked();
+  const set = [...(showAuthor ? [] : ["author", "looked"]), ...(looked ? [] : ["looked"])];
+  const filter = set.length > 0 ? without(all, set) : all;
   if (rows.length === 0) return <Empty />;
-  const shown = controls ? sortRows(rows.filter((r) => prPasses(filter, r)), sort, prOrder) : rows;
+  const shown = controls
+    ? sortRows(rows.filter((r) => prPasses(filter, r, looked?.of(r))), sort, prOrder)
+    : rows;
   // One row has no order to choose.
   const head = (label: string, col: string, className = "", startDesc = false) =>
     controls && rows.length > 1
@@ -138,6 +236,8 @@ export function PRTable({ rows, showAuthor = true, controls = false }: { rows: P
                   <Pill title="Draft pull requests are included here on purpose">draft</Pill>
                 </span>
               )}
+              <BaseBranch name={row.base_branch} />
+              <LookedMark row={row} />
             </td>
             {showAuthor && (
               <td className="px-4 py-2.5 align-top whitespace-nowrap" style={{ color: "var(--muted)" }}>

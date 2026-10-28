@@ -447,11 +447,33 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	if err := goose.SetDialect("postgres"); err != nil {
 		t.Fatalf("setting dialect: %v", err)
 	}
+	mustExec(t, s, `INSERT INTO acks (kind, key, watermark) VALUES ('ticket', 'ABC-1', 'w'), ('pr', 'web-app#12', 'aaa')`)
 	if err := goose.DownContext(ctx, s.db, "migrations"); err != nil {
 		t.Fatalf("rolling back the newest migration: %v", err)
 	}
 	if got := dbVersion(t, s); got != latestMigration(t)-1 {
 		t.Errorf("after one rollback the version is %d, want %d", got, latestMigration(t)-1)
+	}
+	var kinds []string
+	rows, err := s.db.QueryContext(ctx, `SELECT kind FROM acks ORDER BY kind`)
+	if err != nil {
+		t.Fatalf("reading acks after rolling back 008: %v", err)
+	}
+	for rows.Next() {
+		var k string
+		_ = rows.Scan(&k)
+		kinds = append(kinds, k)
+	}
+	rows.Close()
+	if len(kinds) != 1 || kinds[0] != "ticket" {
+		t.Errorf("rolling back 008 should drop the seen marks and keep the rest, left %v", kinds)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO acks (kind, key) VALUES ('pr', 'web-app#13')`); err == nil {
+		t.Error("rolling back 008 left the pr kind allowed")
+	}
+
+	if err := goose.DownContext(ctx, s.db, "migrations"); err != nil {
+		t.Fatalf("rolling back 007: %v", err)
 	}
 	if hasTable(t, s, "backlog_labels") {
 		t.Error("rolling back 007 left its table behind")

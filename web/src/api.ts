@@ -87,7 +87,17 @@ export type PRRow = {
   url: string;
   labels?: string[];
   draft?: boolean;
+  /** GitHub's review decision, unless it says approved on fewer approvals
+   *  than the default branch's rulesets ask for: then REVIEW_REQUIRED. */
   review_decision?: string;
+  /** What GitHub itself said, for saying why the two differ. */
+  github_decision?: string;
+  /** Each reviewer's latest review that approves. */
+  approvals?: number;
+  /** What the default branch's rulesets ask for; 0 when none, or unread. */
+  approvals_required?: number;
+  /** The branch it merges into, where that is not the default branch. */
+  base_branch?: string;
   /** Review threads nobody has resolved: comments the author still owes an answer. */
   unresolved_threads?: number;
   has_qa_label?: boolean;
@@ -95,6 +105,13 @@ export type PRRow = {
   real_failures?: string[];
   policy_failures?: string[];
   checks_green?: boolean;
+  /** The commit at the head of the branch, which a seen mark holds. */
+  head_sha?: string;
+  /** What you last said on it: APPROVED, CHANGES_REQUESTED or COMMENTED;
+   *  empty when you have not reviewed it. */
+  my_review?: string;
+  /** Whether your latest review is on the head commit, with nothing pushed since. */
+  my_review_current?: boolean;
 };
 
 export type PolicyHint = {
@@ -1075,6 +1092,13 @@ async function deleteJSONWith(path: string, body: unknown): Promise<void> {
     throw new Error(detail.error ?? res.statusText);
   }
 }
+
+/** A pull request marked seen: repo#number and the head commit it was
+ *  marked on. A push moves the head and the mark no longer holds. */
+export type SeenMark = { key: string; watermark: string; at: string };
+export const fetchSeen = () => getJSON<{ seen: SeenMark[] }>("/api/prs/seen");
+export const markSeen = (items: { key: string; head: string }[]) => postJSON<unknown>("/api/prs/seen", { items });
+export const unmarkSeen = (keys: string[]) => deleteJSONWith("/api/prs/seen", { keys });
 
 export const fetchBacklog = () => getJSON<Backlog>("/api/backlog");
 export const refreshBacklog = () => postJSON<unknown>("/api/backlog/refresh", {});
