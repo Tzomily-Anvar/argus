@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { acknowledgeBacklog, unacknowledgeBacklog, type BacklogRow } from "../../api";
 import { outlined, small } from "../closeout/Table";
 import { errorText } from "../Notice";
-import { Rows, type Selection } from "./Rows";
+import { Rows, useVisible, type Selection } from "./Rows";
 import { Section } from "./Section";
 
 /* New: what has arrived or changed since it was last looked at.
@@ -33,6 +33,9 @@ export function NewView({
   const fresh = (rows ?? []).filter((r) => r.new && !r.acknowledged).sort(byNewest);
   const acked = (rows ?? []).filter((r) => r.acknowledged).sort(byNewest);
   const shown = showAcked ? [...fresh, ...acked] : fresh;
+  // "All shown" is what the filter leaves of the new ones.
+  const visible = useVisible();
+  const ackable = visible ? fresh.filter((r) => visible.has(r.key)) : fresh;
   const busy = ack.isPending || unack.isPending;
   const err = ack.error ?? unack.error;
 
@@ -47,8 +50,8 @@ export function NewView({
             Show acknowledged ({acked.length})
           </label>
           <button
-            onClick={() => ack.mutate(fresh.map((r) => r.key))}
-            disabled={busy || fresh.length === 0}
+            onClick={() => ack.mutate(ackable.map((r) => r.key))}
+            disabled={busy || ackable.length === 0}
             className={small}
             style={outlined}
           >

@@ -7,7 +7,7 @@ import { Button } from "../Button";
 import { outlined, small } from "../closeout/Table";
 import type { BatchRequest } from "./BatchPanel";
 import { Picker } from "./Picker";
-import { jqlURL, keysJQL, type Selection } from "./Rows";
+import { jqlURL, keysJQL, useVisible, type Selection } from "./Rows";
 
 /* The bulk bar: what can be done to the selection.
  *
@@ -47,6 +47,9 @@ export function BulkBar({
   const [listing, setListing] = useState(false);
   const keys = selection.keys;
   const n = keys.length;
+  // A selection outlives a filter, so say how much of it is out of view.
+  const visible = useVisible();
+  const hidden = visible ? keys.filter((k) => !visible.has(k)).length : 0;
   if (n === 0) return null;
 
   const requestLabel = data.settings?.request_label || "Request";
@@ -110,6 +113,11 @@ export function BulkBar({
       >
         <Badge tone="info" label={`${n} selected${listing ? " ▴" : " ▾"}`} />
       </button>
+      {hidden > 0 && (
+        <span className="text-[12px]" style={{ color: "var(--warn)" }} title="The bulk bar acts on every selected ticket, shown or not">
+          {hidden} hidden by the filter
+        </span>
+      )}
       {base && (
         <a href={jqlURL(base, keysJQL(keys))} target="_blank" rel="noreferrer" className="lnk text-xs" title={keysJQL(keys)}>
           Open in Jira →

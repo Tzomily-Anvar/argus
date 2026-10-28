@@ -11,7 +11,9 @@ import { InboxView } from "./components/backlog/InboxView";
 import { LabelsView } from "./components/backlog/LabelsView";
 import { NewView } from "./components/backlog/NewView";
 import { RequestsView } from "./components/backlog/RequestsView";
-import { jiraBase, type Selection } from "./components/backlog/Rows";
+import { BACKLOG_FILTER_FIELDS, jiraBase, rowPasses, UNASSIGNED, Visible, type Selection } from "./components/backlog/Rows";
+import { countValues, FilterBar } from "./components/Filters";
+import { useFilter, without } from "./tableQuery";
 import { BacklogSettingsPanel } from "./components/backlog/BacklogSettingsPanel";
 import { ago } from "./dates";
 import { HeaderButton, ToolHeader } from "./components/ToolHeader";
@@ -101,6 +103,16 @@ export function BacklogTool() {
 
   const warnings = data?.warnings ?? [];
 
+  // The filter is one for the whole tool, as the selection is: the keys
+  // it lets through are worked out here, once, and every view reads them.
+  // The Labels view lists one label's tickets, so a label picked in the
+  // filter is set aside there rather than fighting the view's own pick.
+  const ignore = view === "labels" ? ["label"] : [];
+  const filter = without(useFilter(BACKLOG_FILTER_FIELDS), ignore);
+  const visible = filter.active ? new Set(rows.filter((r) => rowPasses(filter, r)).map((r) => r.key)) : null;
+  const field = (param: string, label: string, of: (r: (typeof rows)[number]) => string[]) =>
+    ({ param, label, noun: "ticket", options: countValues(rows.map(of)) });
+
   return (
     <div className="mx-auto max-w-5xl px-6 pt-6 pb-20">
       <ToolHeader
@@ -144,26 +156,42 @@ export function BacklogTool() {
         <>
           <SectionTabs sections={sections} active={view} onSelect={setView} />
 
-          {view === "new" && <NewView rows={rows} selection={selection} staleKeys={staleKeys} />}
-          {view === "groups" && (
-            <GroupsView
-              groups={data.groups ?? []}
-              epics={data.epics ?? []}
-              rows={rows}
-              base={base}
-              selection={selection}
-              staleKeys={staleKeys}
+          {view !== "inbox" && (rows.length > 0 || filter.active) && (
+            <FilterBar
+              filter={filter}
+              placeholder="Search key or summary"
+              fields={[
+                field("type", "Type", (r) => [r.type]),
+                field("status", "Status", (r) => [r.status]),
+                field("reporter", "Reporter", (r) => [r.reporter?.label ?? ""]),
+                field("assignee", "Assignee", (r) => [r.assignee?.label || UNASSIGNED]),
+                field("label", "Label", (r) => r.labels ?? []),
+              ].filter((f) => !ignore.includes(f.param))}
             />
           )}
-          {view === "requests" && (
-            <RequestsView data={data} selection={selection} staleKeys={staleKeys} onBatch={setBatch} />
-          )}
-          {view === "labels" && (
-            <LabelsView data={data} selection={selection} staleKeys={staleKeys} onBatch={setBatch} />
-          )}
-          {view === "inbox" && <InboxView inbox={inbox.data} loading={inbox.isLoading} error={inbox.error} />}
 
-          <BulkBar selection={selection} data={data} base={base} onBatch={setBatch} />
+          <Visible value={visible}>
+            {view === "new" && <NewView rows={rows} selection={selection} staleKeys={staleKeys} />}
+            {view === "groups" && (
+              <GroupsView
+                groups={data.groups ?? []}
+                epics={data.epics ?? []}
+                rows={rows}
+                base={base}
+                selection={selection}
+                staleKeys={staleKeys}
+              />
+            )}
+            {view === "requests" && (
+              <RequestsView data={data} selection={selection} staleKeys={staleKeys} onBatch={setBatch} />
+            )}
+            {view === "labels" && (
+              <LabelsView data={data} selection={selection} staleKeys={staleKeys} onBatch={setBatch} />
+            )}
+            {view === "inbox" && <InboxView inbox={inbox.data} loading={inbox.isLoading} error={inbox.error} />}
+
+            <BulkBar selection={selection} data={data} base={base} onBatch={setBatch} />
+          </Visible>
         </>
       )}
 

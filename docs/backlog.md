@@ -126,6 +126,21 @@ exact in Confluence, whose query language has a field for it, and a
 best-effort proxy in Jira — `text ~ currentUser()` — where a query that
 fails becomes a warning on the page rather than an empty inbox.
 
+**Sorting and filtering.** The ticket, type, status, reporter and age
+headings sort every ticket table: a click sorts, a second turns the
+order round, a third goes back to the view's own order. The bar above
+the views searches key and summary and narrows by type, status,
+reporter, assignee and label. Both are kept in the address
+(`/backlog/groups?label=infra&sort=-age`), so a reload or a pasted link
+arrives filtered, and both stay on as the tabs change. The counts on
+the tabs and section headings stay the whole backlog's; each table
+says how many of its rows the filter shows. A section's own button,
+*Select all* in Groups and *Acknowledge all shown* in New act on the
+rows shown only. The bulk bar acts on the whole selection, and says
+how much of it the filter is hiding. A picker with one value to choose is
+greyed out, and the Labels view sets the label filter aside, since it
+shows one label's tickets already.
+
 ## Acknowledge and dismiss
 
 Neither writes anything to Jira. An acknowledgement is a watermark kept

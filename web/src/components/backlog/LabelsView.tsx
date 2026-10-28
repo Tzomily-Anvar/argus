@@ -7,7 +7,7 @@ import { errorText } from "../Notice";
 import type { BatchRequest } from "./BatchPanel";
 import { Picker } from "./Picker";
 import { Rows, type Selection } from "./Rows";
-import { Section, scopeOf } from "./Section";
+import { Section, useScope } from "./Section";
 
 /* Labels: the open backlog by one label at a time.
  *
@@ -41,7 +41,7 @@ export function LabelsView({
   // silently swapped for another.
   const count = inUse.find((l) => l.name === label)?.count ?? 0;
   const rows = label ? (data.rows ?? []).filter((r) => (r.labels ?? []).includes(label)) : [];
-  const scope = scopeOf(rows.map((r) => r.key), selection);
+  const scope = useScope(rows.map((r) => r.key), selection);
   // Where a migration can go: any label offered but the one being
   // replaced, or a new one in the team's spelling.
   const targets = labelItems(labels.data, label ? [label] : []);
