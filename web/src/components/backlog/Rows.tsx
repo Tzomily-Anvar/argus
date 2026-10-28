@@ -1,6 +1,8 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import type { BacklogRow } from "../../api";
+import { byText, passes, sortRows, useFilter, useSort, type Filter } from "../../tableQuery";
 import { Badge, Pill } from "../Badge";
+import { FilterNote, SortTh } from "../Filters";
 
 /* The table of tickets, one copy for every view.
  *
@@ -12,6 +14,39 @@ import { Badge, Pill } from "../Badge";
  * view has learned the Groups view, and so the checkbox in each means
  * the same thing: the selection is one set for the whole tool, and a
  * row ticked here stays ticked when the tab changes. */
+
+/** The backlog filter's fields, as query parameters. */
+export const BACKLOG_FILTER_FIELDS = ["type", "status", "reporter", "assignee", "label"];
+
+/** What an unassigned ticket's assignee reads as, in the filter. */
+export const UNASSIGNED = "Unassigned";
+
+export function rowPasses(filter: Filter, r: BacklogRow): boolean {
+  return passes(filter, {
+    type: [r.type],
+    status: [r.status],
+    reporter: [r.reporter?.label ?? ""],
+    assignee: [r.assignee?.label || UNASSIGNED],
+    label: r.labels ?? [],
+  }, [r.key, r.summary]);
+}
+
+/** The keys the filter lets through, or null when nothing is filtering.
+ *  Provided once by the tool and read wherever rows are listed or acted
+ *  on, so a section's button that says "all" means all that are shown,
+ *  never a ticket the filter is hiding. */
+export const Visible = createContext<Set<string> | null>(null);
+
+export const useVisible = () => useContext(Visible);
+
+const rowOrder: Record<string, (a: BacklogRow, b: BacklogRow) => number> = {
+  ticket: (a, b) => byText(a.key, b.key),
+  type: (a, b) => byText(a.type, b.type),
+  status: (a, b) => byText(a.status, b.status),
+  reporter: (a, b) => byText(a.reporter?.label ?? "", b.reporter?.label ?? ""),
+  // Oldest is the largest age: created earliest.
+  age: (a, b) => (a.created < b.created ? 1 : a.created > b.created ? -1 : 0),
+};
 
 /** The selection, lifted to the tool and shared across the views. A
  *  set of keys and the three ways of changing it. */
@@ -102,12 +137,23 @@ export function Rows({
   action?: (row: BacklogRow) => ReactNode;
   empty?: string;
 }) {
-  const list = rows ?? [];
-  if (list.length === 0) {
+  const visible = useVisible();
+  const filter = useFilter(BACKLOG_FILTER_FIELDS);
+  const [sort, onSort] = useSort();
+  const all = rows ?? [];
+  if (all.length === 0) {
     return (
       <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>{empty}</p>
     );
   }
+  const list = sortRows(visible ? all.filter((r) => visible.has(r.key)) : all, sort, rowOrder);
+  if (list.length === 0) return <FilterNote shown={0} total={all.length} filter={filter} />;
+  // One row has no order to choose.
+  const head = (label: string, col: string, className = "", startDesc = false) => (
+    all.length > 1
+      ? <SortTh label={label} col={col} sort={sort} onSort={onSort} startDesc={startDesc} className={`px-3 ${className}`} />
+      : <Th className={className}>{label}</Th>
+  );
   const allOn = list.every((r) => selection.has(r.key));
   const someOn = !allOn && list.some((r) => selection.has(r.key));
 
@@ -125,13 +171,13 @@ export function Rows({
                 onChange={() => selection.set(list.map((r) => r.key), !allOn)}
               />
             </Th>
-            <Th>Ticket</Th>
-            <Th>Type</Th>
-            <Th>Status</Th>
-            <Th>Reporter</Th>
+            {head("Ticket", "ticket")}
+            {head("Type", "type")}
+            {head("Status", "status")}
+            {head("Reporter", "reporter")}
             <Th>Labels</Th>
             <Th>Epic · Story · Sprint</Th>
-            <Th className="text-right">Age</Th>
+            {head("Age", "age", "text-right", true)}
             <Th>Flags</Th>
             {action && <Th />}
           </tr>
@@ -186,6 +232,7 @@ export function Rows({
           })}
         </tbody>
       </table>
+      <FilterNote shown={list.length} total={all.length} filter={filter} />
     </div>
   );
 }

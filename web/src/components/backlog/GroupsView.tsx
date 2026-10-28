@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { BacklogEpic, BacklogGroup, BacklogRow } from "../../api";
 import { Badge } from "../Badge";
 import { outlined, small } from "../closeout/Table";
-import { jqlURL, Rows, type Selection } from "./Rows";
+import { jqlURL, Rows, useVisible, type Selection } from "./Rows";
 import { Section } from "./Section";
 
 /* Groups: the fixed questions asked of the backlog, one card each.
@@ -27,6 +27,8 @@ function GroupCard({
 }) {
   const [open, setOpen] = useState(false);
   const keys = group.keys ?? [];
+  const visible = useVisible();
+  const shown = visible ? keys.filter((k) => visible.has(k)) : keys;
   const rows = keys.map((k) => byKey.get(k)).filter((r): r is BacklogRow => !!r);
   const link = group.jql_url || (group.jql ? jqlURL(base, group.jql) : "");
 
@@ -46,8 +48,8 @@ function GroupCard({
               Open in Jira →
             </a>
           )}
-          <button onClick={() => selection.set(keys, true)} className={small} style={outlined}>
-            Select all
+          <button onClick={() => selection.set(shown, true)} disabled={shown.length === 0} className={small} style={outlined}>
+            {visible ? `Select ${shown.length} shown` : "Select all"}
           </button>
           <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className={small} style={outlined}>
             {open ? "Hide" : "Show"}
@@ -59,7 +61,9 @@ function GroupCard({
         <Rows rows={rows} selection={selection} staleKeys={staleKeys} empty="None of these are in the sweep." />
       ) : (
         <p className="px-4 py-2 text-[12.5px]" style={{ color: "var(--faint)" }}>
-          {`${keys.length} ${keys.length === 1 ? "ticket" : "tickets"}. Show to list them.`}
+          {visible
+            ? `${shown.length} of ${keys.length} match the filter.${shown.length > 0 ? " Show to list them." : ""}`
+            : `${keys.length} ${keys.length === 1 ? "ticket" : "tickets"}. Show to list them.`}
         </p>
       )}
     </Section>

@@ -15,7 +15,9 @@ import { Icon } from "./components/Icons";
 import { Sidebar } from "./components/Sidebar";
 import { SectionTabs, type Section } from "./components/SectionTabs";
 import { StatTiles, type Stat } from "./components/StatTiles";
-import { Empty, PRTable } from "./components/Tables";
+import { Empty, PR_FILTER_FIELDS, PRTable } from "./components/Tables";
+import { countValues, FilterBar } from "./components/Filters";
+import { useFilter, without } from "./tableQuery";
 import { StaleView } from "./components/StaleView";
 import { Security, type SecurityData } from "./components/Security";
 import { SecuritySummary } from "./components/SecuritySummary";
@@ -66,6 +68,12 @@ type SectionDef = {
   why: string;
   count: number;
   urgent?: boolean;
+  /** The pull requests the section lists, for a section that is a
+   *  table of them: the filter bar is offered over these. */
+  rows?: { author: string; repo: string }[];
+  /** Filter fields that cannot narrow this section, such as the author
+   *  of your own pull requests: not offered, and not applied. */
+  ignore?: string[];
   body: () => React.ReactNode;
 };
 
@@ -85,6 +93,7 @@ export default function App() {
   const tool = route.tool;
   const setActive = (id: string) => navigate({ tool: "pr", view: viewOf(id) });
   const [collapsed, toggleRail] = usePersistedFlag("argus-rail-collapsed", false);
+  const filter = useFilter(PR_FILTER_FIELDS);
 
   const snapshot = useQuery({
     queryKey: ["snapshot"],
@@ -139,23 +148,23 @@ export default function App() {
 
   const defs: SectionDef[] = [
     { id: "review_requested", label: "To review", title: "Waiting on your review", why: why("review_requested"),
-      count: onYou.length, urgent: true, body: () => <PRTable rows={onYou} /> },
+      count: onYou.length, urgent: true, rows: onYou, body: () => <PRTable rows={onYou} controls /> },
     { id: "ready", label: "Ready to merge", title: "Ready to merge",
       why: qaInUse
         ? "Reviewed, approved, green, and QA accepted. Nothing is left to do but press the button."
         : "Approved with nothing actually failing. A red policy check does not keep a pull request out of this list.",
-      count: ready.length, body: () => <PRTable rows={ready} /> },
+      count: ready.length, rows: ready, body: () => <PRTable rows={ready} controls /> },
     ...(qaInUse
       ? [{ id: "awaiting_qa", label: "Ready to QA", title: "Waiting on QA",
           why: "Reviewed, approved and green - the QA label is the only thing left. These are the ones to hand over, not to chase the author about.",
-          count: awaitingQA.length, body: () => <PRTable rows={awaitingQA} /> }]
+          count: awaitingQA.length, rows: awaitingQA, body: () => <PRTable rows={awaitingQA} controls /> }]
       : []),
     { id: "unreviewed", label: "Unclaimed", title: "Nobody has picked these up", why: why("unreviewed"),
-      count: unclaimed.length, body: () => <PRTable rows={unclaimed} /> },
+      count: unclaimed.length, rows: unclaimed, body: () => <PRTable rows={unclaimed} controls /> },
     { id: "my_prs", label: "Yours", title: "Your open pull requests", why: why("my_prs"),
-      count: mine.length, body: () => <PRTable rows={mine} showAuthor={false} /> },
+      count: mine.length, rows: mine, ignore: ["author"], body: () => <PRTable rows={mine} showAuthor={false} controls /> },
     { id: "merge_readiness", label: "All open", title: "Open pull requests", why: why("merge_readiness"),
-      count: allOpen.length, body: () => <PRTable rows={allOpen} /> },
+      count: allOpen.length, rows: allOpen, body: () => <PRTable rows={allOpen} controls /> },
     // Drafts get their own tab rather than a place in the open list: they
     // are not asking for review yet, but a repository full of them should
     // not look like one with nothing open. Absent when there are none, or
@@ -163,12 +172,13 @@ export default function App() {
     ...(draftPRs.length > 0
       ? [{ id: "drafts", label: "Drafts", title: "Draft pull requests",
           why: "Work in progress, kept apart so the open list stays about what is asking for review. A draft that sits here for weeks is a stale branch with a title.",
-          count: draftPRs.length, body: () => <PRTable rows={draftPRs} /> }]
+          count: draftPRs.length, rows: draftPRs, body: () => <PRTable rows={draftPRs} controls /> }]
       : []),
     { id: "stale", label: "Stale", title: "Abandoned work",
       why: "Pull requests and branches that have stopped moving. Long-lived branches drift from main and get harder to merge the longer they sit - finish them or close them.",
       count: (stale?.rows?.length ?? 0) + branches.length,
-      body: () => <StaleView prs={stale?.rows ?? []} botCount={stale?.bot_count ?? 0} branches={branches} /> },
+      rows: [...(stale?.rows ?? []), ...branches],
+      body: () => <StaleView prs={stale?.rows ?? []} botCount={stale?.bot_count ?? 0} branches={branches} controls /> },
     { id: "security", label: "Security", title: "Security alerts",
       why: "Open Dependabot and code-scanning alerts. Vendored dependencies are counted in the totals but kept out of the per-repository rollup, so a lockfile in node_modules cannot outrank your own code.",
       count: security?.dependabot?.criticals?.length ?? 0, urgent: true,
@@ -231,6 +241,7 @@ export default function App() {
   ], [data]);
 
   const def = defs.find((d) => d.id === active);
+  const sectionFilter = def?.ignore ? without(filter, def.ignore) : filter;
   const resultKey = active === "ready" ? "merge_readiness" : active === "stale" ? "stale_prs" : active;
   const result = data?.results[resultKey];
 
@@ -325,6 +336,17 @@ export default function App() {
 
                   {active === "merge_readiness" && merge?.policy_hints && (
                     <PolicyHintBanner hints={merge.policy_hints} />
+                  )}
+
+                  {def?.rows && (def.rows.length > 0 || sectionFilter.active) && (
+                    <FilterBar
+                      filter={sectionFilter}
+                      placeholder="Search title, repo, author, #123"
+                      fields={[
+                        { param: "author", label: "Author", noun: "row", options: countValues(def.rows.map((r) => [r.author])) },
+                        { param: "repo", label: "Repo", noun: "row", options: countValues(def.rows.map((r) => [r.repo])) },
+                      ].filter((f) => !def.ignore?.includes(f.param))}
+                    />
                   )}
 
                   {result?.error ? (

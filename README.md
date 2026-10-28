@@ -137,6 +137,11 @@ section per question:
 | **Stale** | Pull requests and branches that have stopped moving. |
 | **Security** | Dependabot and code-scanning alerts, vendored noise discounted. |
 
+Every table of pull requests sorts by its column headings and narrows
+by author, repository or a search, and the sort and filter go in the
+address, so a link to one author's open pull requests is a link like any
+other. The Backlog's tables do the same.
+
 At the bottom of the rail are four colour themes — Slate, Glacier,
 Nightfall, Pine — each with its own light and dark, remembered per
 browser.

@@ -22,6 +22,17 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exempt, for a deliberate exception such as `DevOps`.
 - `ARGUS_BACKLOG_REPO_LABEL_DAYS` (90) sets how recently a repository
   must have been pushed to for its name to be offered as a label.
+- The pull request tables and the Backlog's ticket tables sort by
+  clicking a column heading. A pull request's status sorts by how much
+  it needs someone: failing first, approved last.
+- A filter bar above them: search, plus author and repository for pull
+  requests, and type, status, reporter, assignee and label for tickets.
+  It stays on across tabs, and each table says how many of its rows it
+  shows. Sort and filter live in the address, so a reload or a pasted
+  link keeps them. While a Backlog filter is on, a section's buttons act
+  on the rows it shows only. Only the filters that can narrow a table
+  are offered on it: no author on Yours, and a picker with one value
+  to choose is greyed out.
 
 ### Changed
 

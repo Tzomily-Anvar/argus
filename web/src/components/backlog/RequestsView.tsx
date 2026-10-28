@@ -2,7 +2,7 @@ import type { Backlog, BacklogRow } from "../../api";
 import { filled, outlined, small } from "../closeout/Table";
 import type { BatchRequest } from "./BatchPanel";
 import { Rows, type Selection } from "./Rows";
-import { Section, scopeOf } from "./Section";
+import { Section, useScope } from "./Section";
 
 /* Requests: the tickets that come from outside the team, and what marks
  * them as such.
@@ -32,9 +32,9 @@ export function RequestsView({
   const legacyLabels = data.settings?.legacy_labels ?? [];
   const legacy = legacyLabels.join(", ") || "the legacy label";
   const all = reqs?.all_keys ?? [];
-  const missing = scopeOf(reqs?.missing_label_keys ?? [], selection);
-  const old = scopeOf(reqs?.legacy_label_keys ?? [], selection);
-  const work = scopeOf(reqs?.work_label_keys ?? [], selection);
+  const missing = useScope(reqs?.missing_label_keys ?? [], selection);
+  const old = useScope(reqs?.legacy_label_keys ?? [], selection);
+  const work = useScope(reqs?.work_label_keys ?? [], selection);
   const workLabels = data.settings?.work_labels ?? [];
   const workNames = workLabels.join(", ") || "a work label";
 

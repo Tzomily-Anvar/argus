@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { TOOLS } from "./tools";
 
 /* The open view lives in the URL.
@@ -13,6 +13,11 @@ import { TOOLS } from "./tools";
  * index.html for any path it does not recognise, so a deep link survives
  * a cold load. No router either: two segments and the History API are
  * the whole of it.
+ *
+ * The query string carries how a table is sorted and filtered, for the
+ * same reason: a filtered list pasted to a colleague should arrive
+ * filtered. It belongs to the tool, so it is kept while the views inside
+ * the tool change and dropped when the tool does.
  */
 
 export type Route = {
@@ -49,16 +54,19 @@ export function path(route: Route): string {
 }
 
 let current = parse(location.pathname);
+let search = location.search;
 const listeners = new Set<() => void>();
 
-function set(next: Route) {
-  if (next.tool === current.tool && next.view === current.view) return;
-  current = next;
+function set(next: Route, nextSearch: string) {
+  const moved = next.tool !== current.tool || next.view !== current.view;
+  if (!moved && nextSearch === search) return;
+  if (moved) current = next;
+  search = nextSearch;
   for (const notify of listeners) notify();
 }
 
 function onPop() {
-  set(parse(location.pathname));
+  set(parse(location.pathname), location.search);
 }
 
 function subscribe(notify: () => void): () => void {
@@ -74,12 +82,33 @@ function subscribe(notify: () => void): () => void {
  *  in a default, say - which have no business in the Back button. */
 export function navigate(to: Route, replace = false): void {
   const url = path(to);
+  const query = to.tool === current.tool ? search : "";
   try {
-    if (url !== location.pathname) {
-      history[replace ? "replaceState" : "pushState"](null, "", url);
+    if (url + query !== location.pathname + location.search) {
+      history[replace ? "replaceState" : "pushState"](null, "", url + query);
     }
   } catch { /* sandboxed frame: the view still moves, the address bar does not */ }
-  set(parse(url));
+  set(parse(url), query);
+}
+
+/** Change the query string in place. A filter typed a letter at a time
+ *  is one change of mind, not one Back press per letter, so the entry
+ *  is replaced rather than pushed. */
+export function editSearch(edit: (params: URLSearchParams) => void): void {
+  const params = new URLSearchParams(search);
+  edit(params);
+  const text = params.toString();
+  const next = text ? `?${text}` : "";
+  try {
+    history.replaceState(null, "", location.pathname + next);
+  } catch { /* sandboxed frame */ }
+  set(current, next);
+}
+
+/** The query string as it stands, re-read on every change to it. */
+export function useSearch(): URLSearchParams {
+  const text = useSyncExternalStore(subscribe, () => search, () => search);
+  return useMemo(() => new URLSearchParams(text), [text]);
 }
 
 /** The route as it stands, re-read on Back, Forward and navigate(). */

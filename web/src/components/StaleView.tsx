@@ -1,4 +1,6 @@
-import { PRTable, BranchTable } from "./Tables";
+import { PRTable, BranchTable, PR_FILTER_FIELDS } from "./Tables";
+import { passes, useFilter } from "../tableQuery";
+import { FilterNote } from "./Filters";
 import type { BranchRow, PRRow } from "../api";
 
 /* Stale pull requests and stale branches answer one question - what has
@@ -10,11 +12,21 @@ export function StaleView({
   prs,
   botCount,
   branches,
+  controls = false,
 }: {
   prs: PRRow[];
   botCount: number;
   branches: BranchRow[];
+  /** Sort and filter the pull requests, as the tab does and the
+   *  overview's preview does not. */
+  controls?: boolean;
 }) {
+  // The branches answer to the same filter as the pull requests above
+  // them, so one author's abandoned work is all of it.
+  const filter = useFilter(PR_FILTER_FIELDS);
+  const shownBranches = controls
+    ? branches.filter((b) => passes(filter, { author: [b.author], repo: [b.repo] }, [b.repo, b.branch, b.author]))
+    : branches;
   return (
     <div className="space-y-4">
       <section className="card overflow-hidden">
@@ -26,7 +38,7 @@ export function StaleView({
           </p>
         </header>
         <div style={{ borderTop: "1px solid var(--line)" }}>
-          <PRTable rows={prs} />
+          <PRTable rows={prs} controls={controls} />
         </div>
       </section>
 
@@ -38,7 +50,8 @@ export function StaleView({
           </p>
         </header>
         <div style={{ borderTop: "1px solid var(--line)" }}>
-          <BranchTable rows={branches} />
+          {branches.length > 0 && shownBranches.length === 0 ? null : <BranchTable rows={shownBranches} />}
+          {controls && <FilterNote shown={shownBranches.length} total={branches.length} filter={filter} />}
         </div>
       </section>
     </div>
