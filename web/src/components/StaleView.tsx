@@ -1,5 +1,5 @@
 import { PRTable, BranchTable, PR_FILTER_FIELDS } from "./Tables";
-import { passes, useFilter } from "../tableQuery";
+import { passes, useFilter, without } from "../tableQuery";
 import { FilterNote } from "./Filters";
 import type { BranchRow, PRRow } from "../api";
 
@@ -22,8 +22,9 @@ export function StaleView({
   controls?: boolean;
 }) {
   // The branches answer to the same filter as the pull requests above
-  // them, so one author's abandoned work is all of it.
-  const filter = useFilter(PR_FILTER_FIELDS);
+  // them, so one author's abandoned work is all of it. A branch has no
+  // review, so whether you have looked is the pull requests' alone.
+  const filter = without(useFilter(PR_FILTER_FIELDS), ["looked"]);
   const shownBranches = controls
     ? branches.filter((b) => passes(filter, { author: [b.author], repo: [b.repo] }, [b.repo, b.branch, b.author]))
     : branches;

@@ -27,6 +27,7 @@ import { Overview, preview, type Block } from "./components/Overview";
 import { HeaderButton, ToolHeader } from "./components/ToolHeader";
 import { Notice } from "./components/Notice";
 import { agoSeconds } from "./dates";
+import { LookedProvider, useLookedState } from "./looked";
 
 function useThemePrefs() {
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
@@ -70,7 +71,7 @@ type SectionDef = {
   urgent?: boolean;
   /** The pull requests the section lists, for a section that is a
    *  table of them: the filter bar is offered over these. */
-  rows?: { author: string; repo: string }[];
+  rows?: { author: string; repo: string; number?: number }[];
   /** Filter fields that cannot narrow this section, such as the author
    *  of your own pull requests: not offered, and not applied. */
   ignore?: string[];
@@ -127,6 +128,9 @@ export default function App() {
   const allOpen = merge?.rows ?? [];
   const draftPRs = merge?.drafts ?? [];
   const security = data?.results["security"]?.data as SecurityData | undefined;
+  // The open list and your own are the rows that carry the head commit
+  // and your review; every other tab is looked up in them.
+  const looked = useLookedState(useMemo(() => [...allOpen, ...draftPRs, ...mine], [allOpen, draftPRs, mine]), data?.user ?? "");
 
   // Criticals alone would be the wrong measure of "is this clear?": an
   // organisation with three hundred highs and no criticals is not clear.
@@ -162,7 +166,7 @@ export default function App() {
     { id: "unreviewed", label: "Unclaimed", title: "Nobody has picked these up", why: why("unreviewed"),
       count: unclaimed.length, rows: unclaimed, body: () => <PRTable rows={unclaimed} controls /> },
     { id: "my_prs", label: "Yours", title: "Your open pull requests", why: why("my_prs"),
-      count: mine.length, rows: mine, ignore: ["author"], body: () => <PRTable rows={mine} showAuthor={false} controls /> },
+      count: mine.length, rows: mine, ignore: ["author", "looked"], body: () => <PRTable rows={mine} showAuthor={false} controls /> },
     { id: "merge_readiness", label: "All open", title: "Open pull requests", why: why("merge_readiness"),
       count: allOpen.length, rows: allOpen, body: () => <PRTable rows={allOpen} controls /> },
     // Drafts get their own tab rather than a place in the open list: they
@@ -267,6 +271,7 @@ export default function App() {
         ) : tool === "leaderboard" ? (
           <LeaderboardTool />
         ) : (
+        <LookedProvider value={looked}>
         <div className="mx-auto max-w-5xl px-6 pt-6 pb-20">
           <ToolHeader
             title="Pull requests"
@@ -345,6 +350,9 @@ export default function App() {
                       fields={[
                         { param: "author", label: "Author", noun: "row", options: countValues(def.rows.map((r) => [r.author])) },
                         { param: "repo", label: "Repo", noun: "row", options: countValues(def.rows.map((r) => [r.repo])) },
+                        // A branch has no review to look at; only the pull requests count.
+                        { param: "looked", label: "Looked at", noun: "pull request",
+                          options: countValues(def.rows.flatMap((r) => (r.number === undefined ? [] : [[looked.of(r as PRRow)]]))) },
                       ].filter((f) => !def.ignore?.includes(f.param))}
                     />
                   )}
@@ -365,6 +373,7 @@ export default function App() {
             </>
           )}
         </div>
+        </LookedProvider>
         )}
       </main>
     </div>

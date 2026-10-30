@@ -23,6 +23,17 @@ shows the stale pull requests and stale branches rules together, because
 they answer one question. The **Overview** stacks everything, ordered by
 how much it is your move.
 
+"Approved" is GitHub's review decision, held to the count the rulesets
+on the repository's default branch ask for. GitHub decides against the
+branch a pull request merges into, so one stacked on a feature branch
+the rulesets do not cover is approved on a single review; Argus reads it
+as still needing review until it has the default branch's count, shows
+`1/2 approvals`, and names the branch it merges into. The count is read
+from the branch rules API, once per repository per sweep, and covers
+organisation and repository rulesets. Classic branch protection is not
+read, since GitHub shows it only to repository admins; where nothing
+asks for a count, GitHub's decision stands.
+
 Turn a rule off, or retune it, in `.env`:
 
 ```bash

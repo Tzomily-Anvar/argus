@@ -258,10 +258,11 @@ const (
 // a parsed time: it only ever has to be compared for equality with what
 // the next sweep reads.
 //
-// Kind says what the key names: a ticket in the backlog view, or an item
-// in the inbox, whose keys carry their source and kind. Keys and kinds
-// are unrelated between the two, so an inbox dismissal never hides a
-// backlog row.
+// Kind says what the key names: a ticket in the backlog view, an item
+// in the inbox, whose keys carry their source and kind, or a pull
+// request marked seen on the dashboard, keyed repo#number with its head
+// commit for the watermark. Keys and kinds are unrelated between them,
+// so an inbox dismissal never hides a backlog row.
 //
 // An acknowledgement is a record of what one person looked at and when,
 // which makes it personal data of a sort, and the keys and titles it
@@ -280,6 +281,7 @@ type Ack struct {
 const (
 	AckTicket = "ticket"
 	AckInbox  = "inbox"
+	AckPR     = "pr"
 )
 
 // AckRetention is how long an acknowledgement is kept before Prune drops

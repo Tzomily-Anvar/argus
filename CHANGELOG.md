@@ -6,6 +6,33 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Every pull request says where it stands with you: `you approved`,
+  `you commented` or `you asked for changes` while your latest review is
+  on the code as it stands, and **changed since your review** once
+  someone pushes after it. Read from GitHub by the sweep, comments and
+  thread replies included.
+- *Mark seen*, on hover, for a pull request you read without leaving a
+  review. The mark is kept in Argus with the commit you were looking at,
+  never sent to GitHub, and a push brings the pull request back as
+  changed since you looked.
+- A **Looked at** filter on every pull request tab - not yet, seen,
+  reviewed, changed since, yours - kept in the address like the others.
+  Not offered on Yours.
+
+### Changed
+
+- A pull request counts as approved once it has as many approvals as
+  the rulesets on its repository's default branch ask for. GitHub judges
+  against the branch a pull request merges into, so one stacked on a
+  feature branch the rulesets miss was "approved" on a single review;
+  it now reads "1/2 approvals" and stays out of Ready to merge. The
+  review badge shows the count (`approved 2/2`, `needs review 1/2`), and
+  a pull request that merges into a branch other than the default says
+  which. Where no ruleset asks for a count, or none can be read,
+  GitHub's decision stands as before.
+
 ## [0.3.5] - 2026-10-28
 
 ### Added

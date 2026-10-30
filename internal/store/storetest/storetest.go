@@ -451,13 +451,14 @@ func testEmptyStore(t *testing.T, s store.Store) {
 
 // An acknowledgement is a watermark per item: writing one again for the
 // same item replaces the watermark rather than adding a second, and the
-// two kinds never see each other's keys, so dismissing an inbox item
-// cannot hide a backlog row that happens to share a key.
+// kinds never see each other's keys, so dismissing an inbox item cannot
+// hide a backlog row that happens to share a key.
 func testAcks(t *testing.T, s store.Store) {
 	if err := s.PutAcks(ctx(), []store.Ack{
 		{Kind: store.AckTicket, Key: "ABC-1", Watermark: "2026-01-06T09:00:00.000+0000"},
 		{Kind: store.AckTicket, Key: "ABC-2", Watermark: "2026-01-06T10:00:00.000+0000"},
 		{Kind: store.AckInbox, Key: "jira:mentioned:ABC-1", Watermark: "2026-01-07T09:00:00.000+0000"},
+		{Kind: store.AckPR, Key: "web-app#12", Watermark: "3f2a9c1"},
 	}); err != nil {
 		t.Fatalf("PutAcks: %v", err)
 	}
@@ -474,6 +475,10 @@ func testAcks(t *testing.T, s store.Store) {
 	inbox, _ := s.ListAcks(ctx(), store.AckInbox)
 	if len(inbox) != 1 || inbox[0].Key != "jira:mentioned:ABC-1" {
 		t.Errorf("inbox acks = %+v", inbox)
+	}
+	prs, _ := s.ListAcks(ctx(), store.AckPR)
+	if len(prs) != 1 || prs[0].Key != "web-app#12" || prs[0].Watermark != "3f2a9c1" {
+		t.Errorf("pull request acks = %+v", prs)
 	}
 
 	// The item changed and was acknowledged again: one row, new watermark.
