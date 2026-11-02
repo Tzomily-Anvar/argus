@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { BacklogRow } from "../../api";
-import { byText, passes, sortRows, useFilter, useSort, type Filter } from "../../tableQuery";
+import { byText, passes, sortRows, useFilter, useSort, type Filter, type Sort } from "../../tableQuery";
 import { Badge, Pill } from "../Badge";
 import { FilterNote, SortTh } from "../Filters";
 
@@ -16,7 +16,7 @@ import { FilterNote, SortTh } from "../Filters";
  * row ticked here stays ticked when the tab changes. */
 
 /** The backlog filter's fields, as query parameters. */
-export const BACKLOG_FILTER_FIELDS = ["type", "status", "reporter", "assignee", "label"];
+export const BACKLOG_FILTER_FIELDS = ["type", "status", "reporter", "assignee", "label", "due"];
 
 /** What an unassigned ticket's assignee reads as, in the filter. */
 export const UNASSIGNED = "Unassigned";
@@ -28,7 +28,30 @@ export function rowPasses(filter: Filter, r: BacklogRow): boolean {
     reporter: [r.reporter?.label ?? ""],
     assignee: [r.assignee?.label || UNASSIGNED],
     label: r.labels ?? [],
+    due: [dueWhen(r.due)],
   }, [r.key, r.summary]);
+}
+
+/** Today as Jira writes a due date, in the reader's own time zone: the
+ *  day it is where they are is the day that is due. */
+function today(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Whole days from today to a due date: negative when it has passed. */
+function daysUntil(due: string): number {
+  return Math.round((Date.parse(due) - Date.parse(today())) / 86_400_000);
+}
+
+/** Where a due date falls, as the filter offers it. Every ticket here is
+ *  open, since the sweep leaves done work out, so a date passed is late. */
+export type DueWhen = "overdue" | "due this week" | "due later" | "no due date";
+
+export function dueWhen(due: string): DueWhen {
+  if (!due) return "no due date";
+  const days = daysUntil(due);
+  return days < 0 ? "overdue" : days <= 7 ? "due this week" : "due later";
 }
 
 /** The keys the filter lets through, or null when nothing is filtering.
@@ -46,7 +69,19 @@ const rowOrder: Record<string, (a: BacklogRow, b: BacklogRow) => number> = {
   reporter: (a, b) => byText(a.reporter?.label ?? "", b.reporter?.label ?? ""),
   // Oldest is the largest age: created earliest.
   age: (a, b) => (a.created < b.created ? 1 : a.created > b.created ? -1 : 0),
+  // Soonest first. The days compare as text, since Jira writes them year
+  // first; a ticket with no date is put after the dated ones below,
+  // whichever way the sort runs.
+  due: (a, b) => (a.due === b.due ? 0 : a.due < b.due ? -1 : 1),
 };
+
+/** Rows in the sort's order. Sorted by due date, the tickets with none
+ *  go last both ways round: most have none, and the latest-first order
+ *  is no use if it opens on a page of blanks. */
+function ordered(rows: BacklogRow[], sort: Sort): BacklogRow[] {
+  const list = sortRows(rows, sort, rowOrder);
+  return sort?.key === "due" ? [...list.filter((r) => r.due), ...list.filter((r) => !r.due)] : list;
+}
 
 /** The selection, lifted to the tool and shared across the views. A
  *  set of keys and the three ways of changing it. */
@@ -99,6 +134,25 @@ function Th({ children, className = "" }: { children?: ReactNode; className?: st
   );
 }
 
+/** A due date as a short day, red once it has passed and amber within
+ *  the week, with the count of days in words beside the colour. */
+function Due({ due }: { due: string }) {
+  if (!due) return <span style={{ color: "var(--faint)" }}>—</span>;
+  const days = daysUntil(due);
+  const d = new Date(`${due}T00:00:00`);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const label = d.toLocaleDateString(undefined, { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }) });
+  const when = days < 0 ? `${-days}d late` : days === 0 ? "today" : days <= 7 ? `in ${days}d` : "";
+  const color = days < 0 ? "var(--crit)" : days <= 7 ? "var(--warn)" : "var(--muted)";
+  const title = days < 0 ? `Due ${due}, ${-days} ${days === -1 ? "day" : "days"} ago` : days === 0 ? `Due today, ${due}` : `Due ${due}, in ${days} ${days === 1 ? "day" : "days"}`;
+  return (
+    <span className="tnum" style={{ color }} title={title}>
+      {label}
+      {when && <span className="ml-1 text-[11.5px]">· {when}</span>}
+    </span>
+  );
+}
+
 /** A short chip for the epic, story or sprint a ticket sits in, or a
  *  dash when it sits in none. The dash is a value: "no epic" is one of
  *  the things this tool exists to show. */
@@ -146,7 +200,7 @@ export function Rows({
       <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--faint)" }}>{empty}</p>
     );
   }
-  const list = sortRows(visible ? all.filter((r) => visible.has(r.key)) : all, sort, rowOrder);
+  const list = ordered(visible ? all.filter((r) => visible.has(r.key)) : all, sort);
   if (list.length === 0) return <FilterNote shown={0} total={all.length} filter={filter} />;
   // One row has no order to choose.
   const head = (label: string, col: string, className = "", startDesc = false) => (
@@ -178,6 +232,7 @@ export function Rows({
             <Th>Labels</Th>
             <Th>Epic · Story · Sprint</Th>
             {head("Age", "age", "text-right", true)}
+            {head("Due", "due")}
             <Th>Flags</Th>
             {action && <Th />}
           </tr>
@@ -225,6 +280,7 @@ export function Rows({
                 <td className="tnum px-3 py-2.5 text-right whitespace-nowrap" style={{ color: "var(--muted)" }}>
                   {daysSince(r.created)}d
                 </td>
+                <td className="px-3 py-2.5 whitespace-nowrap"><Due due={r.due} /></td>
                 <td className="px-3 py-2.5"><Flags row={r} stale={staleKeys?.has(r.key) ?? false} /></td>
                 {action && <td className="px-3 py-2.5 text-right whitespace-nowrap">{action(r)}</td>}
               </tr>

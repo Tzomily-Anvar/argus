@@ -279,7 +279,7 @@ func (s *Service) fetch() (Snapshot, error) {
 	snap := Snapshot{Fields: *f, Warnings: warnings}
 
 	fields := []string{"summary", "issuetype", "status", "created", "updated", "labels",
-		"parent", "issuelinks", "reporter", "assignee", "priority", f.Sprint}
+		"parent", "issuelinks", "reporter", "assignee", "priority", "duedate", f.Sprint}
 	if f.Points != "" {
 		fields = append(fields, f.Points)
 	}

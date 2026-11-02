@@ -11,7 +11,7 @@ import { InboxView } from "./components/backlog/InboxView";
 import { LabelsView } from "./components/backlog/LabelsView";
 import { NewView } from "./components/backlog/NewView";
 import { RequestsView } from "./components/backlog/RequestsView";
-import { BACKLOG_FILTER_FIELDS, jiraBase, rowPasses, UNASSIGNED, Visible, type Selection } from "./components/backlog/Rows";
+import { BACKLOG_FILTER_FIELDS, dueWhen, jiraBase, rowPasses, UNASSIGNED, Visible, type Selection } from "./components/backlog/Rows";
 import { countValues, FilterBar } from "./components/Filters";
 import { useFilter, without } from "./tableQuery";
 import { BacklogSettingsPanel } from "./components/backlog/BacklogSettingsPanel";
@@ -166,6 +166,7 @@ export function BacklogTool() {
                 field("reporter", "Reporter", (r) => [r.reporter?.label ?? ""]),
                 field("assignee", "Assignee", (r) => [r.assignee?.label || UNASSIGNED]),
                 field("label", "Label", (r) => r.labels ?? []),
+                field("due", "Due", (r) => [dueWhen(r.due)]),
               ].filter((f) => !ignore.includes(f.param))}
             />
           )}

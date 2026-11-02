@@ -936,6 +936,9 @@ export type BacklogRow = {
   sprint: BacklogSprintRef | null;
   url: string;
   priority: string;
+  /** The due date as Jira gives it, a plain day such as 2026-11-14;
+   *  empty when none is set. */
+  due: string;
   /** Created or changed since it was last acknowledged. Acknowledging is a
    *  local watermark on `updated`: the row hides until it changes again. */
   new: boolean;

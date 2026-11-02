@@ -126,11 +126,15 @@ exact in Confluence, whose query language has a field for it, and a
 best-effort proxy in Jira — `text ~ currentUser()` — where a query that
 fails becomes a warning on the page rather than an empty inbox.
 
-**Sorting and filtering.** The ticket, type, status, reporter and age
-headings sort every ticket table: a click sorts, a second turns the
-order round, a third goes back to the view's own order. The bar above
+**Sorting and filtering.** The ticket, type, status, reporter, age and
+due headings sort every ticket table: a click sorts, a second turns the
+order round, a third goes back to the view's own order. Sorted by due
+date, the tickets with none go last either way round. The bar above
 the views searches key and summary and narrows by type, status,
-reporter, assignee and label. Both are kept in the address
+reporter, assignee, label and due date: overdue, due this week, due
+later, or no due date. The due date is Jira's own field, read with the
+rest of the sweep; it shows red once it has passed and amber within the
+week, judged by the day it is where you are. Both are kept in the address
 (`/backlog/groups?label=infra&sort=-age`), so a reload or a pasted link
 arrives filtered, and both stay on as the tabs change. The counts on
 the tabs and section headings stay the whole backlog's; each table
