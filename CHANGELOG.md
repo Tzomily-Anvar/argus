@@ -8,6 +8,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The Backlog reads each ticket's due date. A Due column on every
+  ticket table shows it, red once it has passed and amber within the
+  week, with the days late or left beside it; it sorts soonest first,
+  with tickets that have none last either way round. The filter bar
+  narrows by it: overdue, due this week, due later, no due date.
+
 - `./run.sh backup` copies the data volume to a dated tarball in
   `~/.config/argus/backups`, and `./run.sh restore` puts one back. With
   `ARGUS_BACKUP_ON_START=true` in `.env`, `up` and `restart` take one

@@ -51,6 +51,10 @@ type Row struct {
 	Sprint         *SprintRef `json:"sprint"`
 	URL            string     `json:"url"`
 	Priority       string     `json:"priority"`
+	// Due is the due date as Jira gives it, a plain day (2026-11-14) with
+	// no time or zone, or empty when none is set. Kept as the day rather
+	// than a time, so it cannot drift a day across a time zone.
+	Due string `json:"due"`
 
 	// Watermark is the updated timestamp exactly as Jira gave it, which
 	// is what an acknowledgement records and compares against.
@@ -90,6 +94,7 @@ func rowOf(is jira.Issue, f Fields, cfg Config, acks map[string]string, requeste
 		Labels:    is.Fields.Labels,
 		URL:       cfg.BaseURL + "/browse/" + is.Key,
 		Priority:  rawName(is, "priority"),
+		Due:       rawString(is, "duedate"),
 		Watermark: rawString(is, "updated"),
 	}
 	if r.Labels == nil {
