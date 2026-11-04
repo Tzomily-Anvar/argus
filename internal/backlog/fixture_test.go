@@ -94,6 +94,7 @@ func fixture(t *testing.T) Snapshot {
 				"created": "2026-09-27T09:00:00.000+0000", "updated": updatedABC1,
 				"reporter": user("acc-r1", "Reporter One"), "labels": []string{},
 				"priority": map[string]any{"name": "Medium"},
+				"duedate":  "2026-10-15",
 			}),
 			// Stale, under a Build epic with a story, carrying the legacy label.
 			issue(t, "ABC-2", map[string]any{

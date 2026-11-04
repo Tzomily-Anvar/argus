@@ -44,6 +44,10 @@ func TestRowsReadTheFacts(t *testing.T) {
 	if !one.New || one.StaleDays != 0 || one.Priority != "Medium" || one.Watermark != updatedABC1 {
 		t.Errorf("ABC-1 new %v stale %d priority %q watermark %q", one.New, one.StaleDays, one.Priority, one.Watermark)
 	}
+	// A due date is the day Jira gave; a ticket without one says nothing.
+	if one.Due != "2026-10-15" || r.Due != "" {
+		t.Errorf("due: ABC-1 %q, ABC-2 %q", one.Due, r.Due)
+	}
 	// The story sits under an epic and is a container, not work.
 	if st := byKey["ABC-50"]; st.Epic == nil || st.Story != nil {
 		t.Errorf("ABC-50 = %+v", st)

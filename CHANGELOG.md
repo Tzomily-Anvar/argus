@@ -6,6 +6,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The Backlog reads each ticket's due date. A Due column on every
+  ticket table shows it, red once it has passed and amber within the
+  week, with the days late or left beside it; it sorts soonest first,
+  with tickets that have none last either way round. The filter bar
+  narrows by it: overdue, due this week, due later, no due date.
+
 ## [0.3.6] - 2026-10-30
 
 ### Added
