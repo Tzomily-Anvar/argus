@@ -14,9 +14,9 @@
 #   ./run.sh backups   list them, newest first
 #   ./run.sh restore [file]   put one back (the newest if no file is given)
 #
-# up and restart take a backup first, so a rebuild never starts without one.
-# Backups go to ~/.config/argus/backups (ARGUS_BACKUP_DIR), newest 30 kept
-# (ARGUS_BACKUP_KEEP).
+# With ARGUS_BACKUP_ON_START=true in .env, up and restart take a backup
+# first. Backups go to ~/.config/argus/backups (ARGUS_BACKUP_DIR), newest
+# 30 kept (ARGUS_BACKUP_KEEP).
 #
 # The GitHub token is resolved at start time - from 1Password if you have
 # an op.env, otherwise from your `gh` login - and injected straight into
@@ -49,8 +49,12 @@ ok()   { printf '%s✓%s %s\n' "$GREEN" "$OFF" "$1"; }
 warn() { printf '%s!%s %s\n' "$YELLOW" "$OFF" "$1"; }
 bad()  { printf '%s✗%s %s\n' "$RED" "$OFF" "$1"; }
 
-port() { grep -E '^ARGUS_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '"' || true; }
-PORT="$(port)"; PORT="${PORT:-18474}"
+# setting NAME - the value from the environment, else from .env.
+setting() {
+  if [[ -n "${!1:-}" ]]; then echo "${!1}"; return; fi
+  grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || true
+}
+PORT="$(setting ARGUS_PORT)"; PORT="${PORT:-18474}"
 
 # Container engine. Docker if it is running, otherwise podman - which is a
 # drop-in for everything used here and is what people reach for when Docker
@@ -126,8 +130,16 @@ with_token() {
 # and a reset of the container engine takes it with it. These copy it out to
 # the host as a dated tarball, through the container itself, so no other
 # image is needed.
-BACKUP_DIR="${ARGUS_BACKUP_DIR:-$HOME/.config/argus/backups}"
-BACKUP_KEEP="${ARGUS_BACKUP_KEEP:-30}"
+BACKUP_DIR="$(setting ARGUS_BACKUP_DIR)"; BACKUP_DIR="${BACKUP_DIR:-$HOME/.config/argus/backups}"; BACKUP_DIR="${BACKUP_DIR/#\~/$HOME}"
+BACKUP_KEEP="$(setting ARGUS_BACKUP_KEEP)"; BACKUP_KEEP="${BACKUP_KEEP:-30}"
+
+# Opt in with ARGUS_BACKUP_ON_START=true: up and restart then take a backup
+# first. Off by default - the copies hold the team's data on this machine.
+auto_backup() {
+  case "$(setting ARGUS_BACKUP_ON_START | tr '[:upper:]' '[:lower:]')" in
+    true|yes|on|1) backup quiet ;;
+  esac
+}
 CONTAINER=argus
 
 has_container() { "$ENGINE" container inspect "$CONTAINER" >/dev/null 2>&1; }
@@ -201,7 +213,7 @@ case "${1:-up}" in
     ;;
   up|start)
     need_env
-    backup quiet
+    auto_backup
     with_token up -d --build
     echo
     ok "Argus is running at http://localhost:${PORT}"
@@ -211,7 +223,7 @@ case "${1:-up}" in
     ;;
   restart)
     need_env
-    backup quiet
+    auto_backup
     with_token up -d --build --force-recreate
     ok "recreated → http://localhost:${PORT}"
     ;;
