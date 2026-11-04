@@ -316,7 +316,15 @@ cp op.env.example op.env # or skip this and use `gh auth login`
 ./run.sh doctor    # check the setup and explain anything missing
 ./run.sh logs      # follow the logs
 ./run.sh down      # stop it
+./run.sh backup    # copy the data volume to ~/.config/argus/backups
+./run.sh restore   # put the newest backup back (or name a file)
 ```
+
+Everything Argus remembers — capacity, sprint snapshots, the write log,
+seen marks — lives on one volume, and resetting Docker deletes it. Set
+`ARGUS_BACKUP_ON_START=true` in `.env` and `up` and `restart` take a
+backup first. The newest 30 are kept (`ARGUS_BACKUP_DIR` and
+`ARGUS_BACKUP_KEEP` change where and how many).
 
 **Stuck on the token?** → [docs/github-token.md](docs/github-token.md),
 or run `./scripts/check-token.sh`, which names the missing permission

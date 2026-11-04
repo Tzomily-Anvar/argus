@@ -10,6 +10,13 @@
 #   ./run.sh login     sign in to the GitHub App, if one is configured
 #   ./run.sh logout    forget that session
 #   ./run.sh doctor    check the setup and explain anything missing
+#   ./run.sh backup    copy the data volume to a dated tarball on the host
+#   ./run.sh backups   list them, newest first
+#   ./run.sh restore [file]   put one back (the newest if no file is given)
+#
+# With ARGUS_BACKUP_ON_START=true in .env, up and restart take a backup
+# first. Backups go to ~/.config/argus/backups (ARGUS_BACKUP_DIR), newest
+# 30 kept (ARGUS_BACKUP_KEEP).
 #
 # The GitHub token is resolved at start time - from 1Password if you have
 # an op.env, otherwise from your `gh` login - and injected straight into
@@ -42,8 +49,12 @@ ok()   { printf '%s✓%s %s\n' "$GREEN" "$OFF" "$1"; }
 warn() { printf '%s!%s %s\n' "$YELLOW" "$OFF" "$1"; }
 bad()  { printf '%s✗%s %s\n' "$RED" "$OFF" "$1"; }
 
-port() { grep -E '^ARGUS_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '"' || true; }
-PORT="$(port)"; PORT="${PORT:-18474}"
+# setting NAME - the value from the environment, else from .env.
+setting() {
+  if [[ -n "${!1:-}" ]]; then echo "${!1}"; return; fi
+  grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || true
+}
+PORT="$(setting ARGUS_PORT)"; PORT="${PORT:-18474}"
 
 # Container engine. Docker if it is running, otherwise podman - which is a
 # drop-in for everything used here and is what people reach for when Docker
@@ -114,9 +125,95 @@ with_token() {
   fi
 }
 
+# Backups of the data volume. Everything Argus remembers - capacity, sprint
+# snapshots, the write log, seen marks, chosen labels - lives on one volume,
+# and a reset of the container engine takes it with it. These copy it out to
+# the host as a dated tarball, through the container itself, so no other
+# image is needed.
+BACKUP_DIR="$(setting ARGUS_BACKUP_DIR)"; BACKUP_DIR="${BACKUP_DIR:-$HOME/.config/argus/backups}"; BACKUP_DIR="${BACKUP_DIR/#\~/$HOME}"
+BACKUP_KEEP="$(setting ARGUS_BACKUP_KEEP)"; BACKUP_KEEP="${BACKUP_KEEP:-30}"
+
+# Opt in with ARGUS_BACKUP_ON_START=true: up and restart then take a backup
+# first. Off by default - the copies hold the team's data on this machine.
+auto_backup() {
+  case "$(setting ARGUS_BACKUP_ON_START | tr '[:upper:]' '[:lower:]')" in
+    true|yes|on|1) backup quiet ;;
+  esac
+}
+CONTAINER=argus
+
+has_container() { "$ENGINE" container inspect "$CONTAINER" >/dev/null 2>&1; }
+
+# backup [quiet] - writes $BACKUP_DIR/argus-data-<date>-<time>.tgz. A copy
+# identical to the newest one is dropped, so starting twice in a row doesn't
+# pile up duplicates; only the newest $BACKUP_KEEP are kept.
+backup() {
+  local quiet="${1:-}"
+  if [[ -z "$ENGINE" ]] || ! has_container; then
+    [[ -n "$quiet" ]] || bad "No $CONTAINER container to back up - start it first."
+    [[ -n "$quiet" ]] || exit 1
+    return 0
+  fi
+  ( umask 077; mkdir -p "$BACKUP_DIR" )
+  local file tmp newest
+  file="$BACKUP_DIR/argus-data-$(date +%Y-%m-%d-%H%M%S).tgz"
+  tmp="$file.part"
+  # gzip -n leaves the time out of the header, so unchanged data gives
+  # identical bytes and the duplicate check below works.
+  if ! ( umask 077; "$ENGINE" cp "$CONTAINER:/data" - | gzip -n > "$tmp" ); then
+    rm -f "$tmp"
+    bad "Backup failed; nothing was written."
+    exit 1
+  fi
+  newest="$(ls -1t "$BACKUP_DIR"/argus-data-*.tgz 2>/dev/null | head -1 || true)"
+  if [[ -n "$newest" ]] && cmp -s "$tmp" "$newest"; then
+    rm -f "$tmp"
+    [[ -n "$quiet" ]] || ok "No change since the last backup: $newest"
+    return 0
+  fi
+  mv "$tmp" "$file"
+  ls -1t "$BACKUP_DIR"/argus-data-*.tgz | tail -n +"$((BACKUP_KEEP + 1))" | while read -r old; do rm -f "$old"; done
+  ok "Backed up the data to $file"
+}
+
+# restore <file> - copies a backup back into the volume, over what is there.
+# Files that exist now but not in the backup are left alone.
+restore() {
+  local file="${1:-}"
+  if [[ -z "$file" ]]; then
+    file="$(ls -1t "$BACKUP_DIR"/argus-data-*.tgz 2>/dev/null | head -1 || true)"
+    [[ -n "$file" ]] || { bad "No backups in $BACKUP_DIR."; exit 1; }
+  fi
+  [[ -f "$file" ]] || { bad "No such file: $file"; exit 1; }
+  has_container || { bad "No $CONTAINER container - run ./run.sh up once, then restore."; exit 1; }
+  echo "Restoring $file into the data volume."
+  read -r -p "This overwrites the files it contains. Go on? [y/N] " yes
+  [[ "$yes" == [yY]* ]] || exit 1
+  backup quiet
+  compose stop
+  # A backup from this script holds data/..., as `cp` wrote it; an older
+  # one taken from inside the volume holds the files themselves. -a keeps
+  # their owner, the user the image runs as.
+  local into="$CONTAINER:/data"
+  if tar tzf "$file" | head -1 | grep -q '^data/'; then into="$CONTAINER:/"; fi
+  gunzip -c "$file" | "$ENGINE" cp -a - "$into"
+  compose start
+  ok "Restored. Argus is starting on the restored data."
+}
+
 case "${1:-up}" in
+  backup)
+    backup
+    ;;
+  restore)
+    restore "${2:-}"
+    ;;
+  backups)
+    ls -1t "$BACKUP_DIR"/argus-data-*.tgz 2>/dev/null || echo "No backups in $BACKUP_DIR yet."
+    ;;
   up|start)
     need_env
+    auto_backup
     with_token up -d --build
     echo
     ok "Argus is running at http://localhost:${PORT}"
@@ -126,6 +223,7 @@ case "${1:-up}" in
     ;;
   restart)
     need_env
+    auto_backup
     with_token up -d --build --force-recreate
     ok "recreated → http://localhost:${PORT}"
     ;;
@@ -139,6 +237,7 @@ case "${1:-up}" in
     compose ps
     ;;
   login|logout)
+    cmd="$1"
     # Runs on the host, in the foreground: a device code expires in
     # fifteen minutes, and one printed by a detached container would sit
     # unread in its logs until it did.
@@ -193,7 +292,7 @@ case "${1:-up}" in
     fi
     ;;
   *)
-    echo "usage: ./run.sh [up|down|restart|logs|status|doctor|login|logout]" >&2
+    echo "usage: ./run.sh [up|down|restart|logs|status|doctor|login|logout|backup|backups|restore [file]]" >&2
     exit 1
     ;;
 esac
