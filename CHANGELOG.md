@@ -6,6 +6,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `./run.sh backup` copies the data volume to a dated tarball in
+  `~/.config/argus/backups`, and `./run.sh restore` puts one back. `up`
+  and `restart` take one first, an unchanged copy is not kept twice, and
+  the newest 30 stay.
+
 ## [0.3.6] - 2026-10-30
 
 ### Added
