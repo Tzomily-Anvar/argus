@@ -78,6 +78,8 @@ func setUpSprint(ctx context.Context) (*sprint.Service, store.Store, *publish.Se
 		RecentSprints:    config.Int("ARGUS_SPRINT_RECENT", 4),
 		Actor:            email,
 		EnableWrites:     config.SprintWritesAllowed(),
+
+		LateContainersCount: config.SprintLateContainersCount(),
 	})
 
 	log.Printf("argus: sprint report on (project %s, %d recent sprints)",

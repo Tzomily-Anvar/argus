@@ -106,6 +106,60 @@ type Inputs struct {
 	// built, for the assumption panel to compare against what the
 	// report did with it.
 	Declared Declared
+
+	// Late is the issues brought in by the sprint's late label rather
+	// than by its sprint field, by key, and LateLabel the label itself.
+	// Jira will not add an issue to a closed sprint, so a team marks work
+	// that belonged to one this way. Late work that finished counts as
+	// delivered here; it is never in say/do, because nobody committed to
+	// it.
+	Late      map[string]bool
+	LateLabel string
+
+	// LateContainersCount lets a late-labelled container count as work
+	// when nothing in the sprint is linked beneath it.
+	LateContainersCount bool
+
+	// lateWork is the late containers counted as work, worked out by
+	// Build from the two fields above and the links.
+	lateWork map[string]bool
+}
+
+// container reports whether an issue is treated as a rollup here: a
+// container type, unless it is a late-labelled one counting as work.
+func (in Inputs) container(is jira.Issue) bool {
+	return in.Rules.IsContainer(is.Fields.IssueType.Name) && !in.lateWork[is.Key]
+}
+
+// lateContainersAsWork picks the late-labelled containers that count as
+// work: only with the setting on, and only where none of the work linked
+// beneath them is in the sprint, since otherwise that work is what is
+// counted and the container is its rollup.
+func lateContainersAsWork(in Inputs, work map[string][]workItem) map[string]bool {
+	if !in.LateContainersCount || len(in.Late) == 0 {
+		return nil
+	}
+	inSprint := make(map[string]bool, len(in.Issues))
+	for _, is := range in.Issues {
+		inSprint[is.Key] = true
+	}
+	out := map[string]bool{}
+	for _, is := range in.Issues {
+		if !in.Late[is.Key] || !in.Rules.IsContainer(is.Fields.IssueType.Name) {
+			continue
+		}
+		beneath := false
+		for _, it := range work[is.Key] {
+			if inSprint[it.Key] {
+				beneath = true
+				break
+			}
+		}
+		if !beneath {
+			out[is.Key] = true
+		}
+	}
+	return out
 }
 
 // window is the stretch of time this sprint gets to claim work in.
@@ -153,6 +207,8 @@ func Build(in Inputs) Report {
 		Flags:       []Flag{},
 		Assumptions: []Flag{},
 		Carry:       []Row{},
+		Late:        []Row{},
+		StoryWork:   []StoryContribution{},
 	}
 	r.Summary.DoneByStatus = map[string]int{}
 	r.Summary.IssuesByType = map[string]int{}
@@ -169,6 +225,9 @@ func Build(in Inputs) Report {
 	capacity := indexCapacity(in.Capacity)
 	opens, closes := in.window()
 	work := linkedWork(in)
+	in.lateWork = lateContainersAsWork(in, work)
+	r.Sprint.IssuesJQL = jqlLink(in, sprintScope(in))
+	stories := newStoryTally(in, work)
 
 	// Accumulators.
 	delivered := map[string]float64{}     // account id -> points
@@ -191,7 +250,14 @@ func Build(in Inputs) Report {
 		// total of their children, so they are never delivery - counting
 		// them beside the tasks they roll up would count the same work
 		// twice. They are reported in their own section instead.
-		if in.Rules.IsContainer(row.Type) {
+		if row.Late {
+			r.Summary.AddedLate++
+			r.Late = append(r.Late, row)
+			if !row.LateOverride && row.State != StateConcluded && life.finished() {
+				r.Flags = append(r.Flags, lateElsewhereFlag(row, is, in))
+			}
+		}
+		if in.container(is) {
 			items := work[is.Key]
 			r.Summary.Containers++
 			if len(items) == 0 {
@@ -201,6 +267,7 @@ func Build(in Inputs) Report {
 			if here {
 				r.Stories = append(r.Stories, st)
 			}
+			stories.container(is, row, here)
 			// Flagged where it can still be acted on: the sprint that
 			// concluded it, or any sprint it is still open in. A Story
 			// that finished two sprints ago would otherwise raise the
@@ -247,10 +314,14 @@ func Build(in Inputs) Report {
 			if !row.HasPoints && !row.TimeLogged && in.Rules.ExpectsPointsWhenDone(row.Type) {
 				r.Flags = append(r.Flags, noSizeFlag(row, in))
 			}
-			if in.Rules.InSayDo(row.Type) {
+			// Late work finished here, but nobody committed to it, so it
+			// is no more part of what was done against a promise than it
+			// was part of the promise.
+			if in.Rules.InSayDo(row.Type) && !row.Late {
 				r.Summary.Completed++
 			}
 		}
+		stories.work(is, row)
 
 		// Credit is what this sprint counts for the ticket, which is not
 		// the same as the ticket's size: a ticket finishing here gives
@@ -278,6 +349,7 @@ func Build(in Inputs) Report {
 		for id, pts := range credited.Shares {
 			delivered[id] += pts
 			rowsFor[id] = append(rowsFor[id], row)
+			stories.credit(id, row, pts)
 			if _, known := people[id]; !known {
 				people[id] = store.Person{AccountID: id, Name: nameFor(is, id)}
 			}
@@ -289,7 +361,7 @@ func Build(in Inputs) Report {
 	// not depend on every estimate being right.
 	for _, is := range in.Issues {
 		typ := is.Fields.IssueType.Name
-		if in.Rules.IsContainer(typ) || !in.Rules.InSayDo(typ) {
+		if in.container(is) || !in.Rules.InSayDo(typ) || in.Late[is.Key] {
 			continue
 		}
 		if !in.Sprint.StartDate.IsZero() && is.Fields.Created.After(in.Sprint.StartDate.Time) {
@@ -309,6 +381,16 @@ func Build(in Inputs) Report {
 	r.Summary.CarriedOver = len(r.Carry)
 	r.Calibration = calibrate(finished, in)
 	r.People = buildPeople(people, rostered, delivered, rowsFor, capacity, in, &r)
+	names := make(map[string]string, len(r.People))
+	for _, p := range r.People {
+		names[p.AccountID] = p.Name
+	}
+	r.StoryWork = stories.contributions(names)
+	for i := range r.People {
+		r.People[i].Stories = stories.of(r.People[i].AccountID)
+		r.People[i].AssignedJQL = jqlLink(in, assignedDuring(in, r.People[i].AccountID, opens, closes))
+		r.People[i].CreditedJQL = creditedJQL(in, r.People[i].Rows)
+	}
 	r.CapacityReview = reviewState(in, r.People)
 	r.Epics = finishEpics(epicPoints, r.Summary.DeliveredTotal, in)
 
@@ -322,6 +404,7 @@ func Build(in Inputs) Report {
 
 	sortFlags(r.Flags)
 	sort.SliceStable(r.Carry, func(i, j int) bool { return r.Carry[i].Key < r.Carry[j].Key })
+	sort.SliceStable(r.Late, func(i, j int) bool { return r.Late[i].Key < r.Late[j].Key })
 	sort.SliceStable(r.Stories, func(i, j int) bool { return r.Stories[i].Points > r.Stories[j].Points })
 	r.Assumptions = Assumptions(r, in)
 	return r
@@ -372,7 +455,7 @@ func declared(is jira.Issue, in Inputs) (points float64, has bool, usedEstimate 
 
 func toRow(is jira.Issue, in Inputs, life timeline, opens, closes time.Time) Row {
 	pts, has, usedEstimate := size(is, in)
-	if in.Rules.IsContainer(is.Fields.IssueType.Name) {
+	if in.container(is) {
 		// A container is never delivery, so it never needs an estimate
 		// standing in for a missing actual. What it recorded is the
 		// point: a rollup read off the estimate field would be compared
@@ -390,6 +473,7 @@ func toRow(is jira.Issue, in Inputs, life timeline, opens, closes time.Time) Row
 		Created:   is.Fields.Created.Time,
 		Resolved:  is.Fields.Resolved.Time,
 		URL:       browseURL(in.BaseURL, is.Key),
+		Late:      in.Late[is.Key],
 	}
 	if is.Fields.Assignee != nil {
 		row.Assignee = is.Fields.Assignee.DisplayName
@@ -423,7 +507,15 @@ func toRow(is jira.Issue, in Inputs, life timeline, opens, closes time.Time) Row
 		row.State = StateConcluded
 		row.UsedEstimate = usedEstimate
 	}
-	if in.Rules.IsContainer(row.Type) {
+	// The label names the sprint the work belonged to, and it wins over
+	// the date for work no sprint field claims: that is exactly the work
+	// the label exists for, and no other sprint can count it.
+	if row.Late && row.State != StateConcluded && life.finished() && len(is.SprintsOn(in.SprintField)) == 0 {
+		row.State = StateConcluded
+		row.UsedEstimate = usedEstimate
+		row.LateOverride = true
+	}
+	if in.container(is) {
 		// A container is never credited, so none of the arithmetic below
 		// applies to it. Its points are a rollup of work that is counted
 		// on its own account.
@@ -453,6 +545,20 @@ func toRow(is jira.Issue, in Inputs, life timeline, opens, closes time.Time) Row
 //     where nobody touched a ticket did none of it.
 func credit(is jira.Issue, in Inputs, life timeline, row Row, inside, before, total int) (credited, prior float64) {
 	if row.State == StateFinishedEarlier {
+		return 0, 0
+	}
+	// Late work no sprint field claims belongs to this sprint alone, so
+	// there is nothing to split and nothing earlier to hand back.
+	if row.Late && len(is.SprintsOn(in.SprintField)) == 0 && row.State == StateConcluded {
+		if !row.HasPoints {
+			return 0, 0
+		}
+		return row.Points, 0
+	}
+	// Late work another sprint holds and this one did not finish is that
+	// sprint's to divide. This sprint is not on its sprint field, so it
+	// would not be among the sprints the share is worked out over.
+	if row.Late && row.State != StateConcluded {
 		return 0, 0
 	}
 

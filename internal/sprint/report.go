@@ -6,14 +6,25 @@ import "time"
 // stored wholesale: the inputs are Jira plus the capacity a human
 // entered, and keeping only those means a report can always be rebuilt.
 type Report struct {
-	Sprint   SprintInfo  `json:"sprint"`
-	Summary  Summary     `json:"summary"`
-	People   []Person    `json:"people"`
-	Stories  []Story     `json:"stories_concluded"`
-	Epics    []EpicGroup `json:"epics"`
-	Carry    []Row       `json:"carryover"`
-	Flags    []Flag      `json:"flags"`
-	Warnings []string    `json:"warnings,omitempty"`
+	Sprint  SprintInfo  `json:"sprint"`
+	Summary Summary     `json:"summary"`
+	People  []Person    `json:"people"`
+	Stories []Story     `json:"stories_concluded"`
+	Epics   []EpicGroup `json:"epics"`
+	Carry   []Row       `json:"carryover"`
+
+	// Late is every issue the sprint's late label brought in, whatever
+	// became of it, so work counted for want of a sprint field is listed
+	// where it can be checked.
+	Late     []Row    `json:"added_late"`
+	Flags    []Flag   `json:"flags"`
+	Warnings []string `json:"warnings,omitempty"`
+
+	// StoryWork is every container somebody worked beneath this sprint,
+	// with who and roughly how much. Points are the credit this sprint
+	// gave the work beneath, which is an approximation of effort and
+	// says so wherever it is shown.
+	StoryWork []StoryContribution `json:"story_work"`
 
 	// Assumptions are the places Argus may be reading this board wrong,
 	// as opposed to Flags, which are the places the board is untidy. The
@@ -78,6 +89,10 @@ type SprintInfo struct {
 	Provisional bool   `json:"provisional"`
 	BoardID     int64  `json:"board_id"`
 	BrowseURL   string `json:"browse_url"`
+
+	// IssuesJQL opens every issue this report read in Jira: the sprint's
+	// own, and those its late label brought in.
+	IssuesJQL string `json:"issues_jql,omitempty"`
 }
 
 // Summary is the headline. Delivered excludes container types, so it is
@@ -107,6 +122,12 @@ type Summary struct {
 	Promised  int `json:"promised"`
 	Injected  int `json:"injected"`
 	Completed int `json:"completed"`
+
+	// AddedLate counts the issues the sprint's late label brought in.
+	// They are in none of the three above: nobody promised them, they
+	// did not arrive during the sprint, and finishing them was not doing
+	// something committed to. What finished counts as delivered.
+	AddedLate int `json:"added_late"`
 
 	IssueCount int `json:"issue_count"`
 	DoneCount  int `json:"done_count"`
@@ -202,6 +223,51 @@ type Person struct {
 	Measured bool `json:"measured"`
 
 	Rows []Row `json:"rows"`
+
+	// Stories are the containers this person worked on beneath, or that
+	// concluded here in their name.
+	Stories []PersonStory `json:"stories"`
+
+	// AssignedJQL opens every issue in the sprint they were assigned at
+	// any point while it ran, and CreditedJQL exactly the issues behind
+	// Delivered. The two differ: credit follows the worklog, and the
+	// assignee is often just where a ticket was parked.
+	AssignedJQL string `json:"assigned_jql,omitempty"`
+	CreditedJQL string `json:"credited_jql,omitempty"`
+}
+
+// StoryContribution is one container and the people who worked beneath
+// it this sprint.
+type StoryContribution struct {
+	Key       string        `json:"key"`
+	Summary   string        `json:"summary"`
+	Status    string        `json:"status"`
+	Epic      string        `json:"epic,omitempty"`
+	URL       string        `json:"url"`
+	Concluded bool          `json:"concluded"`
+	Points    float64       `json:"points"`
+	People    []StoryPerson `json:"people"`
+}
+
+// StoryPerson is one person's share of the work beneath a story: the
+// points this sprint credited them for it, zero where they were assigned
+// work there that carries no points or logged time.
+type StoryPerson struct {
+	AccountID string  `json:"account_id"`
+	Name      string  `json:"name"`
+	Points    float64 `json:"points"`
+}
+
+// PersonStory is one container a person had a hand in this sprint.
+type PersonStory struct {
+	Key     string `json:"key"`
+	Summary string `json:"summary"`
+	Status  string `json:"status"`
+	URL     string `json:"url"`
+
+	// Concluded is true where the story concluded in this sprint, false
+	// where it was only worked on beneath.
+	Concluded bool `json:"concluded"`
 }
 
 // Story is a container issue that concluded this sprint.
@@ -325,6 +391,12 @@ type Row struct {
 	Created  time.Time `json:"created"`
 	Resolved time.Time `json:"resolved,omitempty"`
 	URL      string    `json:"url"`
+
+	// Late marks an issue the sprint's late label brought in rather than
+	// its sprint field, and LateOverride one counted here although it
+	// finished outside the window, because the label said so.
+	Late         bool `json:"late,omitempty"`
+	LateOverride bool `json:"late_override,omitempty"`
 }
 
 // Flag is something a person should look at. Flags are deliberately few
@@ -355,6 +427,11 @@ const (
 	FlagNoBaseline         = "no_baseline"
 	FlagCapacityUnreviewed = "capacity_unreviewed"
 	FlagCarriedNoWorklog   = "carried_no_worklog"
+
+	// FlagLateElsewhere marks a late-labelled issue that finished outside
+	// this sprint while another sprint's field holds it, so the label
+	// could not move it here without counting it twice.
+	FlagLateElsewhere = "late_label_elsewhere"
 
 	// FlagWorklogSplitEqually marks a logged entry whose comment names two
 	// or more people with no figure beside each, so its time was divided

@@ -39,7 +39,9 @@ const (
 	SectionPeople      = "people"
 	SectionReasons     = "reasons" // the Reason column on the people table; only meaningful with people
 	SectionCalibration = "calibration"
+	SectionEpics       = "epics" // the Run/Build split and the epics behind it; opt-in
 	SectionStories     = "stories"
+	SectionStoryWork   = "storywork" // who worked beneath each story; opt-in, it names colleagues against figures
 	SectionFlags       = "flags"
 	SectionCarryover   = "carryover"
 	SectionCounted     = "counted" // the "How this was counted" footer
@@ -47,9 +49,25 @@ const (
 
 // All is every section, in page order.
 var All = []string{
-	SectionSummary, SectionSayDo, SectionPeople, SectionReasons, SectionCalibration,
-	SectionStories, SectionFlags, SectionCarryover, SectionCounted,
+	SectionSummary, SectionSayDo, SectionPeople, SectionReasons, SectionEpics, SectionCalibration,
+	SectionStories, SectionStoryWork, SectionFlags, SectionCarryover, SectionCounted,
 }
+
+// optIn are the sections a page carries only when somebody chose them:
+// left out of Defaults, offered unticked in the Publish panel.
+var optIn = map[string]bool{SectionStoryWork: true, SectionEpics: true}
+
+// Defaults is the sections a page carries when nobody chose: every one
+// but the opt-in sections, in page order.
+var Defaults = func() []string {
+	out := make([]string, 0, len(All))
+	for _, id := range All {
+		if !optIn[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}()
 
 // headings is what each section is titled on the page. The same words
 // as the dashboard's sections, so a reader moving between the two finds
@@ -60,7 +78,9 @@ var headings = map[string]string{
 	SectionSayDo:       "Say/do",
 	SectionPeople:      "Per person",
 	SectionCalibration: "Estimate against actual",
+	SectionEpics:       "Run / Build split",
 	SectionStories:     "Stories concluded",
+	SectionStoryWork:   "Stories worked on",
 	SectionFlags:       "Needs a look",
 	SectionCarryover:   "Carryover",
 	SectionCounted:     "How this was counted",
@@ -191,7 +211,9 @@ var renderers = map[string]renderer{
 	SectionSayDo:       renderSayDo,
 	SectionPeople:      renderPeople,
 	SectionCalibration: renderCalibration,
+	SectionEpics:       renderEpics,
 	SectionStories:     renderStories,
+	SectionStoryWork:   renderStoryWork,
 	SectionFlags:       renderFlags,
 	SectionCarryover:   renderCarryover,
 	SectionCounted:     renderCounted,

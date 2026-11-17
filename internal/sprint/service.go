@@ -112,6 +112,15 @@ type Config struct {
 	// field is what normally decides it, per sprint, in declare.
 	PointsField     string
 	PointsFieldName string
+
+	// LateLabel is the pattern of the label that puts an issue into a
+	// sprint it was never added to, {n} standing for the number. Left
+	// empty, NewService reads the setting; empty there too, none is read.
+	LateLabel string
+
+	// LateContainersCount lets a late-labelled container count as work
+	// when nothing in the sprint is linked beneath it.
+	LateContainersCount bool
 }
 
 type fields struct {
@@ -159,6 +168,7 @@ type cached struct {
 	changes  map[string][]jira.StatusChange
 	linked   map[string]jira.Issue
 	previous time.Time
+	late     map[string]bool
 }
 
 func NewService(client *jira.Client, st store.Store, cfg Config) *Service {
@@ -189,6 +199,9 @@ func NewService(client *jira.Client, st store.Store, cfg Config) *Service {
 	}
 	if cfg.PointsFieldName == "" {
 		cfg.PointsFieldName = config.JiraPointsFieldName()
+	}
+	if cfg.LateLabel == "" {
+		cfg.LateLabel = config.SprintLateLabel()
 	}
 	return &Service{
 		client: client, store: st, cfg: cfg,
@@ -245,9 +258,11 @@ func (s *Service) resolveFields() (*fields, error) {
 	// The estimate is optional. A site without one simply has no fallback
 	// for a finished ticket whose actual was never filled in, which is
 	// worse but is not a reason to refuse to build a report.
-	estimateID, err := s.client.FieldID(config.JiraEstimateFieldName())
-	if err != nil {
-		return nil, fmt.Errorf("resolving the %s field: %w", config.JiraEstimateFieldName(), err)
+	var estimateID string
+	if !config.JiraEstimateFieldDisabled() {
+		if estimateID, err = s.client.FieldID(config.JiraEstimateFieldName()); err != nil {
+			return nil, fmt.Errorf("resolving the %s field: %w", config.JiraEstimateFieldName(), err)
+		}
 	}
 
 	catalogue, err := s.client.Statuses()
@@ -479,7 +494,7 @@ func (s *Service) Recompute(ctx context.Context) {
 			sprint: c.sprint, issues: c.issues, builtAt: c.builtAt,
 			fetched: fetched{
 				fields: c.fields, changes: c.changes,
-				linked: c.linked, previous: c.previous,
+				linked: c.linked, previous: c.previous, late: c.late,
 			},
 		})
 	}
@@ -501,6 +516,9 @@ type fetched struct {
 	changes  map[string][]jira.StatusChange
 	linked   map[string]jira.Issue
 	previous time.Time
+
+	// late is the issues the sprint's late label brought in, by key.
+	late map[string]bool
 }
 
 // derive computes a report from what was fetched plus the locally stored
@@ -520,6 +538,8 @@ func (s *Service) derive(ctx context.Context, sp jira.Sprint, issues []jira.Issu
 		AbsenceCost: s.cfg.AbsenceCost,
 		EpicClasses: s.cfg.EpicClasses, SprintLengthDays: s.cfg.SprintLengthDays,
 		CapacityReviewedAt: reviewedAt,
+		Late:               got.late, LateLabel: config.LateLabelFor(s.cfg.LateLabel, sp.Number),
+		LateContainersCount: s.cfg.LateContainersCount,
 	}
 	if got.fields != nil {
 		in.PointsField = got.fields.points
@@ -568,6 +588,7 @@ func (s *Service) install(ctx context.Context, sp jira.Sprint, issues []jira.Iss
 				report: rep, builtAt: builtAt,
 				sprint: sp, issues: issues, fields: got.fields,
 				changes: got.changes, linked: got.linked, previous: got.previous,
+				late: got.late,
 			}
 			s.mu.Unlock()
 			return rep
@@ -728,6 +749,17 @@ func (s *Service) build(ctx context.Context, sp jira.Sprint, f *fields) (Report,
 	if err != nil {
 		return Report{}, err
 	}
+	// Jira will not add an issue to a closed sprint, so work found late
+	// carries a label naming the sprint instead, and is merged in here.
+	var labelled []jira.Issue
+	if label := config.LateLabelFor(s.cfg.LateLabel, sp.Number); label != "" {
+		labelled, err = s.client.Search(
+			fmt.Sprintf("project = %s AND labels = %s", s.cfg.Project, jqlString(label)), fields, 0)
+		if err != nil {
+			return Report{}, err
+		}
+	}
+	issues, late := mergeLate(issues, labelled)
 	f.declared.BoardFieldPopulated = populated(issues, f.declared.BoardField)
 	f.declared.NamedFieldPopulated = populated(issues, f.declared.NamedField)
 
@@ -735,6 +767,7 @@ func (s *Service) build(ctx context.Context, sp jira.Sprint, f *fields) (Report,
 	if err != nil {
 		return Report{}, err
 	}
+	got.late = late
 
 	rep := s.install(ctx, sp, issues, got, time.Now().UTC())
 

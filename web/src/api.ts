@@ -219,6 +219,22 @@ export type SprintRow = {
   time_logged: boolean;
   hours_logged?: number;
   url: string;
+  /** Brought in by the sprint's late label rather than its sprint field.
+   *  Delivered here if it finished, and outside say/do either way. */
+  late?: boolean;
+  /** Counted here although it finished outside the window, because the
+   *  label said so and no sprint field claims it. */
+  late_override?: boolean;
+};
+
+/** A container a person had a hand in: worked on beneath, or concluded
+ *  here in their name. */
+export type PersonStory = {
+  key: string;
+  summary: string;
+  status: string;
+  url: string;
+  concluded: boolean;
 };
 
 export type SprintPerson = {
@@ -245,6 +261,12 @@ export type SprintPerson = {
    *  still count towards the sprint. */
   measured: boolean;
   rows: SprintRow[];
+  stories?: PersonStory[];
+  /** Every issue in the sprint they were assigned while it ran, and
+   *  exactly the issues behind `delivered`. Credit follows the worklog,
+   *  so the two lists can differ. */
+  assigned_jql?: string;
+  credited_jql?: string;
 };
 
 export type EpicGroup = {
@@ -369,7 +391,10 @@ export type SprintReport = {
     counts_from: string;
     counts_until: string;
     provisional: boolean;
+    board_id?: number;
     browse_url: string;
+    /** Every issue the report read, the late label's included. */
+    issues_jql?: string;
   };
   summary: {
     baseline_total: number;
@@ -381,6 +406,8 @@ export type SprintReport = {
     promised: number;
     injected: number;
     completed: number;
+    /** Issues the late label brought in, outside say/do. */
+    added_late?: number;
     issue_count: number;
     done_count: number;
     carried_over: number;
@@ -404,6 +431,7 @@ export type SprintReport = {
   }[];
   epics: EpicGroup[];
   carryover: SprintRow[];
+  added_late?: SprintRow[];
   flags: SprintFlag[];
   /** The second class of flag, and the second place it goes. `flags`
    *  says your Jira is untidy: a ticket finished with no estimate. This

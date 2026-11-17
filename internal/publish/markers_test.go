@@ -26,13 +26,14 @@ func TestGateAndPageAgreeOnTheMarkers(t *testing.T) {
 }
 
 // The settings catalogue spells the default section list because it
-// cannot import page either. It has to be page.All, in order.
-func TestSectionsDefaultIsEverySection(t *testing.T) {
+// cannot import page either. It has to be page.Defaults, in order:
+// every section but the opt-in ones.
+func TestSectionsDefaultIsEveryDefaultSection(t *testing.T) {
 	s, ok := config.Core().Find("ARGUS_CONFLUENCE_SECTIONS")
 	if !ok {
 		t.Fatal("ARGUS_CONFLUENCE_SECTIONS is not in the catalogue")
 	}
-	if want := strings.Join(page.All, ","); s.Default != want {
+	if want := strings.Join(page.Defaults, ","); s.Default != want {
 		t.Errorf("default = %q, want %q", s.Default, want)
 	}
 }

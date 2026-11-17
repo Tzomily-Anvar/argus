@@ -118,7 +118,8 @@ What is read when a finished ticket has nothing in the board's field.
 **A setting**, `ARGUS_JIRA_ESTIMATE_FIELD_NAME`, default `Story point
 estimate`, and deliberately not detected: a second populated field is
 usage, not configuration. A fallback, not a second opinion, and every
-ticket it is used on is flagged (`estimate_used`).
+ticket it is used on is flagged (`estimate_used`). Set it to `none` to
+switch the fallback off where that field is mostly empty.
 
 **Wrong, it looks like:** finished work with no estimate flagged every
 sprint on a team that sizes somewhere else.
@@ -193,7 +194,7 @@ sprint, carrying Epics as promises nobody made.
 
 ## How epics are grouped
 
-The Run-versus-Build split in "Where the sprint went". **A setting**,
+The "Run / Build split" section. **A setting**,
 `ARGUS_JIRA_EPIC_CLASSES`, `name:pattern` pairs matched against the
 epic's summary. It labels groups and totals nothing.
 
@@ -353,6 +354,26 @@ which is the thing it exists to check.
 
 **Wrong, it looks like:** it cannot be wrong for a team, only a ratio
 they wanted in another unit.
+
+## Work added to a closed sprint
+
+Jira will not add an issue to a closed sprint, so work found to belong
+to one after it closed has nowhere to go. **A setting**,
+`ARGUS_SPRINT_LATE_LABEL`, names a label for it with `{n}` standing for
+the sprint's number (`added-to-{n}`); unset, no label is read. A
+labelled issue is read alongside the sprint's own and marked *added
+late*. If it finished it counts as delivered there, whole, even when it
+finished outside the window, provided no sprint field claims it; one
+another sprint holds is left to that sprint and flagged
+(`late_label_elsewhere`). It is in none of promised, injected or
+completed, since nobody committed to it.
+
+A labelled container stays a rollup unless
+`ARGUS_SPRINT_LATE_CONTAINERS_COUNT=true`, and then counts as work only
+where nothing linked beneath it is in the sprint.
+
+**Wrong, it looks like:** an issue counted in a sprint nobody remembers
+it being in. The label is on it in Jira; remove it there.
 
 ## Capacity deducts planned leave only
 

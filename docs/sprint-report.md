@@ -16,7 +16,7 @@ What it computes, for any sprint on your board:
 |---|---|
 | **Delivered** | Points completed, excluding container types whose points are a rollup of the work beneath them |
 | **Per person** | Baseline, capacity, delivered and delta — click a row for the tickets behind the number |
-| **Where the sprint went** | Delivery per epic, with a Run-versus-Build style split you configure |
+| **Run / Build split** | Delivery per epic, with a Run-versus-Build style split you configure |
 | **Stories concluded** | Containers that finished, reported separately because their points are not anyone's capacity |
 | **Needs a look** | Finished without an estimate, finished unassigned, a container carrying its own points. These rows are what a close-out's change set is built from |
 | **Carryover** | Still open at the end |
@@ -167,14 +167,16 @@ left out:
 | `saydo` | promised, injected, delivered, both ratios |
 | `people` | the per-person table |
 | `reasons` | the Reason column on that table, from the capacity note |
+| `epics` | opt-in: delivered points by epic class (Run against Build) with the ratio, and each epic that contributed |
 | `calibration` | estimate against actual, and the tickets that moved furthest |
 | `stories` | containers concluded this sprint |
+| `storywork` | opt-in: each story worked beneath, who, and their approximate effort in points |
 | `flags` | "Needs a look" |
 | `carryover` | still open at close |
 | `counted` | the "How this was counted" footer naming your conventions |
 
-`ARGUS_CONFLUENCE_SECTIONS` is the team's standing choice, all of them by
-default. The Publish panel shows the same list as switches, pre-filled
+`ARGUS_CONFLUENCE_SECTIONS` is the team's standing choice, all of them but
+`epics` and `storywork` by default. The Publish panel shows the same list as switches, pre-filled
 from the setting, and an untick there applies to that one publish only.
 `reasons` is the one section that puts free text about a named colleague
 on the page; it is what the team's pages have always carried, and it is

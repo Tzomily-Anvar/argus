@@ -61,8 +61,13 @@ func TestPreviewsExpireAndAreTakenOnce(t *testing.T) {
 
 func TestSectionSwitchesFollowTheStandingChoice(t *testing.T) {
 	all := switches(nil)
-	if len(all) != 9 || !all[0].On || all[0].Label == "" {
-		t.Errorf("nil means every section on: %+v", all)
+	if len(all) != len(page.All) || !all[0].On || all[0].Label == "" {
+		t.Errorf("nil means every default section on: %+v", all)
+	}
+	for _, s := range all {
+		if s.ID == page.SectionStoryWork && s.On {
+			t.Error("an opt-in section is offered ticked")
+		}
 	}
 	some := switches([]string{"summary", "people"})
 	var on []string

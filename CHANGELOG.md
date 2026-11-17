@@ -6,6 +6,31 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Work added to a closed sprint. Jira will not add an issue to a closed
+  sprint, so `ARGUS_SPRINT_LATE_LABEL` names a label for it, `{n}` for
+  the sprint's number. Labelled issues are read with the sprint's own,
+  marked *added late*, listed in their own section, and count as
+  delivered when finished; they stay out of say/do. A labelled container
+  counts as work only with `ARGUS_SPRINT_LATE_CONTAINERS_COUNT=true` and
+  nothing beneath it in the sprint.
+- Each person's row opens onto the stories they worked on or concluded,
+  and two Jira searches: everything they were assigned while the sprint
+  ran, and exactly the issues behind their delivered figure.
+- The report header shows the Jira sprint and board ids, and links every
+  issue the report read.
+- `ARGUS_JIRA_ESTIMATE_FIELD_NAME=none` switches the estimate fallback
+  off.
+- An opt-in Confluence section, *Stories worked on* (`storywork`): each
+  story somebody worked beneath this sprint, who, and their approximate
+  effort in credited points. Offered unticked in the Publish panel; add
+  it to `ARGUS_CONFLUENCE_SECTIONS` to carry it every time.
+- An opt-in Confluence section, *Run / Build split* (`epics`):
+  delivered points by epic class, Run against Build with the ratio
+  between them, then each epic that contributed with its points, share
+  and issue count.
+
 ## [0.3.7] - 2026-11-04
 
 ### Added

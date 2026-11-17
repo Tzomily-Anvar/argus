@@ -42,6 +42,49 @@ func renderStories(w io.Writer, rep sprint.Report, _ Inputs, _ map[string]bool) 
 	return storiesTmpl.Execute(w, v)
 }
 
+// Stories worked on: each story somebody worked beneath this sprint, who,
+// and roughly how much. The figure is the points this sprint credited
+// them for the work beneath, which is effort only approximately, and
+// the page says so.
+var storyWorkTmpl = tmpl("storywork", `<h2>{{.Heading}}</h2>
+{{if not .Rows}}<p>Nobody worked beneath a story this sprint.</p>
+{{else}}<table><tbody>
+<tr><th>Story</th><th>Summary</th><th>State</th><th>Worked on by</th><th>Approx. effort</th></tr>
+{{range .Rows}}<tr><td><a href="{{.URL}}">{{.Key}}</a></td><td>{{.Summary}}</td><td>{{.State}}</td><td>{{range $i, $p := .People}}{{if $i}}<br/>{{end}}{{$p.Name}} · {{$p.Effort}}{{end}}</td><td>{{.Effort}}</td></tr>
+{{end}}</tbody></table>
+<p><em>Effort is the points this sprint credited each person for the work linked beneath the story, by logged time where there is any: an approximation, not a measurement. Somebody shown with no points was assigned work there that carries no points or logged time.</em></p>
+{{end}}`)
+
+type storyWorkView struct {
+	Key, URL, Summary, State, Effort string
+	People                           []struct{ Name, Effort string }
+}
+
+func renderStoryWork(w io.Writer, rep sprint.Report, _ Inputs, _ map[string]bool) error {
+	v := struct {
+		Heading string
+		Rows    []storyWorkView
+	}{Heading: headings[SectionStoryWork]}
+	for _, st := range rep.StoryWork {
+		row := storyWorkView{Key: st.Key, URL: st.URL, Summary: st.Summary, State: st.Status, Effort: effort(st.Points)}
+		if st.Concluded {
+			row.State = "concluded"
+		}
+		for _, p := range st.People {
+			row.People = append(row.People, struct{ Name, Effort string }{p.Name, effort(p.Points)})
+		}
+		v.Rows = append(v.Rows, row)
+	}
+	return storyWorkTmpl.Execute(w, v)
+}
+
+func effort(points float64) string {
+	if points == 0 {
+		return "no points"
+	}
+	return "~" + num(points) + " pts"
+}
+
 // The flags, one item each: the kind as a label, the message, then the
 // ticket or tickets behind it. A flag speaking for several keeps them
 // on one line, because nine lines is how a list stops being read.
@@ -104,6 +147,9 @@ func renderCarryover(w io.Writer, rep sprint.Report, _ Inputs, _ map[string]bool
 			row.Note = "never started"
 		case !r.TimeLogged:
 			row.Note = "no time logged"
+		}
+		if r.Late {
+			row.Note = strings.TrimPrefix(row.Note+", added late", ", ")
 		}
 		v.Rows = append(v.Rows, row)
 	}

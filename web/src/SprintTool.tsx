@@ -89,11 +89,26 @@ export function SprintTool() {
   return (
     <div className="mx-auto max-w-5xl px-6 pt-6 pb-20">
       <ToolHeader
-        title={res ? `Sprint ${res.report.sprint.number} report` : "Sprint reports"}
+        title={res ? (
+          <span className="flex flex-wrap items-center gap-2">
+            {`Sprint ${res.report.sprint.number} report`}
+            <CopyID label="Sprint ID" value={res.report.sprint.jira_id} />
+            {res.report.sprint.board_id ? <CopyID label="Board" value={res.report.sprint.board_id} /> : null}
+          </span>
+        ) : "Sprint reports"}
         subtitle={res && (
           <>
             {formatDateRange(res.report.sprint.starts, res.report.sprint.ends, true)}
             {res.report.sprint.provisional && " · still open, so delivery is measured against today"}
+            {res.report.sprint.issues_jql && (
+              <>
+                {" · "}
+                <a href={res.report.sprint.issues_jql} target="_blank" rel="noreferrer" className="lnk"
+                  title="Every issue this report read, the late label's included">
+                  all issues in Jira →
+                </a>
+              </>
+            )}
           </>
         )}
         note={refresh.isPending || res?.building ? "rebuilding…" : res ? `as of ${ago(res.built_at)}` : ""}
@@ -176,5 +191,35 @@ export function SprintTool() {
         />
       )}
     </div>
+  );
+}
+
+/** A Jira id beside the title, copied on click. The sprint's id is what
+ *  JQL and the API take, and it is not the number people call it by, so
+ *  it has to be in plain sight and one click from the clipboard. */
+function CopyID({ label, value }: { label: string; value: number }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(String(value));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // No clipboard (an insecure origin, a denied permission): the id is
+      // selectable text, so it can still be copied by hand.
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={`Copy ${label.toLowerCase()} ${value}`}
+      className="tnum inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium select-all"
+      style={{ background: "var(--surface-2)", border: "1px solid var(--line)", color: "var(--ink)" }}
+    >
+      <span style={{ color: "var(--muted)" }}>{label}</span>
+      <span className="font-mono">{value}</span>
+      <span style={{ color: copied ? "var(--good)" : "var(--faint)" }}>{copied ? "copied" : "copy"}</span>
+    </button>
   );
 }
