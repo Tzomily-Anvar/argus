@@ -100,12 +100,14 @@ var sayDoTmpl = tmpl("saydo", `<h2>{{.Heading}}</h2>
 <tr><td>{{.Promised}}</td><td>{{.Injected}}</td><td>{{.Delivered}}</td><td>{{.Ratio}}</td></tr>
 </tbody></table>
 <p>{{.Counts}}</p>
-`)
+{{if .Late}}<p>Added late, outside say/do: {{range $i, $r := .Late}}{{if $i}}, {{end}}<a href="{{$r.URL}}">{{$r.Key}}</a>{{if $r.Done}} (done){{end}}{{end}}</p>
+{{end}}`)
 
 type sayDoView struct {
 	Heading                       string
 	Promised, Injected, Delivered int
 	Ratio, Counts                 string
+	Late                          []sprint.Row
 }
 
 func renderSayDo(w io.Writer, rep sprint.Report, _ Inputs, _ map[string]bool) error {
@@ -116,6 +118,7 @@ func renderSayDo(w io.Writer, rep sprint.Report, _ Inputs, _ map[string]bool) er
 		Injected:  s.Injected,
 		Delivered: s.Completed,
 		Ratio:     "—",
+		Late:      rep.Late,
 	}
 	asked := s.Promised + s.Injected
 	if asked > 0 {

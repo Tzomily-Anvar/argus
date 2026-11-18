@@ -345,7 +345,7 @@ func Core() Catalogue {
 		{
 			Key: "ARGUS_CONFLUENCE_SECTIONS", Section: "Confluence", Kind: KindList,
 			Default: "summary,saydo,people,reasons,calibration,stories,flags,carryover,counted",
-			Desc:    "The sections a published page carries, in its fixed order. The Publish panel can untick any for one publish. Publishing shares ARGUS_SPRINT_ALLOW_WRITES.",
+			Desc:    "The sections a published page carries, in its fixed order. The Publish panel can untick any for one publish. epics (the Run/Build split and the epics behind it) and storywork (who worked beneath each story, with approximate effort) are opt-in: add them here or tick them per publish. Publishing shares ARGUS_SPRINT_ALLOW_WRITES.",
 		},
 
 		{

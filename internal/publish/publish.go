@@ -81,7 +81,7 @@ type Service struct {
 // set.
 func New(client *jira.Client, reports *sprint.Service, st store.Store, cfg Config) *Service {
 	if len(cfg.Sections) == 0 {
-		cfg.Sections = append([]string{}, page.All...)
+		cfg.Sections = append([]string{}, page.Defaults...)
 	}
 	now := func() time.Time { return time.Now().UTC() }
 	return &Service{client: client, reports: reports, store: st, cfg: cfg, held: newPreviews(now), now: now}

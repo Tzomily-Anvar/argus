@@ -30,7 +30,7 @@ func TestPreviewCreatesWhenThereIsNoPage(t *testing.T) {
 	if got := fake.searched(); strings.Join(got, "|") != "Sprint 21 Report (live)|Sprint 21 Report" {
 		t.Errorf("searched %v: the live title first, then the final one", got)
 	}
-	if len(p.Diff) == 0 || p.Diff[0].Kind != "add" || len(p.Sections) != len(page.All) {
+	if len(p.Diff) == 0 || p.Diff[0].Kind != "add" || len(p.Sections) != len(page.Defaults) {
 		t.Errorf("a first publish is all additions of every section: %+v", p)
 	}
 	if got := fake.sent(); len(got) != 0 {

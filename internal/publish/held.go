@@ -84,6 +84,9 @@ func newID() string {
 // switches lists every section of the page in its fixed order, marking
 // the ones a standing choice includes. Nil means all of them.
 func switches(chosen []string) []SectionSwitch {
+	if chosen == nil {
+		chosen = page.Defaults
+	}
 	on := map[string]bool{}
 	for _, id := range chosen {
 		on[id] = true
@@ -91,7 +94,7 @@ func switches(chosen []string) []SectionSwitch {
 	labels := page.Labels()
 	out := make([]SectionSwitch, 0, len(page.All))
 	for _, id := range page.All {
-		out = append(out, SectionSwitch{ID: id, Label: labels[id], On: chosen == nil || on[id]})
+		out = append(out, SectionSwitch{ID: id, Label: labels[id], On: on[id]})
 	}
 	return out
 }

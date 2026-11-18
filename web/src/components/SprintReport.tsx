@@ -144,6 +144,96 @@ function EpicBars({ report }: { report: Report }) {
   );
 }
 
+/** One person's sprint, opened from the table: what they were credited,
+ *  the stories they had a hand in, and the two Jira searches that let
+ *  both be checked. */
+function PersonDetail({ p }: { p: Report["people"][number] }) {
+  const rows = p.rows ?? [];
+  const stories = p.stories ?? [];
+  return (
+    <div className="space-y-3">
+      {(p.assigned_jql || p.credited_jql) && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          {p.assigned_jql && (
+            <a href={p.assigned_jql} target="_blank" rel="noreferrer" className="lnk"
+              title="Every issue in this sprint they were assigned at any point while it ran">
+              assigned during the sprint, in Jira →
+            </a>
+          )}
+          {p.credited_jql && (
+            <a href={p.credited_jql} target="_blank" rel="noreferrer" className="lnk"
+              title="Exactly the issues behind their delivered figure. Credit follows the worklog, so this can differ from what they were assigned">
+              credited issues, in Jira →
+            </a>
+          )}
+        </div>
+      )}
+      {rows.length === 0 ? (
+        <span className="text-[13px]" style={{ color: "var(--muted)" }}>
+          Nothing delivered this sprint.
+        </span>
+      ) : (
+        <ul className="space-y-1">
+          {rows.map((r) => (
+            <li key={r.key} className="flex items-baseline gap-2 text-[13px]">
+              <a href={r.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
+                {r.key}
+              </a>
+              <span className="truncate">{r.summary}</span>
+              {r.late && <LateBadge row={r} />}
+              {/* Credited, not size. A ticket that spans sprints is
+                  shared between them, so the number in this table has
+                  to be the share this sprint took or the rows will not
+                  add up to the total above them. */}
+              <span className="tnum ml-auto shrink-0" style={{ color: "var(--muted)" }}>
+                {r.has_points
+                  ? r.credited.toFixed(2).replace(/\.?0+$/, "") +
+                    (r.credited !== r.points ? ` of ${r.points.toFixed(1)}` : "")
+                  : "no estimate"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {stories.length > 0 && (
+        <div>
+          <div className="mb-1 text-[11px] font-semibold tracking-wide uppercase" style={{ color: "var(--faint)" }}>
+            Stories
+          </div>
+          <ul className="space-y-1">
+            {stories.map((st) => (
+              <li key={st.key} className="flex items-baseline gap-2 text-[13px]">
+                <a href={st.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
+                  {st.key}
+                </a>
+                <span className="truncate">{st.summary}</span>
+                <span className="ml-auto shrink-0">
+                  <Badge tone={st.concluded ? "good" : "info"} label={st.concluded ? "concluded" : "worked on"}
+                    title={st.concluded ? "Concluded this sprint" : `Worked on beneath it this sprint; now ${st.status}`} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Marks work the late label brought in, so it is clear why it is here. */
+function LateBadge({ row }: { row: { late_override?: boolean } }) {
+  return (
+    <Badge
+      tone="info"
+      label="added late"
+      title={
+        "Brought in by the sprint's late label, not its sprint field. Delivered here if it finished; outside say/do either way." +
+        (row.late_override ? " It finished outside the sprint's window and is counted here because the label says so." : "")
+      }
+    />
+  );
+}
+
 function PeopleTable({ report }: { report: Report }) {
   const [open, setOpen] = useState<string | null>(null);
   return (
@@ -226,33 +316,7 @@ function PeopleTable({ report }: { report: Report }) {
               {open === p.account_id && (
                 <tr key={p.account_id + "-rows"}>
                   <td colSpan={5} className="px-4 py-3" style={{ background: "var(--surface-2)" }}>
-                    {(p.rows ?? []).length === 0 ? (
-                      <span className="text-[13px]" style={{ color: "var(--muted)" }}>
-                        Nothing delivered this sprint.
-                      </span>
-                    ) : (
-                      <ul className="space-y-1">
-                        {(p.rows ?? []).map((r) => (
-                          <li key={r.key} className="flex items-baseline gap-2 text-[13px]">
-                            <a href={r.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
-                              {r.key}
-                            </a>
-                            <span className="truncate">{r.summary}</span>
-                            {/* Credited, not size. A ticket that spans
-                                sprints is shared between them, so the
-                                number in this table has to be the share
-                                this sprint took or the rows will not add
-                                up to the total above them. */}
-                            <span className="tnum ml-auto shrink-0" style={{ color: "var(--muted)" }}>
-                              {r.has_points
-                                ? r.credited.toFixed(2).replace(/\.?0+$/, "") +
-                                  (r.credited !== r.points ? ` of ${r.points.toFixed(1)}` : "")
-                                : "no estimate"}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                    <PersonDetail p={p} />
                   </td>
                 </tr>
               )}
@@ -423,7 +487,9 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
       // so the percentage can be checked rather than believed.
       label: "Say / do",
       value: s.promised + s.injected > 0 ? `${Math.round((100 * s.completed) / (s.promised + s.injected))}%` : "—",
-      hint: `${s.completed}/${s.promised + s.injected} (${s.injected} injected)`,
+      hint:
+        `${s.completed}/${s.promised + s.injected} (${s.injected} injected)` +
+        (s.added_late ? ` · ${s.added_late} added late, outside` : ""),
     },
     { label: "Stories done", value: stories.length, hint: `${storyPts.toFixed(1)} pts, never in delivered` },
     { label: "Needs a look", value: report.flags.length, hint: "flags raised", tone: report.flags.length > 0 ? "warning" : "neutral" },
@@ -436,7 +502,7 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
       </div>
 
       <Section
-        title="Where the sprint went"
+        title="Run / Build split"
         hint="Delivery per epic. Sorted bars rather than a pie: two epics on the same share are indistinguishable by angle."
       >
         <EpicBars report={report} />
@@ -456,6 +522,31 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
       >
         <PeopleTable report={report} />
       </Section>
+
+      {(report.added_late ?? []).length > 0 && (
+        <Section
+          title="Added late"
+          hint="Brought in by the sprint's late label, because Jira will not add an issue to a closed sprint. Delivered here if finished; never in say/do, since nobody committed to them."
+        >
+          <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
+            {(report.added_late ?? []).map((r) => (
+              <li key={r.key} className="flex items-baseline gap-2 px-4 py-2.5 text-[13px]">
+                <a href={r.url} target="_blank" rel="noreferrer" className="lnk font-mono text-xs">
+                  {r.key}
+                </a>
+                <span className="flex-1 truncate">{r.summary}</span>
+                {r.late_override && <Badge tone="info" label="finished outside the window" />}
+                <span className="shrink-0 text-xs" style={{ color: "var(--muted)" }}>
+                  {r.type} · {r.status} · {r.assignee ?? "unassigned"}
+                </span>
+                <span className="tnum w-24 shrink-0 text-right" style={{ color: "var(--muted)" }}>
+                  {r.state !== "concluded" ? "not counted" : r.has_points ? `${r.credited} pts` : "no estimate"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
 
       <Section
         title="Stories concluded"
@@ -561,6 +652,7 @@ export function SprintReportView({ report, trend }: { report: Report; trend?: Ca
                   <span className="flex-1 truncate">{r.summary}</span>
                   {!r.active && <Badge tone="info" label="never started" />}
                   {r.active && !r.time_logged && <Badge tone="warning" label="no time logged" />}
+                  {r.late && <LateBadge row={r} />}
                   <span className="shrink-0 text-xs" style={{ color: "var(--muted)" }}>
                     {r.status}
                   </span>

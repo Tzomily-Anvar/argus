@@ -50,6 +50,17 @@ func fixture() sprint.Report {
 			{Key: "T-90", Summary: "Checkout <b>rewrite</b>", Points: 8, URL: browse + "T-90", LinkedPoints: 7, LinkedCount: 3},
 			{Key: "T-91", Summary: "Empty story", Points: 2, URL: browse + "T-91"},
 		},
+		Epics: []sprint.EpicGroup{
+			{Key: "T-1", Name: "[Build] New checkout", Class: "Build", Points: 9, Share: 0.6, IssueCount: 4, URL: browse + "T-1"},
+			{Key: "T-2", Name: "[Run] Keep the lights on", Class: "Run", Points: 4.5, Share: 0.3, IssueCount: 3, URL: browse + "T-2"},
+			{Name: "No epic", Points: 1.5, Share: 0.1, IssueCount: 1},
+		},
+		StoryWork: []sprint.StoryContribution{
+			{Key: "T-90", Summary: "Checkout <b>rewrite</b>", Status: "Done", URL: browse + "T-90", Concluded: true, Points: 7,
+				People: []sprint.StoryPerson{{Name: "Kit", Points: 5}, {Name: "Noor", Points: 2}, {Name: "Sam"}}},
+			{Key: "T-92", Summary: "Search filters", Status: "In Progress", URL: browse + "T-92", Points: 1.5,
+				People: []sprint.StoryPerson{{Name: "Noor", Points: 1.5}}},
+		},
 		Carry: []sprint.Row{
 			{Key: "T-120", Summary: "Retry on timeout", Status: "In Progress", Active: true, URL: browse + "T-120"},
 			{Key: "T-121", Summary: "Tidy the logs", Status: "To Do", URL: browse + "T-121"},
@@ -263,5 +274,49 @@ func TestGolden(t *testing.T) {
 	}
 	if string(want) != got {
 		t.Errorf("rendering changed; if that is intended, run go test ./internal/page -update and review the diff\n--- want\n%s\n--- got\n%s", want, got)
+	}
+}
+
+// Stories worked on names colleagues against figures, so a page carries
+// it only when somebody chose it.
+func TestStoryWorkIsOptIn(t *testing.T) {
+	for _, id := range Defaults {
+		if id == SectionStoryWork {
+			t.Fatal("storywork is among the defaults")
+		}
+	}
+	if len(Defaults) != len(All)-len(optIn) {
+		t.Errorf("defaults = %v", Defaults)
+	}
+	if out := render(t, inputs(Defaults...)); strings.Contains(out, heading(SectionStoryWork)) {
+		t.Error("a default publish rendered Stories worked on")
+	}
+	out := render(t, inputs(SectionStoryWork))
+	for _, want := range []string{"Kit · ~5.0 pts", "Noor · ~2.0 pts", "Sam · no points", "<td>concluded</td>", "<td>In Progress</td>", "~1.5 pts"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+}
+
+// The Run/Build split is opt-in, gives each class its points and share
+// with the ratio between two, and lists the epics behind it.
+func TestEpicsSection(t *testing.T) {
+	for _, id := range Defaults {
+		if id == SectionEpics {
+			t.Fatal("epics is among the defaults")
+		}
+	}
+	out := render(t, inputs(SectionEpics))
+	for _, want := range []string{
+		"<td>9.0 pts (60%)</td>", "<td>4.5 pts (30%)</td>", "<td>1.5 pts (10%)</td>",
+		"<th>Build</th><th>Run</th><th>Other</th><th>Ratio</th>",
+		"<td>Build 67 : Run 33</td>",
+		`<a href="https://jira.example/browse/T-1">T-1</a> [Build] New checkout</td><td>Build</td><td>9.0</td><td>60%</td><td>4</td>`,
+		"<td>No epic</td><td>Other</td>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
 	}
 }

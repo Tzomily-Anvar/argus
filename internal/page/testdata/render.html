@@ -26,6 +26,18 @@
 <tr><td><strong>Total</strong></td><td><strong>18.0</strong></td><td><strong>16.0</strong><br/><em>2.0 days planned off · 1 day unplanned, not deducted</em></td><td><strong>17.75</strong></td><td><strong>-0.25</strong></td><td></td></tr>
 </tbody></table>
 <p><em>Container types are excluded, so this is the work itself rather than the rollups above it. Capacity is the baseline less planned leave; unplanned absence is shown beneath it and not deducted, so a shortfall it explains stays visible. A dash means the person has no baseline to measure against; their delivered points still count.</em></p>
+<h2>Run / Build split</h2>
+<table><tbody>
+<tr><th>Build</th><th>Run</th><th>Other</th><th>Ratio</th></tr>
+<tr><td>9.0 pts (60%)</td><td>4.5 pts (30%)</td><td>1.5 pts (10%)</td><td>Build 67 : Run 33</td></tr>
+</tbody></table>
+<table><tbody>
+<tr><th>Epic</th><th>Class</th><th>Points</th><th>Share</th><th>Issues</th></tr>
+<tr><td><a href="https://jira.example/browse/T-1">T-1</a> [Build] New checkout</td><td>Build</td><td>9.0</td><td>60%</td><td>4</td></tr>
+<tr><td><a href="https://jira.example/browse/T-2">T-2</a> [Run] Keep the lights on</td><td>Run</td><td>4.5</td><td>30%</td><td>3</td></tr>
+<tr><td>No epic</td><td>Other</td><td>1.5</td><td>10%</td><td>1</td></tr>
+</tbody></table>
+<p><em>Delivered points, credited this sprint, grouped by the epic each ticket sits under. Classes come from ARGUS_JIRA_EPIC_CLASSES, matched against the epic's name.</em></p>
 <h2>Estimate against actual</h2>
 <table><tbody>
 <tr><th>Estimated</th><th>Actual</th><th>Difference</th><th>Variance</th></tr>
@@ -44,6 +56,13 @@
 <tr><td><a href="https://jira.example/browse/T-91">T-91</a></td><td>Empty story</td><td>2.0</td><td>no linked work</td></tr>
 </tbody></table>
 <p><em>Finished here means the Story is done and so is everything linked beneath it. Their points are a rollup of that work, so they are reported here and never counted as delivery.</em></p>
+<h2>Stories worked on</h2>
+<table><tbody>
+<tr><th>Story</th><th>Summary</th><th>State</th><th>Worked on by</th><th>Approx. effort</th></tr>
+<tr><td><a href="https://jira.example/browse/T-90">T-90</a></td><td>Checkout &lt;b&gt;rewrite&lt;/b&gt;</td><td>concluded</td><td>Kit · ~5.0 pts<br/>Noor · ~2.0 pts<br/>Sam · no points</td><td>~7.0 pts</td></tr>
+<tr><td><a href="https://jira.example/browse/T-92">T-92</a></td><td>Search filters</td><td>In Progress</td><td>Noor · ~1.5 pts</td><td>~1.5 pts</td></tr>
+</tbody></table>
+<p><em>Effort is the points this sprint credited each person for the work linked beneath the story, by logged time where there is any: an approximation, not a measurement. Somebody shown with no points was assigned work there that carries no points or logged time.</em></p>
 <h2>Needs a look</h2>
 <ul>
 <li><strong>done no estimate</strong> Finished without points <a href="https://jira.example/browse/T-101">T-101</a></li>

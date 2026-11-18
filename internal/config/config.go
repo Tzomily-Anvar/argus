@@ -292,6 +292,39 @@ func JiraEstimateFieldName() string {
 	return String("ARGUS_JIRA_ESTIMATE_FIELD_NAME", "Story point estimate")
 }
 
+// EstimateFieldOff is the value of ARGUS_JIRA_ESTIMATE_FIELD_NAME that
+// switches the fallback off. An empty value cannot do it, because empty
+// is how every setting asks for its default.
+const EstimateFieldOff = "none"
+
+// JiraEstimateFieldDisabled reports whether the estimate fallback was
+// switched off, for a site whose estimate field is mostly empty or means
+// something other than a stand-in for the actual.
+func JiraEstimateFieldDisabled() bool {
+	return strings.EqualFold(JiraEstimateFieldName(), EstimateFieldOff)
+}
+
+// SprintLateLabel is the label that puts an issue into a sprint it was
+// never added to, with {n} standing for the sprint's number. Jira will
+// not add an issue to a closed sprint, so a team that finds late work
+// marks it with a label instead. Empty, the default, means no label is
+// read.
+func SprintLateLabel() string { return String("ARGUS_SPRINT_LATE_LABEL", "") }
+
+// LateLabelFor fills a late-label pattern in for one sprint. Empty when
+// there is no pattern or no number to put in it.
+func LateLabelFor(pattern string, number int) string {
+	if pattern == "" || number <= 0 || !strings.Contains(pattern, "{n}") {
+		return ""
+	}
+	return strings.ReplaceAll(pattern, "{n}", strconv.Itoa(number))
+}
+
+// SprintLateContainersCount lets a late-labelled container count as work
+// when nothing in the sprint is linked beneath it. Off by default, since
+// a container's points are normally a rollup of work counted on its own.
+func SprintLateContainersCount() bool { return Bool("ARGUS_SPRINT_LATE_CONTAINERS_COUNT", false) }
+
 // JiraStoryLinkTypes are the issue link types that tie a container issue
 // to the work beneath it.
 //
