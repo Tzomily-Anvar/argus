@@ -31,6 +31,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   between them, then each epic that contributed with its points, share
   and issue count.
 
+### Security
+
+- Built with Go 1.26.11, which fixes GO-2026-6859 in `net/http`.
+
 ## [0.3.7] - 2026-11-04
 
 ### Added
